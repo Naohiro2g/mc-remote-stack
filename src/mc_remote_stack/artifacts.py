@@ -38,22 +38,29 @@ def _sha256_stream(stream: BinaryIO) -> str:
     return digest.hexdigest()
 
 
-def _recovery_artifacts(lock: dict) -> list[tuple[str, dict]]:
-    artifacts: list[tuple[str, dict]] = []
-    minecraft = lock.get("minecraft")
+def _append_recovery_artifacts(artifacts: list[tuple[str, dict]], locked: dict, prefix: str = "") -> None:
+    minecraft = locked.get("minecraft")
     if isinstance(minecraft, dict):
         paper = minecraft.get("paper")
         if isinstance(paper, dict) and isinstance(paper.get("origin"), dict):
             if paper["origin"].get("kind") == "recovery_archive":
-                artifacts.append(("Paper", paper))
-    plugins = lock.get("plugins")
+                artifacts.append((f"{prefix}Paper", paper))
+    plugins = locked.get("plugins")
     if isinstance(plugins, dict):
         for name, artifact in plugins.items():
             if not isinstance(name, str) or not isinstance(artifact, dict):
                 continue
             origin = artifact.get("origin")
             if isinstance(origin, dict) and origin.get("kind") == "recovery_archive":
-                artifacts.append((name, artifact))
+                artifacts.append((f"{prefix}{name}", artifact))
+
+
+def _recovery_artifacts(lock: dict) -> list[tuple[str, dict]]:
+    artifacts: list[tuple[str, dict]] = []
+    _append_recovery_artifacts(artifacts, lock)
+    staging = lock.get("staging")
+    if isinstance(staging, dict):
+        _append_recovery_artifacts(artifacts, staging, "staging/")
     return artifacts
 
 
