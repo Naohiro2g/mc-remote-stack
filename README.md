@@ -1,5 +1,7 @@
 # mc-remote-stack
 
+[日本語はこちら。](README_ja.md)
+
 `mc-remote-stack` is the reproducible deployment and operations package for McRemote servers. It turns one
 human-edited `mc-remote.yml` into validated, digest-pinned runtime configuration.
 
