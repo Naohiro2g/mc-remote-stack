@@ -34,3 +34,6 @@ select = ["E", "F", "I", "UP", "B"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+mc_remote_stack = ["assets/*.sh"]

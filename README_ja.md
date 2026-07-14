@@ -58,13 +58,14 @@ uv run mcrctl render --project ./deployment --output ./deployment/generated
 
 `official-vps`には任意の`staging` instanceを用意している。`staging.enabled: true`にすると、本番とは別のdata、backup、OCI image、Paper、plugin lockを持つ`minecraft-dev` serviceを生成する。本番は`25565/tcp・udp`と`25575/tcp`、stagingは`25566/tcp・udp`と`25576/tcp`を使う。Scratch stableの既定接続先は`sb.mc-remote.com`、Scratch devは`sb-dev.mc-remote.com`となる。
 
-`minecraft-dev`にはComposeの`staging` profileが付くため、通常の`docker compose up`では起動しない。必要なときだけ次のように起動する。
+`minecraft-dev`にはComposeの`staging` profileが付くため、通常の`docker compose up`では起動しない。6GB VPSではprod/devを同時起動せず、生成された排他切替scriptを使う。scriptは1分前から告知し、`save-all flush`、graceful stop、接続確認を行い、失敗時は元のinstanceへ戻す。
 
 ```sh
-sudo docker compose --profile staging up -d minecraft-dev
+sudo bash /etc/mc-remote/generated/operations/use-staging.sh
+sudo bash /etc/mc-remote/generated/operations/use-production.sh
 ```
 
-停止中のinstanceだけを休眠として扱う。2つを同時に常時稼働する場合は、Minecraftのmain tick threadだけでなく、2つのheap、host memory、swap、disk I/Oを代表負荷で確認する。
+停止中のinstanceだけを休眠として扱う。2つを同時に常時稼働する場合は、排他切替を外す前にMinecraftのmain tick threadだけでなく、2つのheap、host memory、swap、disk I/Oを代表負荷で確認する。
 
 ## 暗号化したoff-host backup転送
 

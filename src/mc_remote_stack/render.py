@@ -1,6 +1,7 @@
 """Render validated deployment state into deterministic runtime files."""
 
 import json
+from importlib.resources import files
 from pathlib import Path
 from typing import Any
 
@@ -248,6 +249,7 @@ def render_project(project: LoadedProject, output: Path) -> list[Path]:
     dev_runtime = _runtime_config(domains["bridge"], dev_sandbox, lock["images"]["scratch_dev"])
     if staging_enabled:
         (output / "minecraft-dev" / "plugins" / "ServerBackup").mkdir(parents=True, exist_ok=True)
+        (output / "operations").mkdir(parents=True, exist_ok=True)
 
     compose_path = output / "compose.yaml"
     dump_mapping(compose_path, _compose(project))
@@ -361,11 +363,19 @@ def render_project(project: LoadedProject, output: Path) -> list[Path]:
         dump_mapping(staging_bukkit_path, {"settings": {"connection-throttle": 4000}})
         staging_spigot_path = output / "minecraft-dev" / "spigot.yml"
         dump_mapping(staging_spigot_path, {"settings": {"restart-on-crash": False, "restart-script": ""}})
+        operation_paths = []
+        assets = files("mc_remote_stack").joinpath("assets")
+        for filename in ("use-staging.sh", "use-production.sh"):
+            operation_path = output / "operations" / filename
+            operation_path.write_text(assets.joinpath(filename).read_text(encoding="utf-8"), encoding="utf-8")
+            operation_path.chmod(0o755)
+            operation_paths.append(operation_path)
         staging_paths = [
             staging_server_backup_path,
             staging_properties_path,
             staging_bukkit_path,
             staging_spigot_path,
+            *operation_paths,
         ]
 
     return [

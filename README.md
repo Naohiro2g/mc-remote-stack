@@ -36,13 +36,14 @@ uv run mcrctl render --project ./deployment --output ./deployment/generated
 
 The `official-vps` preset includes an optional `staging` instance. Setting `staging.enabled: true` renders a `minecraft-dev` service with independent data, backup, OCI image, Paper, and plugin locks. Production publishes `25565/tcp+udp` and `25575/tcp`; staging publishes `25566/tcp+udp` and `25576/tcp`. Scratch stable defaults to `sb.mc-remote.com`, while Scratch dev defaults to `sb-dev.mc-remote.com`.
 
-`minecraft-dev` belongs to the Compose `staging` profile, so an ordinary `docker compose up` does not start it. Start it explicitly when needed:
+`minecraft-dev` belongs to the Compose `staging` profile, so an ordinary `docker compose up` does not start it. On a 6 GB VPS, do not run production and staging together. Use the generated exclusive switch operations, which announce the change, run `save-all flush`, stop gracefully, check the target ports, and restore the previous instance on failure:
 
 ```sh
-sudo docker compose --profile staging up -d minecraft-dev
+sudo bash /etc/mc-remote/generated/operations/use-staging.sh
+sudo bash /etc/mc-remote/generated/operations/use-production.sh
 ```
 
-Only a stopped instance counts as dormant. Before running both instances continuously, test both workloads together and inspect their heaps, host memory, swap, tick time, and disk I/O.
+Only a stopped instance counts as dormant. Before removing the exclusive switch and running both instances continuously, test both workloads together and inspect their heaps, host memory, swap, tick time, and disk I/O.
 
 ## Encrypted off-host backup transfer
 

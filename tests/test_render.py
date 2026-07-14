@@ -188,3 +188,25 @@ def test_render_staging_uses_daily_0333_backup_schedule(tmp_path: Path) -> None:
     assert backup["AutomaticBackups"] is True
     assert backup["BackupTimer"]["Times"] == ["03-33"]
     assert backup["BackupDestination"] == "/backup/outbox"
+
+
+def test_render_staging_includes_exclusive_instance_switch_operations(tmp_path: Path) -> None:
+    project = make_renderable_project(tmp_path)
+    enable_renderable_staging(project)
+    output = tmp_path / "generated"
+
+    render_project(load_project(project.root), output)
+
+    use_staging = (output / "operations" / "use-staging.sh").read_text(encoding="utf-8")
+    use_production = (output / "operations" / "use-production.sh").read_text(encoding="utf-8")
+    assert "mc-send-to-console save-all flush" in use_staging
+    assert "docker compose stop --timeout 120 minecraft" in use_staging
+    assert "docker compose --profile staging up -d minecraft-dev" in use_staging
+    assert "</dev/tcp/127.0.0.1/25566" in use_staging
+    assert "</dev/tcp/127.0.0.1/25576" in use_staging
+    assert "docker compose --profile staging stop --timeout 120 minecraft-dev" in use_production
+    assert "docker compose up -d minecraft" in use_production
+    assert "current_prod_id" in use_production
+    assert "</dev/tcp/127.0.0.1/25565" in use_production
+    assert "</dev/tcp/127.0.0.1/25575" in use_production
+    assert "grep -Fq 'Done ('" not in use_staging + use_production
