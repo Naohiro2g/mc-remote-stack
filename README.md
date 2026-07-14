@@ -32,6 +32,18 @@ uv run mcrctl render --project ./deployment --output ./deployment/generated
 
 `plan` stops until EULA acceptance and immutable artifact identities are present. This includes the homepage version / archive SHA-256 as well as OCI images, Paper, and plugin JARs. It never converts an unresolved selector into a production deployment implicitly. `render` writes Compose, Caddy, Scratch runtime, Bridge route, and ServerBackup configuration only after the same gates pass. Applying those files to a host is not implemented in this first vertical slice. The initialized lock is intentionally version-neutral: a profile selects topology and policy, not a Minecraft or McRemote release. Existing-server migration can therefore pin the recovered artifacts without being forced to upgrade McRemote as part of the infrastructure move.
 
+### Optional staging instance on the same VPS
+
+The `official-vps` preset includes an optional `staging` instance. Setting `staging.enabled: true` renders a `minecraft-dev` service with independent data, backup, OCI image, Paper, and plugin locks. Production publishes `25565/tcp+udp` and `25575/tcp`; staging publishes `25566/tcp+udp` and `25576/tcp`. Scratch stable defaults to `sb.mc-remote.com`, while Scratch dev defaults to `sb-dev.mc-remote.com`.
+
+`minecraft-dev` belongs to the Compose `staging` profile, so an ordinary `docker compose up` does not start it. Start it explicitly when needed:
+
+```sh
+sudo docker compose --profile staging up -d minecraft-dev
+```
+
+Only a stopped instance counts as dormant. Before running both instances continuously, test both workloads together and inspect their heaps, host memory, swap, tick time, and disk I/O.
+
 ## Encrypted off-host backup transfer
 
 The initial transfer adapter encrypts a ServerBackup archive with a public age recipient before opening an explicit FTPS session. It requires certificate verification, protects the data connection, uses passive mode, uploads through a temporary remote name, and verifies the final remote size. `--verify-download` additionally downloads the remote ciphertext and compares its SHA-256. Plaintext and encrypted local files remain in the queue; transfer does not prune them.

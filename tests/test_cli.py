@@ -2,6 +2,8 @@ from pathlib import Path
 
 from mc_remote_stack.cli import main
 
+from .helpers import enable_renderable_staging, make_renderable_project
+
 
 def test_cli_init_and_plan_stops_on_unresolved_lock(tmp_path: Path, capsys) -> None:
     project = tmp_path / "deployment"
@@ -25,3 +27,14 @@ def test_cli_requires_explicit_eula_confirmation(tmp_path: Path, capsys) -> None
     output = capsys.readouterr().out
     assert "requires --yes" in output
     assert "recorded explicit EULA acceptance" in output
+
+
+def test_cli_plan_reports_enabled_staging_as_dormant_with_reserved_ports(tmp_path: Path, capsys) -> None:
+    project = make_renderable_project(tmp_path)
+    enable_renderable_staging(project)
+
+    assert main(["plan", "--project", str(project.root)]) in (0, 1)
+
+    output = capsys.readouterr().out
+    assert "PLAN staging=enabled activation=compose-profile:staging default=dormant" in output
+    assert "PLAN staging-public-ports=25566/tcp,25566/udp,25576/tcp" in output

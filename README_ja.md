@@ -54,6 +54,18 @@ uv run mcrctl render --project ./deployment --output ./deployment/generated
 
 初期化したlockは、意図的に特定versionへ固定していない。profileが選ぶものはトポロジーとポリシーであり、マイクラやマイクラリモコンのバージョンではない。このため既存サーバーを移行するときは、回収した現物ファイル（バージョン）を固定するため、インフラ移行と同時にMcRemoteのupgradeを強制されずに済む。
 
+### 同じVPSへ開発サーバーも収容する
+
+`official-vps`には任意の`staging` instanceを用意している。`staging.enabled: true`にすると、本番とは別のdata、backup、OCI image、Paper、plugin lockを持つ`minecraft-dev` serviceを生成する。本番は`25565/tcp・udp`と`25575/tcp`、stagingは`25566/tcp・udp`と`25576/tcp`を使う。Scratch stableの既定接続先は`sb.mc-remote.com`、Scratch devは`sb-dev.mc-remote.com`となる。
+
+`minecraft-dev`にはComposeの`staging` profileが付くため、通常の`docker compose up`では起動しない。必要なときだけ次のように起動する。
+
+```sh
+sudo docker compose --profile staging up -d minecraft-dev
+```
+
+停止中のinstanceだけを休眠として扱う。2つを同時に常時稼働する場合は、Minecraftのmain tick threadだけでなく、2つのheap、host memory、swap、disk I/Oを代表負荷で確認する。
+
 ## 暗号化したoff-host backup転送
 
 最初のtransfer adapterは、ServerBackupのarchiveを公開age recipientで暗号化してから、明示的なFTPS sessionを開始する。証明書の検証を必須とし、data connectionを保護、passive modeを使用。一時的なファイル名でuploadした後にリモートでファイル名変更、最終的なファイルサイズを検証する。`--verify-download` を付けると、リモートの暗号文をダウンロード、そのSHA-256も比較する。平文と暗号化済みのローカルファイルはqueueに残り、転送処理後に削除しない。

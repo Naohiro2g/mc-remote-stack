@@ -89,6 +89,47 @@ OFFICIAL_VPS_CONFIG = {
         "times": ["04:45", "08:45", "12:45", "15:45", "19:45", "23:45"],
         "transport": "disabled",
     },
+    "staging": {
+        "enabled": False,
+        "domain": "sb-dev.mc-remote.com",
+        "paths": {
+            "minecraft": "/var/lib/mc-remote/minecraft-dev",
+            "backup": "/var/lib/mc-remote/backup-dev",
+        },
+        "minecraft": {
+            "uid": 10001,
+            "gid": 10001,
+            "memory": "4G",
+            "java_port": 25566,
+            "bedrock_port": 25566,
+            "mcremote_port": 25576,
+            "rcon_enabled": False,
+            "console_in_pipe": True,
+            "stop_announce_seconds": 60,
+            "stop_grace_seconds": 120,
+        },
+        "plugins": {
+            "enabled": [
+                "AdvancedPortals",
+                "DirectionHUD",
+                "DiscordSRV",
+                "Geyser-Spigot",
+                "LuckPerms",
+                "McRemote",
+                "ServerBackup",
+                "ViaBackwards",
+                "ViaVersion",
+                "WorldEdit",
+                "floodgate",
+            ],
+        },
+        "backup": {
+            "source": "@server",
+            "output": "/backup/outbox",
+            "timezone": "Asia/Tokyo",
+            "times": ["03:33"],
+        },
+    },
 }
 
 
@@ -125,6 +166,27 @@ UNRESOLVED_LOCK = {
             "origin": {"kind": "unresolved"},
         }
         for name in OFFICIAL_VPS_CONFIG["plugins"]["enabled"]
+    },
+    "staging": {
+        "image": "REPLACE_WITH_IMAGE_DIGEST",
+        "minecraft": {
+            "version": "REPLACE_WITH_MINECRAFT_VERSION",
+            "paper": {
+                "build": "REPLACE_WITH_PAPER_BUILD",
+                "filename": "REPLACE_WITH_PAPER_JAR",
+                "sha256": "REPLACE",
+                "origin": {"kind": "unresolved"},
+            },
+        },
+        "plugins": {
+            name: {
+                "filename": "REPLACE_WITH_PLUGIN_JAR",
+                "version": "REPLACE_WITH_PLUGIN_VERSION",
+                "sha256": "REPLACE",
+                "origin": {"kind": "unresolved"},
+            }
+            for name in OFFICIAL_VPS_CONFIG["staging"]["plugins"]["enabled"]
+        },
     },
 }
 

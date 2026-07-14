@@ -66,6 +66,11 @@ def _compose(project: LoadedProject) -> dict[str, Any]:
     host_paths = config["host"]["paths"]
     minecraft = config["minecraft"]
     images = lock["images"]
+    staging = config.get("staging", {})
+    staging_enabled = staging.get("enabled") is True
+    sandbox_domains = [config["domains"]["minecraft"]]
+    if staging_enabled:
+        sandbox_domains.append(staging["domain"])
     locked_minecraft = lock["minecraft"]
     paper = locked_minecraft["paper"]
     homepage = lock["homepage"]
@@ -79,7 +84,7 @@ def _compose(project: LoadedProject) -> dict[str, Any]:
             f"{artifact_root}/sha256/{artifact['sha256']}:/plugins/{artifact['filename']}:ro"
         )
 
-    return {
+    compose = {
         "name": "mc-remote",
         "services": {
             "caddy": {
@@ -121,7 +126,7 @@ def _compose(project: LoadedProject) -> dict[str, Any]:
                     "BRIDGE_ORIGIN_ALLOWLIST": (
                         f"https://{config['domains']['scratch']},https://{config['domains']['scratch_dev']}"
                     ),
-                    "BRIDGE_SANDBOX_ALLOWLIST": config["domains"]["minecraft"],
+                    "BRIDGE_SANDBOX_ALLOWLIST": ",".join(sandbox_domains),
                     "BRIDGE_DEFAULT_SANDBOX": config["domains"]["minecraft"],
                     "BRIDGE_SANDBOX_PORT": "25575",
                 },
@@ -172,6 +177,58 @@ def _compose(project: LoadedProject) -> dict[str, Any]:
             "app": {"internal": False},
         },
     }
+    if staging_enabled:
+        staging_lock = lock["staging"]
+        staging_minecraft = staging["minecraft"]
+        staging_paper = staging_lock["minecraft"]["paper"]
+        staging_artifact_volumes = [
+            (
+                f"{artifact_root}/sha256/{staging_paper['sha256']}:"
+                f"/artifacts/{staging_paper['filename']}:ro"
+            )
+        ]
+        for plugin_name in staging["plugins"]["enabled"]:
+            artifact = staging_lock["plugins"][plugin_name]
+            staging_artifact_volumes.append(
+                f"{artifact_root}/sha256/{artifact['sha256']}:/plugins/{artifact['filename']}:ro"
+            )
+        compose["services"]["minecraft-dev"] = {
+            "image": staging_lock["image"],
+            "profiles": ["staging"],
+            "restart": "unless-stopped",
+            "stop_grace_period": f"{staging_minecraft['stop_grace_seconds']}s",
+            "environment": {
+                "EULA": "TRUE",
+                "TYPE": "PAPER",
+                "VERSION": staging_lock["minecraft"]["version"],
+                "PAPER_CUSTOM_JAR": f"/artifacts/{staging_paper['filename']}",
+                "UID": str(staging_minecraft["uid"]),
+                "GID": str(staging_minecraft["gid"]),
+                "MEMORY": staging_minecraft["memory"],
+                "ENABLE_RCON": "false",
+                "CREATE_CONSOLE_IN_PIPE": "true",
+                "STOP_DURATION": str(staging_minecraft["stop_grace_seconds"] - 10),
+                "REMOVE_OLD_MODS": "true",
+                "REMOVE_OLD_MODS_DEPTH": "1",
+                "SKIP_DOWNLOAD_DEFAULTS": "true",
+                "COPY_CONFIG_DEST": "/data",
+                "SYNC_SKIP_NEWER_IN_DESTINATION": "false",
+                "REPLACE_ENV_DURING_SYNC": "false",
+            },
+            "ports": [
+                f"{staging_minecraft['java_port']}:25565/tcp",
+                f"{staging_minecraft['bedrock_port']}:19132/udp",
+                f"{staging_minecraft['mcremote_port']}:25575/tcp",
+            ],
+            "volumes": [
+                f"{staging['paths']['minecraft']}:/data",
+                f"{staging['paths']['backup']}:/backup",
+                "./minecraft-dev:/config:ro",
+                *staging_artifact_volumes,
+            ],
+            "networks": {"app": {"aliases": [staging["domain"]]}},
+        }
+    return compose
 
 
 def render_project(project: LoadedProject, output: Path) -> list[Path]:
@@ -185,7 +242,12 @@ def render_project(project: LoadedProject, output: Path) -> list[Path]:
     lock = project.lock
     domains = config["domains"]
     stable_runtime = _runtime_config(domains["bridge"], domains["minecraft"], lock["images"]["scratch_stable"])
-    dev_runtime = _runtime_config(domains["bridge"], domains["minecraft"], lock["images"]["scratch_dev"])
+    staging = config.get("staging", {})
+    staging_enabled = staging.get("enabled") is True
+    dev_sandbox = staging["domain"] if staging_enabled else domains["minecraft"]
+    dev_runtime = _runtime_config(domains["bridge"], dev_sandbox, lock["images"]["scratch_dev"])
+    if staging_enabled:
+        (output / "minecraft-dev" / "plugins" / "ServerBackup").mkdir(parents=True, exist_ok=True)
 
     compose_path = output / "compose.yaml"
     dump_mapping(compose_path, _compose(project))
@@ -220,17 +282,10 @@ def render_project(project: LoadedProject, output: Path) -> list[Path]:
     dev_path.write_text(json.dumps(dev_runtime, indent=2) + "\n", encoding="utf-8")
 
     routes_path = output / "bridge" / "routes.yml"
-    dump_mapping(
-        routes_path,
-        {
-            "routes": {
-                domains["minecraft"]: {
-                    "host": "minecraft",
-                    "port": 25575,
-                }
-            }
-        },
-    )
+    routes = {domains["minecraft"]: {"host": "minecraft", "port": 25575}}
+    if staging_enabled:
+        routes[staging["domain"]] = {"host": "minecraft-dev", "port": 25575}
+    dump_mapping(routes_path, {"routes": routes})
 
     backup = config["backup"]
     server_backup_path = output / "minecraft" / "plugins" / "ServerBackup" / "config.yml"
@@ -270,6 +325,49 @@ def render_project(project: LoadedProject, output: Path) -> list[Path]:
     spigot_path = output / "minecraft" / "spigot.yml"
     dump_mapping(spigot_path, {"settings": {"restart-on-crash": False, "restart-script": ""}})
 
+    staging_paths: list[Path] = []
+    if staging_enabled:
+        staging_backup = staging["backup"]
+        staging_server_backup_path = output / "minecraft-dev" / "plugins" / "ServerBackup" / "config.yml"
+        dump_mapping(
+            staging_server_backup_path,
+            {
+                "AutomaticBackups": True,
+                "BackupTimer": {
+                    "Days": [
+                        "MONDAY",
+                        "TUESDAY",
+                        "WEDNESDAY",
+                        "THURSDAY",
+                        "FRIDAY",
+                        "SATURDAY",
+                        "SUNDAY",
+                    ],
+                    "Times": [value.replace(":", "-") for value in staging_backup["times"]],
+                },
+                "BackupWorlds": [staging_backup["source"]],
+                "DeleteOldBackups": 0,
+                "BackupLimiter": 0,
+                "KeepUniqueBackups": False,
+                "UpdateAvailableMessage": True,
+                "AutomaticUpdates": False,
+                "BackupDestination": staging_backup["output"],
+                "Ftp": {"UploadBackup": False, "DeleteLocalBackup": False},
+            },
+        )
+        staging_properties_path = output / "minecraft-dev" / "server.properties"
+        staging_properties_path.write_text(_minecraft_properties(config), encoding="utf-8")
+        staging_bukkit_path = output / "minecraft-dev" / "bukkit.yml"
+        dump_mapping(staging_bukkit_path, {"settings": {"connection-throttle": 4000}})
+        staging_spigot_path = output / "minecraft-dev" / "spigot.yml"
+        dump_mapping(staging_spigot_path, {"settings": {"restart-on-crash": False, "restart-script": ""}})
+        staging_paths = [
+            staging_server_backup_path,
+            staging_properties_path,
+            staging_bukkit_path,
+            staging_spigot_path,
+        ]
+
     return [
         compose_path,
         caddyfile,
@@ -280,6 +378,7 @@ def render_project(project: LoadedProject, output: Path) -> list[Path]:
         server_properties_path,
         bukkit_path,
         spigot_path,
+        *staging_paths,
     ]
 
 
