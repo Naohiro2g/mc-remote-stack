@@ -166,9 +166,11 @@ def _validate_backup_transport(value: object, issues: list[Issue], path: str) ->
     if not isinstance(credential, str) or not SECRET_REFERENCE.fullmatch(credential):
         issues.append(Issue("FAIL", f"{path}.credential", "secret:// credential reference is required"))
     remote_directory = value.get("remote_directory")
-    if not isinstance(remote_directory, str) or not remote_directory.startswith("/") or ".." in PurePosixPath(
-        remote_directory
-    ).parts:
+    if (
+        not isinstance(remote_directory, str)
+        or not remote_directory.startswith("/")
+        or ".." in PurePosixPath(remote_directory).parts
+    ):
         issues.append(Issue("FAIL", f"{path}.remote_directory", "safe absolute FTP account path is required"))
     encryption = value.get("encryption")
     if not isinstance(encryption, dict):
@@ -211,7 +213,7 @@ def validate_project(project: LoadedProject) -> list[Issue]:
             issues.append(Issue("FAIL", f"mc-remote.yml:host.{key}", "must be configured"))
 
     domains = _mapping(config, "domains", issues, "mc-remote.yml:domains")
-    for key in ("homepage", "scratch", "scratch_dev", "bridge", "minecraft"):
+    for key in ("homepage", "scratch", "scratch_beta", "bridge", "bridge_beta", "minecraft"):
         value = domains.get(key)
         if not isinstance(value, str) or not DOMAIN_NAME.fullmatch(value):
             issues.append(Issue("FAIL", f"mc-remote.yml:domains.{key}", "valid lowercase DNS hostname is required"))
@@ -279,7 +281,7 @@ def validate_project(project: LoadedProject) -> list[Issue]:
     _validate_backup_transport(backup.get("transport"), issues, "mc-remote.yml:backup.transport")
 
     images = _mapping(lock, "images", issues, "mc-remote.lock.yml:images")
-    for name in ("caddy", "scratch_stable", "scratch_dev", "bridge", "minecraft"):
+    for name in ("caddy", "scratch_stable", "scratch_beta", "bridge", "minecraft"):
         value = images.get(name)
         if not isinstance(value, str) or not IMAGE_DIGEST.fullmatch(value):
             issues.append(Issue("FAIL", f"mc-remote.lock.yml:images.{name}", "exact image@sha256 digest is required"))
@@ -291,11 +293,7 @@ def validate_project(project: LoadedProject) -> list[Issue]:
 
     locked_minecraft = _mapping(lock, "minecraft", issues, "mc-remote.lock.yml:minecraft")
     minecraft_version = locked_minecraft.get("version")
-    if (
-        not isinstance(minecraft_version, str)
-        or not minecraft_version
-        or minecraft_version.startswith("REPLACE_")
-    ):
+    if not isinstance(minecraft_version, str) or not minecraft_version or minecraft_version.startswith("REPLACE_"):
         issues.append(Issue("FAIL", "mc-remote.lock.yml:minecraft.version", "exact Minecraft version is required"))
     paper = _mapping(locked_minecraft, "paper", issues, "mc-remote.lock.yml:minecraft.paper")
     paper_build = paper.get("build")
@@ -328,113 +326,102 @@ def validate_project(project: LoadedProject) -> list[Issue]:
                 )
             _validate_artifact(artifact, issues, f"mc-remote.lock.yml:plugins.{name}")
 
-    staging = config.get("staging")
-    if staging is not None and not isinstance(staging, dict):
-        issues.append(Issue("FAIL", "mc-remote.yml:staging", "must be a mapping"))
-        return issues
-    if isinstance(staging, dict) and staging.get("enabled") is True:
-        staging_domain = staging.get("domain")
-        if not isinstance(staging_domain, str) or not DOMAIN_NAME.fullmatch(staging_domain):
-            issues.append(Issue("FAIL", "mc-remote.yml:staging.domain", "valid lowercase DNS hostname is required"))
-        elif staging_domain == domains.get("minecraft"):
-            issues.append(Issue("FAIL", "mc-remote.yml:staging.domain", "must differ from production Minecraft"))
+    beta = _mapping(config, "beta", issues, "mc-remote.yml:beta")
+    beta_domain = beta.get("domain")
+    if not isinstance(beta_domain, str) or not DOMAIN_NAME.fullmatch(beta_domain):
+        issues.append(Issue("FAIL", "mc-remote.yml:beta.domain", "valid lowercase DNS hostname is required"))
+    elif beta_domain == domains.get("minecraft"):
+        issues.append(Issue("FAIL", "mc-remote.yml:beta.domain", "must differ from stable Minecraft"))
 
-        staging_paths = _mapping(staging, "paths", issues, "mc-remote.yml:staging.paths")
+    if beta.get("enabled") is True:
+        beta_paths = _mapping(beta, "paths", issues, "mc-remote.yml:beta.paths")
         for key in ("minecraft", "backup"):
-            value = staging_paths.get(key)
+            value = beta_paths.get(key)
             if not isinstance(value, str) or not value.startswith("/var/lib/mc-remote/"):
-                issues.append(Issue("FAIL", f"mc-remote.yml:staging.paths.{key}", "absolute runtime path is required"))
-        if staging_paths.get("minecraft") == host.get("paths", {}).get("minecraft"):
-            issues.append(Issue("FAIL", "mc-remote.yml:staging.paths.minecraft", "must differ from production data"))
-        if staging_paths.get("backup") == host.get("paths", {}).get("backup"):
-            issues.append(Issue("FAIL", "mc-remote.yml:staging.paths.backup", "must differ from production backup"))
+                issues.append(Issue("FAIL", f"mc-remote.yml:beta.paths.{key}", "absolute runtime path is required"))
+        if beta_paths.get("minecraft") == host.get("paths", {}).get("minecraft"):
+            issues.append(Issue("FAIL", "mc-remote.yml:beta.paths.minecraft", "must differ from stable data"))
+        if beta_paths.get("backup") == host.get("paths", {}).get("backup"):
+            issues.append(Issue("FAIL", "mc-remote.yml:beta.paths.backup", "must differ from stable backup"))
 
-        staging_minecraft = _mapping(staging, "minecraft", issues, "mc-remote.yml:staging.minecraft")
-        if staging_minecraft.get("rcon_enabled") is not False:
-            issues.append(Issue("FAIL", "mc-remote.yml:staging.minecraft.rcon_enabled", "RCON must be disabled"))
-        if staging_minecraft.get("console_in_pipe") is not True:
-            issues.append(
-                Issue("FAIL", "mc-remote.yml:staging.minecraft.console_in_pipe", "console pipe must be enabled")
-            )
-        expected_ports = {"java_port": 25566, "bedrock_port": 25566, "mcremote_port": 25576}
+        beta_minecraft = _mapping(beta, "minecraft", issues, "mc-remote.yml:beta.minecraft")
+        if beta_minecraft.get("rcon_enabled") is not False:
+            issues.append(Issue("FAIL", "mc-remote.yml:beta.minecraft.rcon_enabled", "RCON must be disabled"))
+        if beta_minecraft.get("console_in_pipe") is not True:
+            issues.append(Issue("FAIL", "mc-remote.yml:beta.minecraft.console_in_pipe", "console pipe must be enabled"))
+        expected_ports = {"java_port": 25565, "bedrock_port": 25565, "mcremote_port": 25575}
         for key, expected in expected_ports.items():
-            if staging_minecraft.get(key) != expected:
+            if beta_minecraft.get(key) != expected:
                 issues.append(
                     Issue(
                         "FAIL",
-                        f"mc-remote.yml:staging.minecraft.{key}",
-                        f"official staging port is {expected}",
+                        f"mc-remote.yml:beta.minecraft.{key}",
+                        f"official beta port is {expected}",
                     )
                 )
-        staging_announce = staging_minecraft.get("stop_announce_seconds")
-        staging_grace = staging_minecraft.get("stop_grace_seconds")
-        if (
-            not isinstance(staging_announce, int)
-            or not isinstance(staging_grace, int)
-            or staging_grace <= staging_announce
-        ):
+        beta_announce = beta_minecraft.get("stop_announce_seconds")
+        beta_grace = beta_minecraft.get("stop_grace_seconds")
+        if not isinstance(beta_announce, int) or not isinstance(beta_grace, int) or beta_grace <= beta_announce:
             issues.append(
                 Issue(
                     "FAIL",
-                    "mc-remote.yml:staging.minecraft.stop_grace_seconds",
+                    "mc-remote.yml:beta.minecraft.stop_grace_seconds",
                     "must exceed announce delay",
                 )
             )
 
-        staging_backup = _mapping(staging, "backup", issues, "mc-remote.yml:staging.backup")
-        if staging_backup.get("source") != "@server":
-            issues.append(Issue("FAIL", "mc-remote.yml:staging.backup.source", "initial profile requires @server"))
-        if staging_backup.get("output") != "/backup/outbox":
+        beta_backup = _mapping(beta, "backup", issues, "mc-remote.yml:beta.backup")
+        if beta_backup.get("source") != "@server":
+            issues.append(Issue("FAIL", "mc-remote.yml:beta.backup.source", "initial profile requires @server"))
+        if beta_backup.get("output") != "/backup/outbox":
             issues.append(
-                Issue("FAIL", "mc-remote.yml:staging.backup.output", "must use the separate /backup/outbox mount")
+                Issue("FAIL", "mc-remote.yml:beta.backup.output", "must use the separate /backup/outbox mount")
             )
-        staging_times = staging_backup.get("times")
-        if staging_times != ["03:33"]:
-            issues.append(Issue("FAIL", "mc-remote.yml:staging.backup.times", "official staging schedule is 03:33"))
+        beta_times = beta_backup.get("times")
+        if beta_times != ["03:33"]:
+            issues.append(Issue("FAIL", "mc-remote.yml:beta.backup.times", "official beta schedule is 03:33"))
 
-        staging_lock = _mapping(lock, "staging", issues, "mc-remote.lock.yml:staging")
-        staging_image = staging_lock.get("image")
-        if not isinstance(staging_image, str) or not IMAGE_DIGEST.fullmatch(staging_image):
-            issues.append(
-                Issue("FAIL", "mc-remote.lock.yml:staging.image", "exact image@sha256 digest is required")
-            )
-        staging_locked_minecraft = _mapping(
-            staging_lock,
+        beta_lock = _mapping(lock, "beta", issues, "mc-remote.lock.yml:beta")
+        beta_image = beta_lock.get("image")
+        if not isinstance(beta_image, str) or not IMAGE_DIGEST.fullmatch(beta_image):
+            issues.append(Issue("FAIL", "mc-remote.lock.yml:beta.image", "exact image@sha256 digest is required"))
+        beta_locked_minecraft = _mapping(
+            beta_lock,
             "minecraft",
             issues,
-            "mc-remote.lock.yml:staging.minecraft",
+            "mc-remote.lock.yml:beta.minecraft",
         )
-        staging_version = staging_locked_minecraft.get("version")
-        if not isinstance(staging_version, str) or not staging_version or staging_version.startswith("REPLACE_"):
+        beta_version = beta_locked_minecraft.get("version")
+        if not isinstance(beta_version, str) or not beta_version or beta_version.startswith("REPLACE_"):
             issues.append(
-                Issue("FAIL", "mc-remote.lock.yml:staging.minecraft.version", "exact Minecraft version is required")
+                Issue("FAIL", "mc-remote.lock.yml:beta.minecraft.version", "exact Minecraft version is required")
             )
-        staging_paper = _mapping(
-            staging_locked_minecraft,
+        beta_paper = _mapping(
+            beta_locked_minecraft,
             "paper",
             issues,
-            "mc-remote.lock.yml:staging.minecraft.paper",
+            "mc-remote.lock.yml:beta.minecraft.paper",
         )
-        staging_build = staging_paper.get("build")
-        if not isinstance(staging_build, int) or isinstance(staging_build, bool) or staging_build <= 0:
+        beta_build = beta_paper.get("build")
+        if not isinstance(beta_build, int) or isinstance(beta_build, bool) or beta_build <= 0:
             issues.append(
-                Issue("FAIL", "mc-remote.lock.yml:staging.minecraft.paper.build", "exact Paper build is required")
+                Issue("FAIL", "mc-remote.lock.yml:beta.minecraft.paper.build", "exact Paper build is required")
             )
-        _validate_artifact(staging_paper, issues, "mc-remote.lock.yml:staging.minecraft.paper")
+        _validate_artifact(beta_paper, issues, "mc-remote.lock.yml:beta.minecraft.paper")
 
-        staging_plugin_config = _mapping(staging, "plugins", issues, "mc-remote.yml:staging.plugins")
-        staging_enabled_plugins = staging_plugin_config.get("enabled")
-        staging_locked_plugins = _mapping(staging_lock, "plugins", issues, "mc-remote.lock.yml:staging.plugins")
-        if not isinstance(staging_enabled_plugins, list) or not staging_enabled_plugins:
-            issues.append(Issue("FAIL", "mc-remote.yml:staging.plugins.enabled", "must contain enabled plugin names"))
+        beta_plugin_config = _mapping(beta, "plugins", issues, "mc-remote.yml:beta.plugins")
+        beta_enabled_plugins = beta_plugin_config.get("enabled")
+        beta_locked_plugins = _mapping(beta_lock, "plugins", issues, "mc-remote.lock.yml:beta.plugins")
+        if not isinstance(beta_enabled_plugins, list) or not beta_enabled_plugins:
+            issues.append(Issue("FAIL", "mc-remote.yml:beta.plugins.enabled", "must contain enabled plugin names"))
         else:
-            for name in staging_enabled_plugins:
-                artifact = staging_locked_plugins.get(name) if isinstance(name, str) else None
+            for name in beta_enabled_plugins:
+                artifact = beta_locked_plugins.get(name) if isinstance(name, str) else None
                 if not isinstance(artifact, dict):
                     issues.append(
                         Issue(
                             "FAIL",
-                            f"mc-remote.lock.yml:staging.plugins.{name}",
+                            f"mc-remote.lock.yml:beta.plugins.{name}",
                             "locked plugin artifact is required",
                         )
                     )
@@ -444,11 +431,11 @@ def validate_project(project: LoadedProject) -> list[Issue]:
                     issues.append(
                         Issue(
                             "FAIL",
-                            f"mc-remote.lock.yml:staging.plugins.{name}.version",
+                            f"mc-remote.lock.yml:beta.plugins.{name}.version",
                             "exact plugin version is required",
                         )
                     )
-                _validate_artifact(artifact, issues, f"mc-remote.lock.yml:staging.plugins.{name}")
+                _validate_artifact(artifact, issues, f"mc-remote.lock.yml:beta.plugins.{name}")
     return issues
 
 

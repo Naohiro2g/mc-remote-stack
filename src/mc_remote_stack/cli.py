@@ -109,21 +109,23 @@ def _cmd_plan(args: argparse.Namespace) -> int:
     issues.extend(check_repository(Path(args.project)))
     if project is not None:
         print(f"PLAN deployment={project.config.get('deployment', {}).get('name', 'unknown')}")
-        print("PLAN services=caddy,scratch-stable,scratch-dev,bridge,minecraft")
+        print(
+            "PLAN services=caddy,scratch-stable,scratch-beta,bridge-stable,bridge-beta,minecraft-stable,minecraft-beta"
+        )
         print("PLAN public-ports=80/tcp,443/tcp,25565/tcp,25565/udp,25575/tcp")
         print("PLAN rcon=disabled backup-source=@server backup-output=/backup/outbox")
-        staging = project.config.get("staging", {})
-        if isinstance(staging, dict) and staging.get("enabled") is True:
-            ports = staging.get("minecraft", {})
-            print("PLAN staging=enabled activation=compose-profile:staging default=dormant")
+        beta = project.config.get("beta", {})
+        if isinstance(beta, dict) and beta.get("enabled") is True:
+            ports = beta.get("minecraft", {})
+            print("PLAN beta=enabled activation=compose-profile:beta default=dormant")
             print(
-                "PLAN staging-public-ports="
+                "PLAN beta-public-ports="
                 f"{ports.get('java_port', 'unknown')}/tcp,"
                 f"{ports.get('bedrock_port', 'unknown')}/udp,"
                 f"{ports.get('mcremote_port', 'unknown')}/tcp"
             )
         else:
-            print("PLAN staging=disabled")
+            print("PLAN beta=disabled")
         transport = project.config.get("backup", {}).get("transport")
         if isinstance(transport, dict):
             encryption = transport.get("encryption", {})

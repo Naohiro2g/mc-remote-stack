@@ -40,15 +40,15 @@ uv run mcrctl render --project ./deployment --output ./deployment/generated
 
 `plan` stops until EULA acceptance and immutable artifact identities are present. This includes the homepage version / archive SHA-256 as well as OCI images, Paper, and plugin JARs. It never converts an unresolved selector into a production deployment implicitly. `render` writes Compose, Caddy, Scratch runtime, Bridge route, and ServerBackup configuration only after the same gates pass. Applying those files to a host is not implemented in this first vertical slice. The initialized lock is intentionally version-neutral: a profile selects topology and policy, not a Minecraft or McRemote release. Existing-server migration can therefore pin the recovered artifacts without being forced to upgrade McRemote as part of the infrastructure move.
 
-### Optional staging instance on the same VPS
+### Optional beta instance on the same VPS
 
-The `official-vps` preset includes an optional `staging` instance. Setting `staging.enabled: true` renders a `minecraft-dev` service with independent data, backup, OCI image, Paper, and plugin locks. Production publishes `25565/tcp+udp` and `25575/tcp`; staging publishes `25566/tcp+udp` and `25576/tcp`. Scratch stable defaults to `sb.mc-remote.com`, while Scratch dev defaults to `sb-dev.mc-remote.com`.
+The `official-vps` preset includes an optional `beta` instance. Setting `beta.enabled: true` renders a `minecraft-beta` service with independent data, backup, OCI image, Paper, and plugin locks. Stable and beta both use the standard `25565/tcp+udp` and `25575/tcp` ports and therefore run exclusively. The stable public names are unsuffixed (`scratch.mc-remote.com`, `bridge.mc-remote.com`, and `sb.mc-remote.com`); beta uses the `-beta` suffix.
 
-`minecraft-dev` belongs to the Compose `staging` profile, so an ordinary `docker compose up` does not start it. On a 6 GB VPS, do not run production and staging together. Use the generated exclusive switch operations, which announce the change, run `save-all flush`, stop gracefully, check the target ports, and restore the previous instance on failure:
+`minecraft-stable` and `minecraft-beta` belong to separate Compose profiles, so an ordinary `docker compose up` starts neither Minecraft channel. On a 6 GB VPS, do not run stable and beta together. Use the generated exclusive switch operations, which announce the change, run `save-all flush`, stop gracefully, check the standard ports, and restore the previous instance on failure:
 
 ```sh
-sudo bash /etc/mc-remote/generated/operations/use-staging.sh
-sudo bash /etc/mc-remote/generated/operations/use-production.sh
+sudo bash /etc/mc-remote/generated/operations/use-beta.sh
+sudo bash /etc/mc-remote/generated/operations/use-stable.sh
 ```
 
 Only a stopped instance counts as dormant. Before removing the exclusive switch and running both instances continuously, test both workloads together and inspect their heaps, host memory, swap, tick time, and disk I/O.

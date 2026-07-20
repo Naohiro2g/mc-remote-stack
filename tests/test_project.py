@@ -174,24 +174,23 @@ def test_secret_store_is_outside_project_and_mode_0600(tmp_path: Path, monkeypat
     assert list_secrets("official-vps") == ["backup_transport"]
 
 
-def test_enabled_staging_requires_separate_domain_ports_and_lock(tmp_path: Path) -> None:
+def test_enabled_beta_requires_separate_domain_and_lock_but_uses_standard_ports(tmp_path: Path) -> None:
     project = make_renderable_project(tmp_path)
     config = load_mapping(project.config)
-    config["staging"]["enabled"] = True
-    config["staging"]["domain"] = config["domains"]["minecraft"]
-    config["staging"]["minecraft"]["java_port"] = config["minecraft"]["java_port"]
+    config["beta"]["enabled"] = True
+    config["beta"]["domain"] = config["domains"]["minecraft"]
     dump_mapping(project.config, config)
 
     _, issues = try_load_project(project.root)
 
-    assert any(issue.path.endswith("staging.domain") for issue in issues)
-    assert any(issue.path.endswith("staging.minecraft.java_port") for issue in issues)
-    assert any(issue.path.endswith("staging.image") for issue in issues)
+    assert any(issue.path.endswith("beta.domain") for issue in issues)
+    assert not any(issue.path.endswith("beta.minecraft.java_port") for issue in issues)
+    assert any(issue.path.endswith("beta.image") for issue in issues)
 
 
-def test_disabled_staging_does_not_require_resolved_artifacts(tmp_path: Path) -> None:
+def test_disabled_beta_does_not_require_resolved_artifacts(tmp_path: Path) -> None:
     project = make_renderable_project(tmp_path)
 
     _, issues = try_load_project(project.root)
 
-    assert not any("staging" in issue.path for issue in issues)
+    assert not any("beta" in issue.path for issue in issues)

@@ -58,9 +58,9 @@ def _append_recovery_artifacts(artifacts: list[tuple[str, dict]], locked: dict, 
 def _recovery_artifacts(lock: dict) -> list[tuple[str, dict]]:
     artifacts: list[tuple[str, dict]] = []
     _append_recovery_artifacts(artifacts, lock)
-    staging = lock.get("staging")
-    if isinstance(staging, dict):
-        _append_recovery_artifacts(artifacts, staging, "staging/")
+    beta = lock.get("beta")
+    if isinstance(beta, dict):
+        _append_recovery_artifacts(artifacts, beta, "beta/")
     return artifacts
 
 
@@ -127,9 +127,7 @@ def import_recovery_archive(
     if archive_sha256 not in expected_archives:
         raise ValueError(f"archive SHA-256 is not referenced by the lock: {archive_sha256}")
     selected = [
-        (name, artifact)
-        for name, artifact in candidates
-        if artifact["origin"].get("archive_sha256") == archive_sha256
+        (name, artifact) for name, artifact in candidates if artifact["origin"].get("archive_sha256") == archive_sha256
     ]
 
     artifact_store = (store or default_artifact_store()).resolve()
@@ -138,7 +136,4 @@ def import_recovery_archive(
         infos_by_name: dict[str, list[zipfile.ZipInfo]] = {}
         for info in archive.infolist():
             infos_by_name.setdefault(info.filename, []).append(info)
-        return [
-            _import_member(archive, infos_by_name, name, artifact, artifact_store)
-            for name, artifact in selected
-        ]
+        return [_import_member(archive, infos_by_name, name, artifact, artifact_store) for name, artifact in selected]

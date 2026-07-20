@@ -41,14 +41,14 @@ def make_renderable_project(tmp_path: Path):
     return project
 
 
-def enable_renderable_staging(project) -> None:
+def enable_renderable_beta(project) -> None:
     config = load_mapping(project.config)
-    config["staging"]["enabled"] = True
+    config["beta"]["enabled"] = True
     dump_mapping(project.config, config)
 
     lock = load_mapping(project.lock)
-    lock["staging"]["image"] = f"example.test/minecraft-staging@sha256:{40:064x}"
-    lock["staging"]["minecraft"] = {
+    lock["beta"]["image"] = f"example.test/minecraft-beta@sha256:{40:064x}"
+    lock["beta"]["minecraft"] = {
         "version": "1.21.11",
         "paper": {
             "build": 132,
@@ -57,9 +57,9 @@ def enable_renderable_staging(project) -> None:
             "origin": {"kind": "https", "url": "https://example.test/paper-1.21.11-132.jar"},
         },
     }
-    for index, artifact in enumerate(lock["staging"]["plugins"].values(), start=42):
-        artifact["filename"] = f"staging-plugin-{index}.jar"
-        artifact["version"] = f"staging-version-{index}"
+    for index, artifact in enumerate(lock["beta"]["plugins"].values(), start=42):
+        artifact["filename"] = f"beta-plugin-{index}.jar"
+        artifact["version"] = f"beta-version-{index}"
         artifact["sha256"] = f"{index:064x}"
-        artifact["origin"] = {"kind": "https", "url": f"https://example.test/staging/{index}.jar"}
+        artifact["origin"] = {"kind": "https", "url": f"https://example.test/beta/{index}.jar"}
     dump_mapping(project.lock, lock)

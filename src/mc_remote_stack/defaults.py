@@ -27,8 +27,9 @@ OFFICIAL_VPS_CONFIG = {
         "homepage": "mc-remote.com",
         "homepage_aliases": ["www.mc-remote.com"],
         "scratch": "scratch.mc-remote.com",
-        "scratch_dev": "scratch-dev.mc-remote.com",
+        "scratch_beta": "scratch-beta.mc-remote.com",
         "bridge": "bridge.mc-remote.com",
+        "bridge_beta": "bridge-beta.mc-remote.com",
         "minecraft": "sb.mc-remote.com",
     },
     "identity": {
@@ -89,20 +90,20 @@ OFFICIAL_VPS_CONFIG = {
         "times": ["04:45", "08:45", "12:45", "15:45", "19:45", "23:45"],
         "transport": "disabled",
     },
-    "staging": {
+    "beta": {
         "enabled": False,
-        "domain": "sb-dev.mc-remote.com",
+        "domain": "sb-beta.mc-remote.com",
         "paths": {
-            "minecraft": "/var/lib/mc-remote/minecraft-dev",
-            "backup": "/var/lib/mc-remote/backup-dev",
+            "minecraft": "/var/lib/mc-remote/minecraft-beta",
+            "backup": "/var/lib/mc-remote/backup-beta",
         },
         "minecraft": {
             "uid": 10001,
             "gid": 10001,
             "memory": "4G",
-            "java_port": 25566,
-            "bedrock_port": 25566,
-            "mcremote_port": 25576,
+            "java_port": 25565,
+            "bedrock_port": 25565,
+            "mcremote_port": 25575,
             "rcon_enabled": False,
             "console_in_pipe": True,
             "stop_announce_seconds": 60,
@@ -139,7 +140,7 @@ UNRESOLVED_LOCK = {
     "images": {
         "caddy": "REPLACE_WITH_IMAGE_DIGEST",
         "scratch_stable": "REPLACE_WITH_IMAGE_DIGEST",
-        "scratch_dev": "REPLACE_WITH_IMAGE_DIGEST",
+        "scratch_beta": "REPLACE_WITH_IMAGE_DIGEST",
         "bridge": "REPLACE_WITH_IMAGE_DIGEST",
         "minecraft": "REPLACE_WITH_IMAGE_DIGEST",
     },
@@ -167,7 +168,7 @@ UNRESOLVED_LOCK = {
         }
         for name in OFFICIAL_VPS_CONFIG["plugins"]["enabled"]
     },
-    "staging": {
+    "beta": {
         "image": "REPLACE_WITH_IMAGE_DIGEST",
         "minecraft": {
             "version": "REPLACE_WITH_MINECRAFT_VERSION",
@@ -185,7 +186,7 @@ UNRESOLVED_LOCK = {
                 "sha256": "REPLACE",
                 "origin": {"kind": "unresolved"},
             }
-            for name in OFFICIAL_VPS_CONFIG["staging"]["plugins"]["enabled"]
+            for name in OFFICIAL_VPS_CONFIG["beta"]["plugins"]["enabled"]
         },
     },
 }
