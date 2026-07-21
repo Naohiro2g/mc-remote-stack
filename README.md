@@ -6,9 +6,17 @@
 
 The project is intentionally separate from:
 
-- `mc-remote-knowledge`: architecture and decision SSOT.
-- `server-runbook`: fresh-host bootstrap and operational knowledge.
+- `mc-remote-knowledge`: public architecture and decision SSOT.
+- `mc-remote-backstage`: private provider, contract, host, and incident operations; public users do not depend on it.
 - a deployment project: instance-specific desired state and lock data.
+
+## Public runbooks
+
+- [Fresh-host bootstrap (Japanese)](docs/fresh-host-bootstrap-guide_ja.md)
+- [Legacy server-runbook migration notes (Japanese)](docs/server-runbook-migration-notes_ja.md)
+
+The legacy repository's native-systemd, package-Caddy, and release-symlink procedures are not current instructions:
+they conflict with this repository's Compose and generated-configuration architecture.
 
 ## Development
 

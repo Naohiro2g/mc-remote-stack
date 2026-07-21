@@ -2,13 +2,21 @@
 
 [English here.](README.md)
 
-`mc-remote-stack` は、McRemote（マイクラリモコン）サーバーを再現可能な形で設置・運用するためのパッケージ。Scratchクライアントを含む。手書き編集した `mc-remote.yml` から、検証済みでdigestを固定したruntime設定を生成する。レンタルVPSサーバー（XServer）を想定。
+`mc-remote-stack` は、McRemote（マイクラリモコン）サーバーを再現可能な形で設置・運用するためのパッケージ。Scratchクライアントを含む。手書き編集した `mc-remote.yml` から、検証済みでdigestを固定したruntime設定を生成する。レンタルVPSサーバーを主な対象とする。
 
 このプロジェクトは、次のものとは意図的に分離している。
 
-- `mc-remote-knowledge`: ナレッジベースのリポ。アーキテクチャと意思決定のSSOT（Single Source of Truth、信頼できる唯一の情報源）（公開予定、現在は未公開）
-- `server-runbook`: 新しいマシンの立ち上げと運用知識のリポ。（公開予定、現在は未公開）
+- `mc-remote-knowledge`: 公開アーキテクチャと意思決定のSSOT（Single Source of Truth、信頼できる唯一の情報源）
+- `mc-remote-backstage`: provider、契約、実ホスト、incident などの private ops。公開手順の依存先にはしない
 - deployment project: instance固有のdesired state（望ましい状態）とlockデータ
+
+## 公開 runbook
+
+- [fresh host bootstrap](docs/fresh-host-bootstrap-guide_ja.md): 個人管理者ユーザー、SSH、安全な開始点、現行 `mcrctl` の停止境界
+- [旧 server-runbook の振り分け](docs/server-runbook-migration-notes_ja.md): carry した内容と、stale/history として採らなかった内容
+
+旧 `server-runbook` の native-systemd / package Caddy / release-symlink 手順は、現在の
+Compose・生成設定中心の実装と一致しないため現行 runbook として取り込みません。
 
 ## 何を動かすパッケージか
 
