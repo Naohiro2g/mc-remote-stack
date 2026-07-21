@@ -32,3 +32,15 @@ service ごとの release symlink は、現行 Compose / rendered configuration 
 - private archive へのリンクだけを公開手順にする: public 利用者が手順を完結できない。
 
 旧リポは provenance と却下理由を保つ frozen history であり、本リポの実行時依存先ではない。
+
+## 開発リポへの影響
+
+- `McRemote` / `minecraft-remote-api` / `scratch-editor` / 本リポの agent bootstrap は、引き続き
+  public `mc-remote-knowledge` を入口とする。今回の振り分けだけを理由に再配布しない。
+- dev リポの README、Issue、CI、test fixture から archive / backstage の参照や実 host 値を要求しない。
+- private ops の判断が protocol、config schema、port の公開範囲、release gate に影響する場合は、
+  公開可能な interface と why を knowledge へ carry してから開発へ渡す。
+- instance 固有の desired state / lock / secret 参照は deployment project に置き、本リポの既定値や
+  dev リポの test fixture に昇格させない。
+- 旧 systemd / package Caddy / release-symlink 手順を再利用するときは current contract とみなさず、
+  現行の Compose / generated configuration と衝突しない新しい設計としてレビューする。
