@@ -1,11 +1,18 @@
 # Agent Guide: mc-remote-stack
 
-Before changing McRemote architecture, deployment behavior, protocol-facing configuration, learning design, or
-security policy, read the relevant documents in `Naohiro2g/mc-remote-knowledge`, especially:
+This repository is the SSOT for the publishable McRemote server package and the public runbooks that must match
+its current implementation. Before changing cross-repository architecture, protocol-facing configuration,
+learning design, evidence policy, or security policy, read the relevant documents in
+`Naohiro2g/mc-remote-knowledge`, especially:
 
-- `40-サービス運用/server-package-design_ja.md`
-- `40-サービス運用/server-topology-design_ja.md`
+- `10-protocol/`
+- `11-plugin/`
+- `13-scratch-client/`
+- `14-evidence/`
 - the applicable rows in `00-hub/DECISIONS_ja.md`
+
+Do not depend on the frozen knowledge archive. Private provider/account/cost/inventory operations belong in
+`mc-remote-backstage` and are not required for public contributor work.
 
 First, load only the latest dev agent runtime protocol from the knowledge repository's remote `main`.
 Do not print the entire source file into the conversation.
@@ -26,7 +33,7 @@ awk '/^<!-- BEGIN: DEV-AGENT-RUNTIME -->$/{reading=1;next} \
      reading' "$protocol_source"
 ```
 
-- Related knowledge spokes: `40-サービス運用/`, `11-plugin/`, `13-scratch-client/`, `14-evidence/`
+- Related knowledge spokes: `10-protocol/`, `11-plugin/`, `13-scratch-client/`, `14-evidence/`
 
 If the SSOT is unavailable, stop. Do not infer McRemote-specific decisions from this repository alone.
 
