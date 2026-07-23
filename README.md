@@ -17,11 +17,14 @@ The project is intentionally separate from:
 - [Preset and lock resolution design (Japanese)](docs/preset-resolution-design_ja.md): the next
   preset registry, preset catalog, compatibility-evidence, and lock-identity model; the bundled
   home profile/preset, typed operator input boundary, instance contract, and operator-facing TOML
-  init/resolve/fetch/render path are implemented; apply remains unimplemented
+  init/resolve/fetch/render path are implemented
 - [TOML project layout design (Japanese)](docs/toml-project-layout-design_ja.md): one environment
   per project, no generic includes, owner separation, lossless editing, and the YAML/TOML coexistence gate;
   the isolated TOML project, explicit volume/world/network contract, `minecraft-motd@1`, and managed
-  TOML render path are implemented, while plugin-specific mappings and apply remain unimplemented
+  TOML render path are implemented
+- [`home-beta` bootstrap apply design (Japanese)](docs/home-beta-bootstrap-apply-design_ja.md):
+  current-lock and canonical-render binding, explicit local Docker context, managed initial volume,
+  Compose startup, and container rollback; upgrades and existing-world reuse remain unsupported
 
 The legacy repository's native-systemd, package-Caddy, and release-symlink procedures are not current instructions:
 they conflict with this repository's Compose and generated-configuration architecture.
@@ -102,7 +105,28 @@ uv run mcrctl render \
 stores them at `<artifact_store>/sha256/<digest>`. It rehashes existing entries, does not pull the OCI
 image, and never starts Compose. `render` likewise does not create volumes or contact a server.
 While the preset is unverified, `plan` prints the plan and warning and returns status 1. Apply is not
-implemented, so the supported path stops at managed generated output.
+implicit: `render` still stops at managed generated output.
+
+The first isolated `home-beta` can be bootstrap-applied on the target host through an explicit local
+Unix-socket Docker context. Manually copy the reviewed `PLAN lock=unchanged identity=...` value;
+do not derive it from ambient state.
+
+```sh
+REVIEWED_LOCK_IDENTITY="sha256:<reviewed-64-hex>"
+uv run mcrctl apply \
+  --project ./deployments/home-beta \
+  --output ./deployments/home-beta/generated \
+  --expected-lock-identity "$REVIEWED_LOCK_IDENTITY" \
+  --docker-context default \
+  --bootstrap \
+  --yes \
+  --allow-unverified
+```
+
+Apply pulls the exact OCI image, rejects unknown containers, unknown volumes, and port collisions,
+then creates the managed world volume and starts Minecraft. A failed startup brings containers down
+but retains the world volume. Docker installation, firewall mutation, existing-world import, upgrades,
+and protocol smoke are outside this command.
 
 Add `home-alpha` later as a separate initialized project with distinct volume and world identities;
 do not copy the `home-beta` directory or lock.
@@ -118,7 +142,7 @@ uv run mcrctl accept-eula --project ./deployment --yes
 uv run mcrctl render --project ./deployment --output ./deployment/generated
 ```
 
-`plan` stops until EULA acceptance and immutable artifact identities are present. This includes the homepage version / archive SHA-256 as well as OCI images, Paper, and plugin JARs. It never converts an unresolved selector into a production deployment implicitly. `render` writes Compose, Caddy, Scratch runtime, Bridge route, and ServerBackup configuration only after the same gates pass. This legacy path is currently a deterministic plan/render regression fixture, not the first home live deployment. Applying generated files to a host is not implemented. The initialized lock is intentionally version-neutral: a profile selects topology and policy, not a Minecraft or McRemote release. Existing-server migration can therefore pin the recovered artifacts without being forced to upgrade McRemote as part of the infrastructure move.
+`plan` stops until EULA acceptance and immutable artifact identities are present. This includes the homepage version / archive SHA-256 as well as OCI images, Paper, and plugin JARs. It never converts an unresolved selector into a production deployment implicitly. `render` writes Compose, Caddy, Scratch runtime, Bridge route, and ServerBackup configuration only after the same gates pass. This legacy path is currently a deterministic plan/render regression fixture, not the first home live deployment, and bootstrap apply rejects it. The initialized lock is intentionally version-neutral: a profile selects topology and policy, not a Minecraft or McRemote release. Existing-server migration can therefore pin the recovered artifacts without being forced to upgrade McRemote as part of the infrastructure move.
 
 ### Optional beta instance on the same VPS
 

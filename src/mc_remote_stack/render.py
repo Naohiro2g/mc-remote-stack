@@ -47,6 +47,13 @@ class TomlRenderResult:
     paths: tuple[Path, ...]
 
 
+@dataclass(frozen=True)
+class TomlRenderVerification:
+    lock: dict[str, Any]
+    output: Path
+    manifest: dict[str, Any]
+
+
 def _render_fail(reason: str, path: object, message: str) -> None:
     raise RenderContractError(reason, path, message)
 
@@ -490,14 +497,11 @@ def _publish_staging(staging: Path, output: Path, *, managed: bool) -> str:
     return "replaced"
 
 
-def render_toml_project(
+def _load_current_toml_render_lock(
     project_root: Path,
-    output: Path,
     *,
     data_root: Traversable,
-) -> TomlRenderResult:
-    """Render a current TOML lock through compose@1 without touching a live runtime."""
-
+) -> dict[str, Any]:
     project_root = project_root.resolve()
     loaded_order = load_order(project_root)
     inspection = inspect_lock(project_root, data_root=data_root)
@@ -518,7 +522,65 @@ def render_toml_project(
             "render_plan",
             f"unsupported renderer: {adapter}@{adapter_revision}",
         )
+    return lock
 
+
+def verify_toml_render_output(
+    project_root: Path,
+    output: Path,
+    *,
+    data_root: Traversable,
+) -> TomlRenderVerification:
+    """Verify that managed output is the exact current compose@1 projection."""
+
+    project_root = project_root.resolve()
+    lock = _load_current_toml_render_lock(project_root, data_root=data_root)
+    output = output.absolute()
+    if output.is_symlink():
+        _render_fail("render_output_unmanaged", output, "render output must not be a symlink")
+    artifact_store = Path(lock["runtime"]["artifact_store"]).resolve()
+    _validate_output_boundary(project_root, output.resolve(strict=False), artifact_store)
+    manifest = _load_managed_manifest(output)
+    if manifest is None:
+        _render_fail(
+            "render_output_missing",
+            output,
+            "apply requires an existing managed render; run mcrctl render explicitly",
+        )
+    if (
+        manifest["lock_identity"] != lock["lock_identity"]
+        or manifest["render_plan_sha256"] != lock["render_plan"]["semantic_sha256"]
+    ):
+        _render_fail(
+            "render_output_not_current",
+            output / "render-manifest.json",
+            "managed render does not identify the current lock and render plan",
+        )
+
+    with tempfile.TemporaryDirectory(prefix="mc-remote-render-verify.") as temporary:
+        expected = Path(temporary)
+        _stage_compose_v1(lock, expected)
+        if not _trees_equal(expected, output):
+            _render_fail(
+                "render_output_not_current",
+                output,
+                "managed files are self-consistent but not the canonical current render",
+            )
+    return TomlRenderVerification(lock=lock, output=output, manifest=manifest)
+
+
+def render_toml_project(
+    project_root: Path,
+    output: Path,
+    *,
+    data_root: Traversable,
+) -> TomlRenderResult:
+    """Render a current TOML lock through compose@1 without touching a live runtime."""
+
+    project_root = project_root.resolve()
+    lock = _load_current_toml_render_lock(project_root, data_root=data_root)
+    adapter = lock["render_plan"]["adapter"]
+    adapter_revision = lock["render_plan"]["adapter_revision"]
     output = output.absolute()
     if output.is_symlink():
         _render_fail("render_output_unmanaged", output, "render output must not be a symlink")

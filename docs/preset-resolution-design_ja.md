@@ -11,7 +11,8 @@ semantic identity、no-op / stale / tamper 検出、atomic replace、`preset lis
 TOML `init` / `resolve` / `validate` / `accept-eula` / `plan` / `artifact fetch` / `render`
 CLI、最初の bundled home profile / preset、digest検証付き`compose@1` renderまで実装した。
 typed operator input境界と最初の`minecraft-motd@1`も実装した。
-applyとplugin固有operator input mappingはまだ未実装であり、現行の
+current lockとcanonical renderに固定した初回bootstrap applyも実装した。
+upgrade applyとplugin固有operator input mappingはまだ未実装であり、現行の
 `mc-remote.yml` / `mc-remote.lock.yml` 経路は回帰fixtureとして残る。
 
 - 状態: 実装済み（H。apply / plugin config ownership は対象外）
@@ -19,7 +20,7 @@ applyとplugin固有operator input mappingはまだ未実装であり、現行�
   compatibility evidence、custom / unverified gate
 - 関連する物理配置:
   [`mc-remote.toml` project layout / 物理ファイル粒度](toml-project-layout-design_ja.md)
-- 対象外: apply transaction、backup / restore、world lineage、plugin config ownership、
+- 対象外: upgrade transaction、backup / restore、world lineage、plugin config ownership、
   remote preset registry
 - knowledge 参照 commit:
   `f1b99a049b6bc57799c3356c3e54d29e45031451`
@@ -795,6 +796,9 @@ mcrctl resolve --project <path> [--allow-unverified] [--allow-eol]
 mcrctl plan --project <path>
 mcrctl artifact fetch --project <path>
 mcrctl render --project <path> --output <path>
+mcrctl apply --project <path> --output <path> \
+  --expected-lock-identity <identity> --docker-context <local-context> \
+  --bootstrap --yes [--allow-unverified] [--allow-eol]
 ```
 
 - top-level `mcrctl catalog` / `mcrctl registry` は作らない。
@@ -805,7 +809,8 @@ mcrctl render --project <path> --output <path>
 - `resolve` だけが machine-owned lock を更新する。
 - `plan` / `artifact fetch` / `render` は selector を再解決せず、order と lock の一致を検証して
   lockを使う。
-- 将来の `apply` は render 済み bytes の由来となる lock identity を必須入力にする。
+- `apply` はrender済みbytesの由来となるlock identityを必須入力にし、初版は
+  `home-server@2` / `mcremote-paper@1`のisolated beta bootstrapだけを受理する。
 
 ### 16.1 lock-backed artifact fetch
 
@@ -864,6 +869,16 @@ server接続、applyを行わない。
 [itzg/docker-minecraft-server `start-deployPaper`](https://github.com/itzg/docker-minecraft-server/blob/99d4481c01559a40554f2628a433cded62f322cc/scripts/start-deployPaper)
 と[Paper server type documentation](https://github.com/itzg/docker-minecraft-server/blob/master/docs/types-and-platforms/server-types/paper.md)
 に基づく。
+
+### 16.3 bootstrap apply contract
+
+初回live applyは、current lock、canonical render bytes、artifact digest、review済みlock identityを
+Docker接続前に照合する。対象host上の明示local Unix Docker contextだけを許可し、exact image pull、
+managed external volume作成、Compose `--wait`起動、lock label postcheckを行う。
+
+既存のunknown container / volume、port衝突、別lock、remote Docker contextはfail closedとする。
+起動失敗時はCompose containerをdownするが、runtime-owned world volumeを削除しない。
+詳細は[`home-beta` bootstrap apply設計](home-beta-bootstrap-apply-design_ja.md)を正とする。
 
 plan は少なくとも次を operator に見せる。
 

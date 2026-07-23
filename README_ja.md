@@ -14,8 +14,9 @@
 
 - [fresh host bootstrap](docs/fresh-host-bootstrap-guide_ja.md): 個人管理者ユーザー、SSH、安全な開始点、現行 `mcrctl` の停止境界
 - [旧 server-runbook の振り分け](docs/server-runbook-migration-notes_ja.md): carry した内容と、stale/history として採らなかった内容
-- [preset / lock 解決の詳細設計](docs/preset-resolution-design_ja.md): preset registry、preset catalog、compatibility evidence、lock identity。bundled home profile/preset、typed operator input、TOML init/resolve/fetch/renderのoperator経路を実装済み。applyは未実装
-- [TOML project layout の詳細設計](docs/toml-project-layout-design_ja.md): 一environment一project、includeなし、owner分離、lossless editing、YAML/TOML同居gate。明示的なvolume/world/network契約、`minecraft-motd@1`、managed renderを実装済み。plugin固有mappingとapplyは未実装
+- [preset / lock 解決の詳細設計](docs/preset-resolution-design_ja.md): preset registry、preset catalog、compatibility evidence、lock identity。bundled home profile/preset、typed operator input、TOML init/resolve/fetch/renderのoperator経路を実装済み
+- [TOML project layout の詳細設計](docs/toml-project-layout-design_ja.md): 一environment一project、includeなし、owner分離、lossless editing、YAML/TOML同居gate。明示的なvolume/world/network契約、`minecraft-motd@1`、managed renderを実装済み
+- [`home-beta` bootstrap apply設計](docs/home-beta-bootstrap-apply-design_ja.md): current lockとcanonical renderに固定したlocal Docker preflight、初回managed volume作成、Compose起動、container rollback。upgradeと既存world流用は未実装
 
 旧 `server-runbook` の native-systemd / package Caddy / release-symlink 手順は、現在の
 Compose・生成設定中心の実装と一致しないため現行 runbook として取り込みません。
@@ -111,8 +112,26 @@ uv run mcrctl render \
 `artifact fetch` はcurrent lockに列挙されたHTTPS fileだけを取得し、
 `<artifact_store>/sha256/<digest>` へ検証済みbytesを保存する。既存entryも毎回再hashする。
 OCI imageをpullせず、`render` もCompose起動・volume作成・server接続を行わない。
-`plan` はunverified警告がある間は内容を表示してstatus 1を返す。applyはまだ実装されていないため、
-この手順の停止点はmanaged generated outputである。
+`plan` はunverified警告がある間は内容を表示してstatus 1を返す。
+
+初回のisolated `home-beta`だけは、対象host上のlocal Unix Docker contextへbootstrap applyできる。
+`PLAN lock=unchanged identity=...`でreviewした値を手入力し、ambient contextや別lockを使わない。
+
+```sh
+REVIEWED_LOCK_IDENTITY="sha256:<planで確認した64-hex>"
+uv run mcrctl apply \
+  --project ./deployments/home-beta \
+  --output ./deployments/home-beta/generated \
+  --expected-lock-identity "$REVIEWED_LOCK_IDENTITY" \
+  --docker-context default \
+  --bootstrap \
+  --yes \
+  --allow-unverified
+```
+
+applyはexact OCI imageをpullし、未知container・未知volume・port衝突を拒否した後にだけmanaged
+volumeとMinecraft serviceを起動する。失敗時はcontainerをdownするが、world volumeは削除しない。
+Docker導入、firewall変更、既存world import、upgrade、protocol smokeはこのcommandの対象外である。
 
 `home-alpha` は後から別projectとしてinitし、別volume identity・別world identityを与える。
 `home-beta` のdirectoryやlockをcopyして追加しない。
@@ -131,7 +150,7 @@ uv run mcrctl render --project ./deployment --output ./deployment/generated
 `plan` は、EULAへの同意と変更不能なartifact identityがそろうまで停止。対象にはOCI image、Paper、plugin JARに加え、ホームページのversionとarchive SHA-256も含まれる。未解決のselectorを暗黙に本番deploymentへ変換することはない。
 `render` は同じgateを通過した後にだけ、Compose、Caddy、Scratch runtime、Bridge route、ServerBackup（Paperプラグイン）の設定を生成。
 このlegacy経路は当面、新TOML設計とのplan/render比較に使う回帰fixtureである。最初のhome live
-deploymentには使わない。生成したファイルをhostへ適用する機能はまだ実装されていない。
+deploymentには使わず、bootstrap applyも受理しない。
 
 初期化したlockは、意図的に特定versionへ固定していない。profileが選ぶものはトポロジーとポリシーであり、マイクラやマイクラリモコンのバージョンではない。このため既存サーバーを移行するときは、回収した現物ファイル（バージョン）を固定するため、インフラ移行と同時にMcRemoteのupgradeを強制されずに済む。
 

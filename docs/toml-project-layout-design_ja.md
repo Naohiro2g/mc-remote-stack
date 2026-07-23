@@ -17,7 +17,7 @@ logical order / EnvironmentLock を、project directory と実 file へどう配
   YAML / TOML 同居検出
 - 対象外:
   profile / preset / lock の意味論、plugin config ownership の個別 mapping、
-  apply transaction、複数 project の host-level transaction、world lineage
+  upgrade transaction、複数 project の host-level transaction、world lineage
 
 この文書は現行 layout の規範である。`toml_project` 層では exact project root の読込、
 一 environment schema、YAML / TOML 同居 gate、placeholder lock を作らない初期化、
@@ -25,7 +25,8 @@ lossless な限定更新、TOML `resolve` / `validate` / `plan` / `render` を�
 TOML `compose@1` renderはgenerated outputだけを作り、live runtimeへ適用しない。
 `--format toml` のoperator-facing `init` とlock-backed artifact fetchも実装済みである。
 typed operator input境界と最初の`minecraft-motd@1` adapterも実装済みである。
-plugin固有mapping、host-level collision check、applyは未実装であり、
+current lockとcanonical renderに固定した初回bootstrap applyも実装済みである。
+plugin固有mapping、host-level collision check、upgrade applyは未実装であり、
 全体がmigration済みとはみなさない。
 
 ## 1. 決定
@@ -651,4 +652,6 @@ F は次を実装とtestで満たし、完了した。
 - `home-beta` と `home-alpha` が独立 project / volume / world になる
 
 次の設計は、F の layout を変えずに plugin config ownership と host-level multi-project
-collision / apply transaction を閉じる。generic include や multi-environment order へ戻さない。
+collision / upgrade transaction を閉じる。初回bootstrap applyの詳細は
+[`home-beta` bootstrap apply設計](home-beta-bootstrap-apply-design_ja.md)を正とする。
+generic include や multi-environment order へ戻さない。

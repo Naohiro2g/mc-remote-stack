@@ -6,8 +6,10 @@ provider、実 IP、個人名、秘密値には依存しない。
 ## 現在の実装境界
 
 現行の vertical slice は deployment project の `init`、`validate`、`repo check`、`plan`、
-EULA gate、`render` までを実装している。生成物を host へ適用する機能はまだ実装していない。
-この文書も **host への production apply 完了を主張しない**。
+EULA gate、`resolve`、`artifact fetch`、`render`に加え、isolated `home-beta`の初回
+bootstrap applyまでを実装している。既存world import、upgrade、複数project transaction、
+firewall変更は実装していない。この文書も **production readinessやprotocol compatibilityを
+bootstrap applyだけから主張しない**。
 
 ## 1. 最初の個人管理者ユーザー
 
@@ -54,12 +56,19 @@ command -v git
 command -v python3
 python3 --version
 command -v uv
+command -v docker
+docker context inspect default
+docker --context default version
+docker --context default compose version
 ```
 
 - Python は `3.11` 以上。
-- OS package、container runtime、firewall は provider と選択 profile に合わせて確認する。
+- 初回applyは対象host上のlocal Unix socket Docker contextだけを受理する。
+- Docker Engine / Compose v2の導入方法、OS package、firewallはdistribution、provider、
+  選択profileに合わせて確認する。`mcrctl apply`は自動installしない。
 - port を旧 runbook から一括で開けない。公開 port と到達範囲は、生成する topology と認証境界を確認して決める。
 - token、password、秘密鍵を clone や deployment project に置かない。
+- Docker socketへのwrite accessはhost root相当の権限境界として扱い、個人管理者userへ限定する。
 
 ## 4. package の取得と自己検証
 
@@ -74,40 +83,94 @@ uv run mcrctl --help
 
 ここで失敗したら deployment project を作らず、toolchain または repository の状態を直す。
 
-## 5. deployment project の検証・生成
+## 5. isolated `home-beta` project
 
 ```bash
-uv run mcrctl init ./deployment --profile official-vps
-uv run mcrctl validate --project ./deployment
-uv run mcrctl repo check --project ./deployment
-uv run mcrctl plan --project ./deployment
+uv run mcrctl init ./deployments/home-beta \
+  --format toml \
+  --deployment-name home \
+  --profile home-server@2 \
+  --environment-identity home-beta \
+  --channel beta \
+  --exposure isolated \
+  --purpose integration \
+  --preset mcremote-paper@1 \
+  --artifact-store /var/lib/mc-remote/artifacts \
+  --volume minecraft-data=home-beta-minecraft-data \
+  --world-identity home-beta-world \
+  --bind-address 127.0.0.1 \
+  --java-port 25565 \
+  --mcremote-port 25575
+uv run mcrctl validate --project ./deployments/home-beta
+uv run mcrctl repo check --project ./deployments/home-beta
+uv run mcrctl accept-eula --project ./deployments/home-beta --yes
 ```
 
-`init` は `mc-remote.yml`、`mc-remote.lock.yml`、`secrets.example.yml` と project README を作る。
-初回 `plan` が EULA 同意や immutable artifact identity の不足で停止するのは正常な gate である。
-診断に従って desired state をレビューし、lock の placeholder を検証済みの digest / SHA-256 へ解決する。
-未解決 selector を production 値として補完しない。
+directory名からaxisやidentityを推測しない。`home-alpha`は同じfileへ追加せず、後から別project、
+別volume、別worldとして作る。
 
-EULA を確認して lock を解決した後、gate を再実行してから生成する。
+bundled `mcremote-paper@1`は最初のlive evidence前なのでunverifiedである。bootstrapする場合だけ
+`mc-remote.toml`に人間が具体的理由を記録する。
+
+```toml
+[acknowledgements]
+allow_unverified = true
+unverified_reason = "initial isolated home-beta live evidence"
+allow_eol = false
+eol_reason = ""
+```
+
+order内の理由だけでは足りない。resolve時にもone-shot flagを渡し、生成前にplanをreviewする。
 
 ```bash
-uv run mcrctl accept-eula --project ./deployment --yes
-uv run mcrctl plan --project ./deployment
-uv run mcrctl render --project ./deployment --output ./deployment/generated
+uv run mcrctl resolve \
+  --project ./deployments/home-beta \
+  --allow-unverified
+uv run mcrctl plan --project ./deployments/home-beta
+uv run mcrctl artifact fetch --project ./deployments/home-beta
+uv run mcrctl render \
+  --project ./deployments/home-beta \
+  --output ./deployments/home-beta/generated
 ```
 
-秘密値は `secret://...` 参照と `mcrctl secret set` を使い、deployment project に保存しない。
+unverified警告がある`plan`は内容を表示してstatus 1を返す。lock identity、profile / preset digest、
+artifact、bind port、volume、worldを人間が確認する。秘密値はdeployment projectに保存しない。
 
-## 6. 停止点
+## 6. bootstrap apply
 
-現行版では `render` 後に自動で host へ apply しない。次の内容が実装・検証されるまでは、生成物を
-production へ手作業で写して「公式手順」としない。
+reviewしたlock identityを手入力し、同じtarget host上の明示local Docker contextへ適用する。
 
-- fresh-host dependency の検出と導入
-- apply / upgrade / rollback の transaction boundary
-- health / doctor と失敗時 rollback
+```bash
+REVIEWED_LOCK_IDENTITY="sha256:<planで確認した64-hex>"
+uv run mcrctl apply \
+  --project ./deployments/home-beta \
+  --output ./deployments/home-beta/generated \
+  --expected-lock-identity "$REVIEWED_LOCK_IDENTITY" \
+  --docker-context default \
+  --bootstrap \
+  --yes \
+  --allow-unverified
+```
+
+applyはcurrent lockとcanonical renderを再検証し、未知container / volume、port衝突を拒否する。
+exact OCI image pull後にmanaged external volumeを作り、Composeのrunning / healthy待ちとlock label
+postcheckを行う。起動失敗ではcontainerをdownするが、world volumeは削除しない。
+
+詳細は[`home-beta` bootstrap apply設計](home-beta-bootstrap-apply-design_ja.md)を正とする。
+
+## 7. 現在の停止点
+
+bootstrap applyの次はlive evidenceである。次が閉じる前に、isolated betaのcontainer起動を
+一般production、公開network、upgrade可能、compatibility verifiedと読み替えない。
+
+- deployment doctor / protocol `live-auto` smoke
 - backup / restore の実機検証
+- upgrade / rollback のdeployed-state transaction
 - provider firewall と host firewall の責任分界
+- 複数projectのhost-level collision transaction
+
+秘密を含むraw logはGit外、private host / inventoryは`mc-remote-backstage`、公開可能な
+sanitized live evidenceはknowledge `14-evidence`へ分ける。
 
 ## 旧 runbook から carry した耐久原則
 

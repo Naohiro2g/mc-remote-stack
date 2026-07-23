@@ -9,6 +9,7 @@ from importlib.resources import files
 from pathlib import Path
 
 from . import __version__
+from .apply import ApplyContractError, apply_toml_project
 from .archive import inspect_archive
 from .artifacts import (
     ArtifactFetchError,
@@ -56,6 +57,7 @@ def _print_structured_failure(
     operation: str,
     exc: (
         ArtifactFetchError
+        | ApplyContractError
         | OperatorInputError
         | PresetDataError
         | ProjectOrderError
@@ -599,6 +601,49 @@ def _cmd_render(args: argparse.Namespace) -> int:
     return 1 if issues else 0
 
 
+def _cmd_apply(args: argparse.Namespace) -> int:
+    project_path = Path(args.project)
+    if not _uses_toml_project(project_path):
+        return _print_reason_failure(
+            "apply",
+            "apply_requires_toml",
+            project_path.resolve(),
+            "bootstrap apply supports only one-environment TOML deployment projects",
+        )
+    try:
+        result = apply_toml_project(
+            project_path,
+            Path(args.output),
+            expected_lock_identity=args.expected_lock_identity,
+            docker_context=args.docker_context,
+            data_root=_preset_data_root(),
+            bootstrap=args.bootstrap,
+            confirmed=args.yes,
+            allow_unverified=args.allow_unverified,
+            allow_eol=args.allow_eol,
+            wait_timeout=args.wait_timeout,
+        )
+    except (
+        ApplyContractError,
+        PresetDataError,
+        ProjectOrderError,
+        RenderContractError,
+        ResolutionError,
+    ) as exc:
+        return _print_structured_failure("apply", exc)
+    except OSError as exc:
+        print(f"FAIL apply: {exc}")
+        return 2
+    print(
+        f"OK apply status={result.status} bootstrap=true "
+        f"lock={result.lock_identity} compose-project={result.compose_project} "
+        f"service={result.service} volume={result.volume}"
+    )
+    if args.allow_unverified:
+        print("WARN live bootstrap used the one-shot unverified acknowledgement")
+    return 0
+
+
 def _cmd_archive_inspect(args: argparse.Namespace) -> int:
     try:
         inventory = inspect_archive(Path(args.archive))
@@ -773,6 +818,21 @@ def build_parser() -> argparse.ArgumentParser:
     render_parser.add_argument("--project", required=True)
     render_parser.add_argument("--output", required=True)
     render_parser.set_defaults(handler=_cmd_render)
+
+    apply_parser = subparsers.add_parser(
+        "apply",
+        help="apply an exact managed TOML render to the local Docker daemon",
+    )
+    apply_parser.add_argument("--project", required=True)
+    apply_parser.add_argument("--output", required=True)
+    apply_parser.add_argument("--expected-lock-identity", required=True)
+    apply_parser.add_argument("--docker-context", required=True)
+    apply_parser.add_argument("--bootstrap", action="store_true")
+    apply_parser.add_argument("--yes", action="store_true")
+    apply_parser.add_argument("--allow-unverified", action="store_true")
+    apply_parser.add_argument("--allow-eol", action="store_true")
+    apply_parser.add_argument("--wait-timeout", type=int, default=300)
+    apply_parser.set_defaults(handler=_cmd_apply)
 
     archive_parser = subparsers.add_parser("archive", help="recovery archive operations")
     archive_subparsers = archive_parser.add_subparsers(dest="archive_command", required=True)
