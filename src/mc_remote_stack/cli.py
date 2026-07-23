@@ -16,7 +16,13 @@ from .artifacts import (
     import_recovery_archive,
 )
 from .backup import BackupTransferError, transfer_archive
-from .preset_registry import PresetDataError, load_preset, load_preset_catalog
+from .operator_inputs import OperatorInputError, resolve_operator_inputs
+from .preset_registry import (
+    PresetDataError,
+    load_preset,
+    load_preset_catalog,
+    load_profile,
+)
 from .project import accept_eula, init_project
 from .render import RenderContractError, RenderError, render_project, render_toml_project
 from .repo_check import check_repository
@@ -50,6 +56,7 @@ def _print_structured_failure(
     operation: str,
     exc: (
         ArtifactFetchError
+        | OperatorInputError
         | PresetDataError
         | ProjectOrderError
         | RenderContractError
@@ -300,7 +307,12 @@ def _uses_toml_project(project: Path) -> bool:
 def _cmd_toml_validate(project_path: Path) -> int:
     try:
         order = load_order(project_path)
-    except ProjectOrderError as exc:
+        profile = load_profile(
+            order.order["deployment"]["profile"],
+            data_root=_preset_data_root(),
+        )
+        resolve_operator_inputs(order, profile.data)
+    except (OperatorInputError, PresetDataError, ProjectOrderError) as exc:
         return _print_structured_failure("validate", exc)
     if not order.paths.lock.exists():
         print("OK validate format=toml order=valid lock=missing")
@@ -486,6 +498,12 @@ def _cmd_toml_plan(project_path: Path) -> int:
         print(
             f"PLAN artifact={artifact['id']} kind={artifact['kind']} "
             f"{_artifact_identity(artifact)}"
+        )
+    for operator_input in lock["operator_inputs"]:
+        print(
+            f"PLAN operator-input={operator_input['role']} "
+            f"adapter={operator_input['adapter']} path={operator_input['path']} "
+            f"semantic-sha256={operator_input['semantic_sha256']}"
         )
     volume_roles = ",".join(
         f"{role['id']}:{role['kind']}" for role in lock["render_plan"]["volume_roles"]

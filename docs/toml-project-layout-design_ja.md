@@ -7,7 +7,7 @@
 [preset registry / preset catalog / lock 解決仕様](preset-resolution-design_ja.md) が定義する
 logical order / EnvironmentLock を、project directory と実 file へどう配置するかを定める。
 
-- 状態: 実装中
+- 状態: 実装済み（F。apply / plugin config ownership は対象外）
 - knowledge 参照 commit:
   `f1b99a049b6bc57799c3356c3e54d29e45031451`
 - 主な根拠:
@@ -19,12 +19,13 @@ logical order / EnvironmentLock を、project directory と実 file へどう配
   profile / preset / lock の意味論、plugin config ownership の個別 mapping、
   apply transaction、複数 project の host-level transaction、world lineage
 
-この文書は将来 layout の規範である。`toml_project` 層では exact project root の読込、
+この文書は現行 layout の規範である。`toml_project` 層では exact project root の読込、
 一 environment schema、YAML / TOML 同居 gate、placeholder lock を作らない初期化、
-lossless な限定更新、TOML `resolve` / `validate` / `plan` / `render` まで実装を開始した。
+lossless な限定更新、TOML `resolve` / `validate` / `plan` / `render` を実装した。
 TOML `compose@1` renderはgenerated outputだけを作り、live runtimeへ適用しない。
 `--format toml` のoperator-facing `init` とlock-backed artifact fetchも実装済みである。
-plugin固有operator input、host-level collision check、applyは未実装であり、
+typed operator input境界と最初の`minecraft-motd@1` adapterも実装済みである。
+plugin固有mapping、host-level collision check、applyは未実装であり、
 全体がmigration済みとはみなさない。
 
 ## 1. 決定
@@ -77,7 +78,8 @@ instance 固有値が少量重複する場合は、隠れた include dependency 
 ├─ mc-remote.toml              # human-owned order、tracked
 ├─ mc-remote.lock.toml         # machine-owned lock、resolve成功後に生成、tracked
 ├─ operator/                   # 明示参照されたoperator-owned入力、任意、tracked
-│  └─ <adapter>/<native-path>
+│  └─ minecraft-motd/
+│     └─ server.properties     # minecraft-motd@1の任意入力
 ├─ generated/                  # machine-owned render output、ignored
 │  ├─ compose.yaml
 │  ├─ minecraft/server.properties
@@ -343,7 +345,7 @@ flush / fsync、atomic replace で更新する。
 `operator/` は、plugin / adapter が必要とする human-owned native config を order から分離する
 予約領域である。全 human-owned input を `mc-remote.toml` 一つへ押し込まない。
 
-F では次の境界だけを固定し、各 plugin field の owner は plugin config ownership 設計で決める。
+F では次の境界を固定した。各 plugin field の owner は後続のplugin config ownership設計で決める。
 
 1. file は `operator/<adapter>/<native-path>` の下に置く。
 2. `mc-remote.toml` が adapter ID と相対 path を明示参照する。
@@ -362,6 +364,54 @@ adapter が native file を semantic model へ parse できる場合、comment�
 semantic digest だけを lock identity に含める。source bytes をそのまま runtime へ渡す
 byte-exact adapter では content SHA-256 自体を semantic digest とし、lexical change も意味のある
 変更として扱う。raw bytes hash を provenance のためだけに更新して no-op lock を書き換えない。
+
+### 8.1 typed reference と profile ownership
+
+orderはoptional inputをarray of tablesで明示する。role、adapter、pathはすべてexact valueであり、
+同じroleまたはpathを重複できない。
+
+```toml
+[[operator_inputs]]
+role = "minecraft-motd"
+adapter = "minecraft-motd@1"
+path = "operator/minecraft-motd/server.properties"
+```
+
+選択したprofileも同じroleとadapterを宣言し、requiredかoptionalかを所有する。
+`home-server@2` の宣言は次である。既存のimmutable `home-server@1`は変更しない。
+
+```toml
+[[operator_input_roles]]
+id = "minecraft-motd"
+adapter = "minecraft-motd@1"
+required = false
+```
+
+orderだけで未知roleを追加する、profileと異なるadapterへ差し替える、未対応adapterを選ぶ操作は
+fail closedとする。`init` はoptional inputを推測して作らず、必要なoperatorが明示的に追加する。
+
+### 8.2 `minecraft-motd@1`
+
+最初のtyped adapterはMinecraftの公開表示文だけを所有し、plugin設定やsecretの汎用入力ではない。
+sourceはUTF-8、BOMなし、最大4096 bytesの限定Java properties形式とする。
+
+```properties
+# Public server-list text
+motd=McRemote home beta
+```
+
+- 空行、`#` / `!` comment、`motd`前後の空白だけをlexical差として無視する。
+- `motd`をexactly once要求し、値は1〜256文字とする。
+- unknown / duplicate key、escape、continuation、control character、invalid UTF-8を拒否する。
+- `secret://` と`${...}`を拒否する。このadapterにsecret injection pointはない。
+- lockはrole、adapter、exact path、`{"motd": "<value>"}`のsemantic modelとそのSHA-256を持つ。
+- commentや空白だけの変更ではlock identity、lock bytes、mtimeを変えない。
+- 値の変更では既存lockをstaleとし、再resolveを要求する。
+- rendererはsource bytesをcopyせず、lock済みsemantic valueから`motd=<value>`だけを
+  `generated/minecraft/server.properties`へ投影する。
+
+任意文字列に秘密が含まれるかを推測する機能ではない。operatorは公開表示以外の値を書いては
+ならず、secretを必要とする後続adapterは別のtyped reference / injection設計を必須とする。
 
 ## 9. lossless editing
 
@@ -532,6 +582,14 @@ stable / beta の両方を fixture に含める場合も、一 environment 一 s
 - unreferenced `operator/**` を拒否する
 - operator path traversal / project 外 symlink を拒否する
 
+### operator input lifecycle
+
+- orderのrole / adapterが選択profileの宣言と一致しなければ拒否する
+- invalid UTF-8、unknown / duplicate key、continuation、secret referenceを拒否する
+- comment / 空白だけの変更でlock identityとlock fileを変更しない
+- semantic value変更で既存lockをstaleとする
+- rendererがsourceを再読込せず、lock済みsemantic valueだけを投影する
+
 ### lossless edit
 
 - no-op edit が order bytes / mtime を変えない
@@ -581,7 +639,7 @@ stable / beta の両方を fixture に含める場合も、一 environment 一 s
 
 ## 14. F の完了条件
 
-F は次が実装と test で満たされた時点で完了する。
+F は次を実装とtestで満たし、完了した。
 
 - 一 environment 一 project 一 order 一 lock が強制される
 - generic include / implicit discovery が存在しない

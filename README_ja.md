@@ -14,8 +14,8 @@
 
 - [fresh host bootstrap](docs/fresh-host-bootstrap-guide_ja.md): 個人管理者ユーザー、SSH、安全な開始点、現行 `mcrctl` の停止境界
 - [旧 server-runbook の振り分け](docs/server-runbook-migration-notes_ja.md): carry した内容と、stale/history として採らなかった内容
-- [preset / lock 解決の詳細設計](docs/preset-resolution-design_ja.md): preset registry、preset catalog、compatibility evidence、lock identity。bundled home profile/preset、TOML init/resolve/fetch/renderのoperator経路を実装済み。applyは未実装
-- [TOML project layout の詳細設計](docs/toml-project-layout-design_ja.md): 一environment一project、includeなし、owner分離、lossless editing、YAML/TOML同居gate。明示的なvolume/world/network契約とmanaged renderを実装済み。plugin固有operator inputとapplyは未実装
+- [preset / lock 解決の詳細設計](docs/preset-resolution-design_ja.md): preset registry、preset catalog、compatibility evidence、lock identity。bundled home profile/preset、typed operator input、TOML init/resolve/fetch/renderのoperator経路を実装済み。applyは未実装
+- [TOML project layout の詳細設計](docs/toml-project-layout-design_ja.md): 一environment一project、includeなし、owner分離、lossless editing、YAML/TOML同居gate。明示的なvolume/world/network契約、`minecraft-motd@1`、managed renderを実装済み。plugin固有mappingとapplyは未実装
 
 旧 `server-runbook` の native-systemd / package Caddy / release-symlink 手順は、現在の
 Compose・生成設定中心の実装と一致しないため現行 runbook として取り込みません。
@@ -56,7 +56,7 @@ uv run mcrctl --help
 uv run mcrctl init ./deployments/home-beta \
   --format toml \
   --deployment-name home \
-  --profile home-server@1 \
+  --profile home-server@2 \
   --environment-identity home-beta \
   --channel beta \
   --exposure isolated \
@@ -68,6 +68,28 @@ uv run mcrctl init ./deployments/home-beta \
   --bind-address 127.0.0.1 \
   --java-port 25565 \
   --mcremote-port 25575
+```
+
+server listの公開表示文を変更する場合だけ、`mc-remote.toml`へ次を追加する。
+
+```toml
+[[operator_inputs]]
+role = "minecraft-motd"
+adapter = "minecraft-motd@1"
+path = "operator/minecraft-motd/server.properties"
+```
+
+同時に`operator/minecraft-motd/server.properties`を作る。これは公開情報専用のstrictな
+typed inputであり、secretを書かない。commentと空白だけの変更はlock identityを変えない。
+
+```properties
+# Public server-list text
+motd=McRemote home beta
+```
+
+operator inputを追加した場合も、resolveより先にvalidateする。
+
+```sh
 uv run mcrctl validate --project ./deployments/home-beta
 uv run mcrctl accept-eula --project ./deployments/home-beta --yes
 ```

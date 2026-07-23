@@ -10,10 +10,11 @@ published revision の append-only 比較、preset 選択の resolver、TOML loc
 semantic identity、no-op / stale / tamper 検出、atomic replace、`preset list/show` と
 TOML `init` / `resolve` / `validate` / `accept-eula` / `plan` / `artifact fetch` / `render`
 CLI、最初の bundled home profile / preset、digest検証付き`compose@1` renderまで実装した。
-applyとplugin固有operator inputはまだ未実装であり、現行の
+typed operator input境界と最初の`minecraft-motd@1`も実装した。
+applyとplugin固有operator input mappingはまだ未実装であり、現行の
 `mc-remote.yml` / `mc-remote.lock.yml` 経路は回帰fixtureとして残る。
 
-- 状態: 実装中
+- 状態: 実装済み（H。apply / plugin config ownership は対象外）
 - 対象: preset registry、preset catalog、profile / preset / order の解決、lock identity、
   compatibility evidence、custom / unverified gate
 - 関連する物理配置:
@@ -477,7 +478,7 @@ schema_version = 1
 
 [deployment]
 name = "home"
-profile = "home-server@1"
+profile = "home-server@2"
 
 [environment]
 identity = "home-beta"
@@ -509,12 +510,19 @@ allow_unverified = false
 unverified_reason = ""
 allow_eol = false
 eol_reason = ""
+
+[[operator_inputs]]
+role = "minecraft-motd"
+adapter = "minecraft-motd@1"
+path = "operator/minecraft-motd/server.properties"
 ```
 
 placeholder は文書例であり有効値ではない。実際の order では4軸をすべて明示する。
 acknowledgement を `true` にするときは対応する reason を空にできない。
 EULA は acknowledgement override ではなく deployment agreement である。`false` の order は
 unresolved state として有効だが、resolver は `minecraft_eula_not_accepted` で停止する。
+`operator_inputs`は選択profileがrole / adapterを宣言した場合だけ指定できる任意入力である。
+`home-server@2`の`minecraft-motd@1`は公開表示文だけを扱い、secret injection pointを持たない。
 
 volume / world の identity は instance-owned desired reference として lock するが、volume path の
 実体、world bytes、player data は runtime-owned state のままで lock に含めない。
@@ -602,6 +610,9 @@ secret store、runtime directory、稼働 server の観測値、network の `lat
 - `unverified_not_acknowledged`
 - `minecraft_eula_not_accepted`
 - `secret_value_forbidden`
+- `operator_input_profile_mismatch`
+- `operator_input_parse_failed`
+- `operator_input_secret_forbidden`
 - `stale_lock`
 - `lock_identity_mismatch`
 
@@ -819,7 +830,7 @@ server接続、applyを行わない。
 
 ### 16.2 `compose@1` render contract
 
-`home-server@1` の最初の renderer は `compose@1` とし、TOML project では次だけを生成する。
+`home-server@1` / `home-server@2` のrendererは`compose@1`とし、TOML projectでは次だけを生成する。
 
 ```text
 <output>/
@@ -838,6 +849,8 @@ server接続、applyを行わない。
   `LEVEL`、`server.properties`、labelへ同じ値を投影する。
 - `isolated` / `lan-only` のbind addressとhost portをCompose `ports`へそのまま投影する。
 - `online-mode=true`、`enable-rcon=false`、EULA acceptanceを生成物でも維持する。
+- optionalな`minecraft-motd@1`がlockにある場合、source fileを再読込せず、lock済みsemantic
+  valueだけを`server.properties`の`motd`へ投影する。source commentや空白は生成物へcopyしない。
 - `render-manifest.json` はadapter revision、lock identity、render-plan digest、各生成fileの
   path / SHA-256を持つ。時刻やhost観測値を入れない。
 - 二回目の同一renderはbytes / mtimeを変えない。既存outputを置換できるのは、manifestと全file
@@ -862,6 +875,7 @@ plan は少なくとも次を operator に見せる。
 - volume / world role の変更
 - security-relevant diff
 - secret reference の追加削除（値は非表示）
+- operator inputのrole、adapter、path、semantic SHA-256
 - lock identity と no-op / stale / replacement
 - blocker / warning と stable reason
 
@@ -1003,5 +1017,5 @@ H は、次が test と実装で満たされた時点で完了とする。
 
 F は H の logical order / EnvironmentLock を変えず、一 environment 一 project、
 generic include なし、explicit project discovery、lossless order editing、YAML / TOML 同居の
-fail-closed を選んだ。詳細は
+fail-closed、typed operator inputを実装し完了した。詳細は
 [`mc-remote.toml` project layout / 物理ファイル粒度](toml-project-layout-design_ja.md)を正とする。

@@ -80,11 +80,11 @@ origin = "https://example.invalid/mcremote-fixture.jar"
 
 def _render_fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
     data_root = _data_root(tmp_path, "render-data")
-    profile_path = data_root / "profiles" / "home-server" / "1" / "profile.toml"
+    profile_path = data_root / "profiles" / "home-server" / "2" / "profile.toml"
     profile_path.parent.mkdir(parents=True)
     profile_path.write_text(
         files("mc_remote_stack")
-        .joinpath("data", "profiles", "home-server", "1", "profile.toml")
+        .joinpath("data", "profiles", "home-server", "2", "profile.toml")
         .read_text(encoding="utf-8"),
         encoding="utf-8",
     )
@@ -112,7 +112,7 @@ def _render_fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
     project = init_toml_project(
         tmp_path / "home-beta",
         deployment_name="home",
-        profile="home-server@1",
+        profile="home-server@2",
         environment_identity="home-beta",
         channel="beta",
         exposure="isolated",
@@ -237,6 +237,42 @@ def test_toml_render_manifest_is_deterministic_and_second_render_is_noop(tmp_pat
         "compose.yaml",
         "minecraft/server.properties",
     ]
+
+
+def test_toml_render_projects_only_locked_minecraft_motd_semantics(
+    tmp_path: Path,
+) -> None:
+    project, data_root, _ = _render_fixture(tmp_path)
+    order_path = project / "mc-remote.toml"
+    order_path.write_text(
+        order_path.read_text(encoding="utf-8")
+        + """
+[[operator_inputs]]
+role = "minecraft-motd"
+adapter = "minecraft-motd@1"
+path = "operator/minecraft-motd/server.properties"
+""",
+        encoding="utf-8",
+    )
+    source_path = project / "operator" / "minecraft-motd" / "server.properties"
+    source_path.parent.mkdir(parents=True)
+    source_path.write_text(
+        "# lexical comment is not runtime output\nmotd = McRemote home beta\n",
+        encoding="utf-8",
+    )
+    resolve_project(
+        project,
+        data_root=data_root,
+        allow_unverified=True,
+        resolved_at=SECOND_RESOLVED_AT,
+    )
+
+    output = project / "generated"
+    render_toml_project(project, output, data_root=data_root)
+
+    properties = (output / "minecraft" / "server.properties").read_text(encoding="utf-8")
+    assert "motd=McRemote home beta\n" in properties
+    assert "lexical comment" not in properties
 
 
 def test_toml_render_rejects_stale_lock_without_changing_managed_output(tmp_path: Path) -> None:

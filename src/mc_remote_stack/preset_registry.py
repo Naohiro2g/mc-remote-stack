@@ -222,6 +222,7 @@ def _load_immutable_record(
     if metadata_key == "profile":
         _ensure_unique_ids(data["services"], "services", resource)
         _ensure_unique_ids(data["volume_roles"], "volume_roles", resource)
+        _ensure_unique_ids(data.get("operator_input_roles", []), "operator_input_roles", resource)
     else:
         _ensure_unique_ids(data["components"], "components", resource)
         artifact_ids = _ensure_unique_ids(data["artifacts"], "artifacts", resource)

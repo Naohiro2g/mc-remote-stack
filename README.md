@@ -16,12 +16,12 @@ The project is intentionally separate from:
 - [Legacy server-runbook migration notes (Japanese)](docs/server-runbook-migration-notes_ja.md)
 - [Preset and lock resolution design (Japanese)](docs/preset-resolution-design_ja.md): the next
   preset registry, preset catalog, compatibility-evidence, and lock-identity model; the bundled
-  home profile/preset, instance contract, and operator-facing TOML init/resolve/fetch/render path
-  are implemented; apply remains unimplemented
+  home profile/preset, typed operator input boundary, instance contract, and operator-facing TOML
+  init/resolve/fetch/render path are implemented; apply remains unimplemented
 - [TOML project layout design (Japanese)](docs/toml-project-layout-design_ja.md): one environment
   per project, no generic includes, owner separation, lossless editing, and the YAML/TOML coexistence gate;
-  the isolated TOML project, explicit volume/world/network contract, and managed TOML render path are
-  implemented, while plugin-specific operator inputs and apply remain unimplemented
+  the isolated TOML project, explicit volume/world/network contract, `minecraft-motd@1`, and managed
+  TOML render path are implemented, while plugin-specific mappings and apply remain unimplemented
 
 The legacy repository's native-systemd, package-Caddy, and release-symlink procedures are not current instructions:
 they conflict with this repository's Compose and generated-configuration architecture.
@@ -45,7 +45,7 @@ remain separate operations.
 uv run mcrctl init ./deployments/home-beta \
   --format toml \
   --deployment-name home \
-  --profile home-server@1 \
+  --profile home-server@2 \
   --environment-identity home-beta \
   --channel beta \
   --exposure isolated \
@@ -57,6 +57,29 @@ uv run mcrctl init ./deployments/home-beta \
   --bind-address 127.0.0.1 \
   --java-port 25565 \
   --mcremote-port 25575
+```
+
+To customize the public server-list text, add this optional reference to `mc-remote.toml`:
+
+```toml
+[[operator_inputs]]
+role = "minecraft-motd"
+adapter = "minecraft-motd@1"
+path = "operator/minecraft-motd/server.properties"
+```
+
+Create `operator/minecraft-motd/server.properties` at the same time. This strict typed input is
+public-display data only; never put a secret in it. Comment-only and whitespace-only changes do not
+change the lock identity.
+
+```properties
+# Public server-list text
+motd=McRemote home beta
+```
+
+Validate after adding any operator input and before resolving:
+
+```sh
 uv run mcrctl validate --project ./deployments/home-beta
 uv run mcrctl accept-eula --project ./deployments/home-beta --yes
 ```

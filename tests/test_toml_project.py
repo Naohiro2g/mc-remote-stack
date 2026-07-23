@@ -70,6 +70,19 @@ def _write_order(root: Path, content: str | None = None) -> Path:
     return order
 
 
+def _with_operator_input(path: str) -> str:
+    toml_path = path.replace("\\", "\\\\")
+    return (
+        _valid_order()
+        + f"""
+[[operator_inputs]]
+role = "minecraft-motd"
+adapter = "minecraft-motd@1"
+path = "{toml_path}"
+"""
+    )
+
+
 def test_init_creates_one_environment_order_without_placeholder_lock(tmp_path: Path) -> None:
     project = init_toml_project(
         tmp_path / "home-beta",
@@ -134,6 +147,67 @@ def test_init_refuses_non_empty_directory_without_changing_it(tmp_path: Path) ->
 
     assert sentinel.read_text(encoding="utf-8") == "operator data\n"
     assert not (root / "mc-remote.toml").exists()
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "../operator/minecraft-motd/server.properties",
+        "/operator/minecraft-motd/server.properties",
+        "operator/other-adapter/server.properties",
+        "operator/minecraft-motd/../server.properties",
+        "operator\\minecraft-motd\\server.properties",
+    ],
+)
+def test_operator_input_path_must_match_exact_adapter_namespace(
+    tmp_path: Path,
+    path: str,
+) -> None:
+    root = tmp_path / "home-beta"
+    _write_order(root, _with_operator_input(path))
+
+    with pytest.raises(ProjectOrderError) as exc_info:
+        load_order(root)
+
+    assert exc_info.value.reason == "operator_input_path_invalid"
+
+
+def test_referenced_operator_input_must_exist_as_a_regular_file(tmp_path: Path) -> None:
+    root = tmp_path / "home-beta"
+    _write_order(root, _with_operator_input("operator/minecraft-motd/server.properties"))
+
+    with pytest.raises(ProjectOrderError) as exc_info:
+        load_order(root)
+
+    assert exc_info.value.reason == "operator_input_missing"
+
+
+def test_unreferenced_operator_file_is_rejected(tmp_path: Path) -> None:
+    root = tmp_path / "home-beta"
+    _write_order(root)
+    unreferenced = root / "operator" / "minecraft-motd" / "unreferenced.properties"
+    unreferenced.parent.mkdir(parents=True)
+    unreferenced.write_text("motd=unreferenced\n", encoding="utf-8")
+
+    with pytest.raises(ProjectOrderError) as exc_info:
+        load_order(root)
+
+    assert exc_info.value.reason == "operator_input_unreferenced"
+
+
+def test_operator_input_symlink_is_rejected_without_reading_target(tmp_path: Path) -> None:
+    root = tmp_path / "home-beta"
+    _write_order(root, _with_operator_input("operator/minecraft-motd/server.properties"))
+    outside = tmp_path / "outside.properties"
+    outside.write_text("motd=outside\n", encoding="utf-8")
+    source = root / "operator" / "minecraft-motd" / "server.properties"
+    source.parent.mkdir(parents=True)
+    source.symlink_to(outside)
+
+    with pytest.raises(ProjectOrderError) as exc_info:
+        load_order(root)
+
+    assert exc_info.value.reason == "operator_input_symlink_forbidden"
 
 
 @pytest.mark.parametrize(
@@ -385,19 +459,29 @@ def test_environment_interpolation_is_rejected(tmp_path: Path) -> None:
     assert exc_info.value.reason == "environment_interpolation_forbidden"
 
 
-def test_generated_and_operator_yaml_are_not_mixed_order_formats(tmp_path: Path) -> None:
+def test_generated_yaml_is_not_a_mixed_order_format(tmp_path: Path) -> None:
     root = tmp_path / "home-beta"
     _write_order(root)
     generated = root / "generated"
     generated.mkdir()
     (generated / "compose.yaml").write_text("services: {}\n", encoding="utf-8")
-    operator = root / "operator" / "example-adapter"
-    operator.mkdir(parents=True)
-    (operator / "config.yml").write_text("enabled: true\n", encoding="utf-8")
 
     loaded = load_order(root)
 
     assert loaded.order["environment"]["identity"] == "home-beta"
+
+
+def test_operator_yaml_is_classified_as_unreferenced_not_mixed_order(tmp_path: Path) -> None:
+    root = tmp_path / "home-beta"
+    _write_order(root)
+    operator = root / "operator" / "example-adapter"
+    operator.mkdir(parents=True)
+    (operator / "config.yml").write_text("enabled: true\n", encoding="utf-8")
+
+    with pytest.raises(ProjectOrderError) as exc_info:
+        load_order(root)
+
+    assert exc_info.value.reason == "operator_input_unreferenced"
 
 
 def test_initializing_sibling_alpha_does_not_change_beta_order(tmp_path: Path) -> None:

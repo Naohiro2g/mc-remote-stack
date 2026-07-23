@@ -571,9 +571,11 @@ def test_published_revision_is_append_only(tmp_path: Path, mutation: str) -> Non
 def test_bundled_home_profile_and_preset_are_exact_and_catalogued() -> None:
     policy = load_catalog_policy()
     catalog = load_preset_catalog()
-    profile = load_profile("home-server@1")
+    original_profile = load_profile("home-server@1")
+    profile = load_profile("home-server@2")
     preset = load_preset("mcremote-paper@1")
 
+    assert "operator_input_roles" not in original_profile.data
     assert profile.data["capabilities"]["required_component_roles"] == [
         "minecraft-runtime",
         "paper-server",
@@ -584,6 +586,13 @@ def test_bundled_home_profile_and_preset_are_exact_and_catalogued() -> None:
         "allowed_exposures": ["isolated", "lan-only"],
         "allowed_purposes": ["integration"],
     }
+    assert profile.data["operator_input_roles"] == [
+        {
+            "id": "minecraft-motd",
+            "adapter": "minecraft-motd@1",
+            "required": False,
+        }
+    ]
     assert [component["id"] for component in preset.data["components"]] == [
         "minecraft-runtime",
         "paper-server",

@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import os
 import re
+import stat
 import tempfile
 import tomllib
 from dataclasses import dataclass
@@ -41,6 +42,7 @@ ROOT_KEYS = frozenset(
         "network",
         "agreements",
         "acknowledgements",
+        "operator_inputs",
     }
 )
 DEPLOYMENT_KEYS = frozenset({"name", "profile"})
@@ -51,6 +53,7 @@ WORLD_KEYS = frozenset({"identity"})
 NETWORK_KEYS = frozenset({"bind_address", "java_port", "mcremote_port"})
 AGREEMENT_KEYS = frozenset({"minecraft_eula"})
 ACKNOWLEDGEMENT_KEYS = frozenset({"allow_unverified", "unverified_reason", "allow_eol", "eol_reason"})
+OPERATOR_INPUT_KEYS = frozenset({"role", "adapter", "path"})
 CHANNELS = frozenset({"stable", "beta", "alpha", "dev"})
 EXPOSURES = frozenset({"public", "lan-only", "isolated"})
 PRIVATE_IPV4_NETWORKS = (
@@ -202,6 +205,32 @@ def _require_port(value: object, logical_path: str, order_path: Path) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= 65535:
         _fail("order_schema_invalid", order_path, f"{logical_path} must be an integer from 1 through 65535")
     return value
+
+
+def _require_operator_input_path(
+    value: object,
+    *,
+    adapter: str,
+    logical_path: str,
+    order_path: Path,
+) -> str:
+    path = _require_nonempty_string(value, logical_path, order_path)
+    adapter_name = adapter.partition("@")[0]
+    parts = path.split("/")
+    if (
+        "\\" in path
+        or path.startswith("/")
+        or any(part in {"", ".", ".."} for part in parts)
+        or len(parts) < 3
+        or parts[:2] != ["operator", adapter_name]
+        or PurePosixPath(path).as_posix() != path
+    ):
+        _fail(
+            "operator_input_path_invalid",
+            order_path,
+            f"{logical_path} must be an exact operator/{adapter_name}/<native-path> reference",
+        )
+    return path
 
 
 def _walk_identity_values(value: object, logical_path: str, order_path: Path) -> None:
@@ -409,7 +438,102 @@ def _validate_order(order: object, order_path: Path) -> dict[str, Any]:
                 f"acknowledgements.{reason} is required when {flag} is true",
             )
 
+    operator_inputs = order.get("operator_inputs", [])
+    if not isinstance(operator_inputs, list):
+        _fail("order_schema_invalid", order_path, "operator_inputs must be an array of tables")
+    input_roles: set[str] = set()
+    input_paths: set[str] = set()
+    for index, operator_input in enumerate(operator_inputs):
+        if not isinstance(operator_input, dict):
+            _fail("order_schema_invalid", order_path, f"operator_inputs[{index}] must be a table")
+        _reject_unknown_keys(
+            operator_input,
+            allowed=OPERATOR_INPUT_KEYS,
+            logical_path=f"operator_inputs[{index}]",
+            order_path=order_path,
+        )
+        role = _require_explicit_identity(
+            operator_input.get("role"),
+            f"operator_inputs[{index}].role",
+            order_path,
+        )
+        adapter = _require_nonempty_string(
+            operator_input.get("adapter"),
+            f"operator_inputs[{index}].adapter",
+            order_path,
+        )
+        if not EXACT_REFERENCE.fullmatch(adapter):
+            _fail(
+                "order_schema_invalid",
+                order_path,
+                f"operator_inputs[{index}].adapter must be an exact name@revision reference",
+            )
+        path = _require_operator_input_path(
+            operator_input.get("path"),
+            adapter=adapter,
+            logical_path=f"operator_inputs[{index}].path",
+            order_path=order_path,
+        )
+        if role in input_roles:
+            _fail("order_schema_invalid", order_path, f"operator input role is assigned more than once: {role}")
+        if path in input_paths:
+            _fail("order_schema_invalid", order_path, f"operator input path is referenced more than once: {path}")
+        input_roles.add(role)
+        input_paths.add(path)
+
     return order
+
+
+def _validate_operator_tree(order: dict[str, Any], paths: TomlProjectPaths) -> None:
+    referenced = {item["path"] for item in order.get("operator_inputs", [])}
+    operator_root = paths.root / "operator"
+    if not operator_root.exists() and not operator_root.is_symlink():
+        if referenced:
+            first = min(referenced)
+            _fail(
+                "operator_input_missing",
+                paths.root / PurePosixPath(first),
+                "referenced operator input does not exist",
+            )
+        return
+    if operator_root.is_symlink():
+        _fail(
+            "operator_input_symlink_forbidden",
+            operator_root,
+            "operator input directories and files must not be symlinks",
+        )
+    if not operator_root.is_dir():
+        _fail("operator_input_not_regular", operator_root, "operator must be a real directory")
+
+    actual_files: set[str] = set()
+    for candidate in sorted(operator_root.rglob("*")):
+        if candidate.is_symlink():
+            _fail(
+                "operator_input_symlink_forbidden",
+                candidate,
+                "operator input directories and files must not be symlinks",
+            )
+        mode = candidate.lstat().st_mode
+        if stat.S_ISDIR(mode):
+            continue
+        if not stat.S_ISREG(mode):
+            _fail("operator_input_not_regular", candidate, "operator input must be a regular file")
+        actual_files.add(candidate.relative_to(paths.root).as_posix())
+
+    missing = sorted(referenced - actual_files)
+    if missing:
+        _fail(
+            "operator_input_missing",
+            paths.root / PurePosixPath(missing[0]),
+            "referenced operator input does not exist as a regular file",
+        )
+    unreferenced = sorted(actual_files - referenced)
+    if unreferenced:
+        _fail(
+            "operator_input_unreferenced",
+            paths.root / PurePosixPath(unreferenced[0]),
+            "every operator-owned file must be explicitly referenced by mc-remote.toml",
+        )
 
 
 def load_order(root: Path) -> LoadedOrder:
@@ -431,7 +555,9 @@ def load_order(root: Path) -> LoadedOrder:
         parsed = tomllib.loads(source)
     except tomllib.TOMLDecodeError as exc:
         _fail("order_parse_failed", paths.order, str(exc))
-    return LoadedOrder(paths, _validate_order(parsed, paths.order), source_bytes)
+    order = _validate_order(parsed, paths.order)
+    _validate_operator_tree(order, paths)
+    return LoadedOrder(paths, order, source_bytes)
 
 
 def _new_order_document(

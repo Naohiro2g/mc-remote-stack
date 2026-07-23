@@ -15,6 +15,7 @@ from typing import Any
 import tomlkit
 
 from . import __version__
+from .operator_inputs import OperatorInputError, resolve_operator_inputs
 from .preset_registry import (
     CANONICALIZATION,
     PresetDataError,
@@ -67,7 +68,9 @@ def _fail(reason: str, path: object, message: str) -> None:
     raise ResolutionError(reason, str(path), message)
 
 
-def _translate_source_error(exc: PresetDataError | ProjectOrderError) -> None:
+def _translate_source_error(
+    exc: OperatorInputError | PresetDataError | ProjectOrderError,
+) -> None:
     _fail(exc.reason, exc.path, str(exc))
 
 
@@ -242,6 +245,7 @@ def _build_candidate(
     preset_ref = order["environment"]["preset"]
     profile_record = load_profile(profile_ref, data_root=data_root)
     preset_record = load_preset(preset_ref, data_root=data_root)
+    operator_inputs = resolve_operator_inputs(order_record, profile_record.data)
 
     load_preset_catalog(data_root=data_root)
     policy = load_catalog_policy(data_root=data_root)
@@ -287,6 +291,8 @@ def _build_candidate(
         "services": profile["services"],
         "volume_roles": profile["volume_roles"],
         "required_security_controls": sorted(profile["policy"]["required_security_controls"]),
+        "operator_input_roles": copy.deepcopy(profile.get("operator_input_roles", [])),
+        "operator_inputs": operator_inputs,
         "components": preset["components"],
         "artifacts": preset["artifacts"],
     }
@@ -297,6 +303,8 @@ def _build_candidate(
         "services": copy.deepcopy(profile["services"]),
         "volume_roles": copy.deepcopy(profile["volume_roles"]),
         "required_security_controls": sorted(profile["policy"]["required_security_controls"]),
+        "operator_input_roles": copy.deepcopy(profile.get("operator_input_roles", [])),
+        "operator_inputs": copy.deepcopy(operator_inputs),
     }
     lifecycle_projection: dict[str, Any] = {"status": lifecycle.status}
     if lifecycle.warning:
@@ -341,6 +349,7 @@ def _build_candidate(
         "preset_lifecycle": lifecycle_projection,
         "compatibility": compatibility,
         "acknowledgements": copy.deepcopy(acknowledgements),
+        "operator_inputs": copy.deepcopy(operator_inputs),
         "components": copy.deepcopy(preset["components"]),
         "artifacts": copy.deepcopy(preset["artifacts"]),
         "render_plan": render_plan,
@@ -460,7 +469,7 @@ def resolve_project(
             allow_eol=allow_eol,
             enforce_one_shot_acknowledgements=True,
         )
-    except (PresetDataError, ProjectOrderError) as exc:
+    except (OperatorInputError, PresetDataError, ProjectOrderError) as exc:
         _translate_source_error(exc)
 
     lock_path = project_root / LOCK_NAME
@@ -508,7 +517,7 @@ def inspect_lock(
             allow_eol=False,
             enforce_one_shot_acknowledgements=False,
         )
-    except (PresetDataError, ProjectOrderError) as exc:
+    except (OperatorInputError, PresetDataError, ProjectOrderError) as exc:
         _translate_source_error(exc)
     status = "unchanged" if existing["lock_identity"] == candidate.lock["lock_identity"] else "stale"
     return LockInspection(

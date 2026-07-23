@@ -1,0 +1,175 @@
+from pathlib import Path
+
+import pytest
+
+from mc_remote_stack.cli import main
+from mc_remote_stack.preset_registry import semantic_sha256
+from mc_remote_stack.resolver import (
+    ResolutionError,
+    inspect_lock,
+    load_lock,
+    resolve_project,
+)
+
+from .test_resolver import FIRST_RESOLVED_AT, _acknowledge, _fixture
+
+MOTD_ROLE = "minecraft-motd"
+MOTD_ADAPTER = "minecraft-motd@1"
+MOTD_PATH = "operator/minecraft-motd/server.properties"
+
+
+def _declare_motd_role(data_root: Path) -> None:
+    profile_path = data_root / "profiles" / "home-server" / "1" / "profile.toml"
+    profile_path.write_text(
+        profile_path.read_text(encoding="utf-8")
+        + """
+[[operator_input_roles]]
+id = "minecraft-motd"
+adapter = "minecraft-motd@1"
+required = false
+""",
+        encoding="utf-8",
+    )
+
+
+def _add_motd_input(project: Path, content: bytes) -> Path:
+    order_path = project / "mc-remote.toml"
+    order_path.write_text(
+        order_path.read_text(encoding="utf-8")
+        + """
+[[operator_inputs]]
+role = "minecraft-motd"
+adapter = "minecraft-motd@1"
+path = "operator/minecraft-motd/server.properties"
+""",
+        encoding="utf-8",
+    )
+    source_path = project / MOTD_PATH
+    source_path.parent.mkdir(parents=True)
+    source_path.write_bytes(content)
+    return source_path
+
+
+def test_operator_input_semantics_enter_lock_identity_without_lexical_churn(
+    tmp_path: Path,
+) -> None:
+    project, data_root = _fixture(tmp_path)
+    _declare_motd_role(data_root)
+    source_path = _add_motd_input(
+        project,
+        b"# classroom-visible text\nmotd = McRemote home beta\n",
+    )
+    _acknowledge(project, "unverified")
+
+    created = resolve_project(
+        project,
+        data_root=data_root,
+        allow_unverified=True,
+        resolved_at=FIRST_RESOLVED_AT,
+    )
+    lock = load_lock(project, data_root=data_root)
+    expected = {
+        "role": MOTD_ROLE,
+        "adapter": MOTD_ADAPTER,
+        "path": MOTD_PATH,
+        "semantic_sha256": semantic_sha256({"motd": "McRemote home beta"}),
+        "semantic": {"motd": "McRemote home beta"},
+    }
+    assert lock["operator_inputs"] == [expected]
+    assert lock["render_plan"]["operator_inputs"] == [expected]
+    assert lock["render_plan"]["operator_input_roles"] == [
+        {
+            "id": MOTD_ROLE,
+            "adapter": MOTD_ADAPTER,
+            "required": False,
+        }
+    ]
+
+    lock_path = project / "mc-remote.lock.toml"
+    before_bytes = lock_path.read_bytes()
+    before_mtime = lock_path.stat().st_mtime_ns
+    source_path.write_text(
+        "# comment-only lexical change\n\nmotd=McRemote home beta\n",
+        encoding="utf-8",
+    )
+
+    assert inspect_lock(project, data_root=data_root).status == "unchanged"
+    unchanged = resolve_project(
+        project,
+        data_root=data_root,
+        allow_unverified=True,
+        resolved_at="2026-07-24T01:00:00Z",
+    )
+    assert unchanged.status == "unchanged"
+    assert unchanged.lock_identity == created.lock_identity
+    assert lock_path.read_bytes() == before_bytes
+    assert lock_path.stat().st_mtime_ns == before_mtime
+
+    source_path.write_text("motd=Different public text\n", encoding="utf-8")
+    assert inspect_lock(project, data_root=data_root).status == "stale"
+
+
+def test_operator_input_must_be_declared_by_selected_profile(tmp_path: Path) -> None:
+    project, data_root = _fixture(tmp_path)
+    _add_motd_input(project, b"motd=McRemote home beta\n")
+    _acknowledge(project, "unverified")
+
+    with pytest.raises(ResolutionError) as exc_info:
+        resolve_project(
+            project,
+            data_root=data_root,
+            allow_unverified=True,
+            resolved_at=FIRST_RESOLVED_AT,
+        )
+
+    assert exc_info.value.reason == "operator_input_profile_mismatch"
+    assert not (project / "mc-remote.lock.toml").exists()
+
+
+@pytest.mark.parametrize(
+    ("content", "reason"),
+    [
+        (b"\xff", "operator_input_encoding_invalid"),
+        (b"motd=one\nmotd=two\n", "operator_input_parse_failed"),
+        (b"motd=one\\\n", "operator_input_parse_failed"),
+        (b"unknown=value\n", "operator_input_parse_failed"),
+        (b"motd=secret://classroom-token\n", "operator_input_secret_forbidden"),
+    ],
+)
+def test_minecraft_motd_adapter_fails_closed(
+    tmp_path: Path,
+    content: bytes,
+    reason: str,
+) -> None:
+    project, data_root = _fixture(tmp_path)
+    _declare_motd_role(data_root)
+    _add_motd_input(project, content)
+    _acknowledge(project, "unverified")
+
+    with pytest.raises(ResolutionError) as exc_info:
+        resolve_project(
+            project,
+            data_root=data_root,
+            allow_unverified=True,
+            resolved_at=FIRST_RESOLVED_AT,
+        )
+
+    assert exc_info.value.reason == reason
+    assert not (project / "mc-remote.lock.toml").exists()
+
+
+def test_cli_validate_runs_operator_adapter_before_lock_exists(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    project, data_root = _fixture(tmp_path)
+    _declare_motd_role(data_root)
+    _add_motd_input(project, b"unknown=value\n")
+    monkeypatch.setattr("mc_remote_stack.cli._preset_data_root", lambda: data_root)
+
+    assert main(["validate", "--project", str(project)]) == 2
+
+    output = capsys.readouterr().out
+    assert "FAIL validate reason=operator_input_parse_failed" in output
+    assert not (project / "mc-remote.lock.toml").exists()

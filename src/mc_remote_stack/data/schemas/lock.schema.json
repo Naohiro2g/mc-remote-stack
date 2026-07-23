@@ -20,6 +20,7 @@
     "preset_lifecycle",
     "compatibility",
     "acknowledgements",
+    "operator_inputs",
     "components",
     "artifacts",
     "render_plan",
@@ -314,6 +315,13 @@
         }
       }
     },
+    "operator_inputs": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/operatorInput"
+      }
+    },
     "components": {
       "type": "array",
       "minItems": 1,
@@ -373,7 +381,9 @@
         "semantic_sha256",
         "services",
         "volume_roles",
-        "required_security_controls"
+        "required_security_controls",
+        "operator_input_roles",
+        "operator_inputs"
       ],
       "properties": {
         "adapter": {
@@ -422,6 +432,20 @@
         },
         "required_security_controls": {
           "$ref": "#/$defs/tokens"
+        },
+        "operator_input_roles": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/operatorInputRole"
+          }
+        },
+        "operator_inputs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/operatorInput"
+          }
         }
       }
     },
@@ -492,6 +516,59 @@
         },
         "content_sha256": {
           "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "operatorInputRole": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "adapter", "required"],
+      "properties": {
+        "id": {
+          "const": "minecraft-motd"
+        },
+        "adapter": {
+          "const": "minecraft-motd@1"
+        },
+        "required": {
+          "type": "boolean"
+        }
+      }
+    },
+    "operatorInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "role",
+        "adapter",
+        "path",
+        "semantic_sha256",
+        "semantic"
+      ],
+      "properties": {
+        "role": {
+          "const": "minecraft-motd"
+        },
+        "adapter": {
+          "const": "minecraft-motd@1"
+        },
+        "path": {
+          "const": "operator/minecraft-motd/server.properties"
+        },
+        "semantic_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "semantic": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["motd"],
+          "properties": {
+            "motd": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            }
+          }
         }
       }
     },
