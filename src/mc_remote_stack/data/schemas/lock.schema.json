@@ -1,0 +1,699 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mc-remote.example/schemas/lock.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "lock_identity",
+    "resolved_at",
+    "resolver",
+    "input",
+    "deployment",
+    "environment",
+    "runtime",
+    "world",
+    "network",
+    "agreements",
+    "source_precedence",
+    "selection",
+    "preset_lifecycle",
+    "compatibility",
+    "acknowledgements",
+    "components",
+    "artifacts",
+    "render_plan",
+    "secret_references",
+    "scope"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "lock_identity": {
+      "$ref": "#/$defs/prefixedSha256"
+    },
+    "resolved_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "resolver": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version", "lock_schema", "canonicalization"],
+      "properties": {
+        "name": {
+          "const": "mcrctl"
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "lock_schema": {
+          "const": 1
+        },
+        "canonicalization": {
+          "const": "jcs-rfc8785-v1"
+        }
+      }
+    },
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["order", "profile", "preset"],
+      "properties": {
+        "order": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["semantic_sha256"],
+          "properties": {
+            "semantic_sha256": {
+              "$ref": "#/$defs/sha256"
+            }
+          }
+        },
+        "profile": {
+          "$ref": "#/$defs/refAndDigest"
+        },
+        "preset": {
+          "$ref": "#/$defs/refAndDigest"
+        }
+      }
+    },
+    "deployment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "profile"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "profile": {
+          "$ref": "#/$defs/exactRef"
+        }
+      }
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["identity", "channel", "exposure", "purpose"],
+      "properties": {
+        "identity": {
+          "type": "string",
+          "minLength": 1
+        },
+        "channel": {
+          "enum": ["stable", "beta", "alpha", "dev"]
+        },
+        "exposure": {
+          "enum": ["public", "lan-only", "isolated"]
+        },
+        "purpose": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifact_store", "volumes"],
+      "properties": {
+        "artifact_store": {
+          "type": "string",
+          "pattern": "^/(?!$)(?!.*(?:^|/)\\.\\.(?:/|$))[^\\\\]+$"
+        },
+        "volumes": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["role", "identity"],
+            "properties": {
+              "role": {
+                "$ref": "#/$defs/token"
+              },
+              "identity": {
+                "$ref": "#/$defs/token"
+              }
+            }
+          }
+        }
+      }
+    },
+    "world": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["identity"],
+      "properties": {
+        "identity": {
+          "$ref": "#/$defs/token"
+        }
+      }
+    },
+    "network": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["bind_address", "java_port", "mcremote_port"],
+      "properties": {
+        "bind_address": {
+          "type": "string",
+          "format": "ipv4"
+        },
+        "java_port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "mcremote_port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        }
+      }
+    },
+    "agreements": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["minecraft_eula"],
+      "properties": {
+        "minecraft_eula": {
+          "const": true
+        }
+      }
+    },
+    "source_precedence": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "prefixItems": [
+        {
+          "const": "profile"
+        },
+        {
+          "const": "preset"
+        },
+        {
+          "const": "order"
+        },
+        {
+          "const": "override"
+        }
+      ]
+    },
+    "selection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": {
+          "enum": ["preset", "custom"]
+        }
+      }
+    },
+    "preset_lifecycle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status"],
+      "properties": {
+        "status": {
+          "enum": ["active", "deprecated", "eol"]
+        },
+        "warning": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "compatibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "required_claims_sha256",
+        "component_set_sha256",
+        "records"
+      ],
+      "properties": {
+        "status": {
+          "enum": ["verified", "unverified"]
+        },
+        "required_claims_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "component_set_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "records": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "content_sha256", "claims", "evidence"],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9-]{0,126}$"
+              },
+              "content_sha256": {
+                "$ref": "#/$defs/sha256"
+              },
+              "claims": {
+                "$ref": "#/$defs/tokens"
+              },
+              "evidence": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["repository", "commit", "path"],
+                  "properties": {
+                    "repository": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "commit": {
+                      "type": "string",
+                      "pattern": "^[0-9a-f]{40}$"
+                    },
+                    "path": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "artifact_sha256": {
+                      "$ref": "#/$defs/sha256"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "acknowledgements": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["allow_unverified", "unverified_reason", "allow_eol", "eol_reason"],
+      "properties": {
+        "allow_unverified": {
+          "type": "boolean"
+        },
+        "unverified_reason": {
+          "type": "string"
+        },
+        "allow_eol": {
+          "type": "boolean"
+        },
+        "eol_reason": {
+          "type": "string"
+        }
+      }
+    },
+    "components": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "role", "artifact"],
+        "properties": {
+          "id": {
+            "$ref": "#/$defs/token"
+          },
+          "role": {
+            "$ref": "#/$defs/token"
+          },
+          "artifact": {
+            "$ref": "#/$defs/token"
+          },
+          "protocol": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minecraft_version": {
+            "$ref": "#/$defs/minecraftVersion"
+          }
+        }
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "oneOf": [
+          {
+            "$ref": "#/$defs/ociArtifact"
+          },
+          {
+            "$ref": "#/$defs/httpsArtifact"
+          },
+          {
+            "$ref": "#/$defs/gitBuildArtifact"
+          },
+          {
+            "$ref": "#/$defs/recoveryMemberArtifact"
+          },
+          {
+            "$ref": "#/$defs/staticArchiveArtifact"
+          }
+        ]
+      }
+    },
+    "render_plan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "adapter",
+        "adapter_revision",
+        "semantic_sha256",
+        "services",
+        "volume_roles",
+        "required_security_controls"
+      ],
+      "properties": {
+        "adapter": {
+          "$ref": "#/$defs/token"
+        },
+        "adapter_revision": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]*$"
+        },
+        "semantic_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "services": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "role"],
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/token"
+              },
+              "role": {
+                "$ref": "#/$defs/token"
+              }
+            }
+          }
+        },
+        "volume_roles": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "kind"],
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/token"
+              },
+              "kind": {
+                "enum": ["world", "runtime-data", "backup", "cache"]
+              }
+            }
+          }
+        },
+        "required_security_controls": {
+          "$ref": "#/$defs/tokens"
+        }
+      }
+    },
+    "secret_references": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "usage"],
+        "properties": {
+          "id": {
+            "$ref": "#/$defs/token"
+          },
+          "usage": {
+            "$ref": "#/$defs/token"
+          }
+        }
+      }
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["secret_values", "secret_injected_bytes", "runtime_owned_state"],
+      "properties": {
+        "secret_values": {
+          "const": "excluded"
+        },
+        "secret_injected_bytes": {
+          "const": "excluded"
+        },
+        "runtime_owned_state": {
+          "const": "excluded"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "token": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"
+    },
+    "tokens": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/token"
+      }
+    },
+    "exactRef": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,62}@[1-9][0-9]*$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "prefixedSha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "refAndDigest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ref", "content_sha256"],
+      "properties": {
+        "ref": {
+          "$ref": "#/$defs/exactRef"
+        },
+        "content_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "safeFilename": {
+      "type": "string",
+      "pattern": "^[^/\\\\]+$",
+      "minLength": 1
+    },
+    "minecraftVersion": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+(?:\\.[0-9]+)?(?:[-+][0-9A-Za-z.-]+)?$"
+    },
+    "httpsUrl": {
+      "type": "string",
+      "pattern": "^https://"
+    },
+    "ociArtifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "version", "locator", "digest"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/token"
+        },
+        "kind": {
+          "const": "oci"
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "locator": {
+          "type": "string",
+          "pattern": "^[^@\\s]+$"
+        },
+        "digest": {
+          "$ref": "#/$defs/prefixedSha256"
+        }
+      }
+    },
+    "httpsArtifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "version", "filename", "sha256", "origin"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/token"
+        },
+        "kind": {
+          "const": "https-file"
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "filename": {
+          "$ref": "#/$defs/safeFilename"
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "origin": {
+          "$ref": "#/$defs/httpsUrl"
+        }
+      }
+    },
+    "gitBuildArtifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "version",
+        "repository",
+        "commit",
+        "source_subdirectory",
+        "recipe",
+        "recipe_sha256",
+        "toolchain",
+        "toolchain_sha256",
+        "build_input_sha256",
+        "output_filename",
+        "output_sha256"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/token"
+        },
+        "kind": {
+          "const": "git-build"
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "repository": {
+          "$ref": "#/$defs/httpsUrl"
+        },
+        "commit": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "source_subdirectory": {
+          "type": "string",
+          "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$"
+        },
+        "recipe": {
+          "type": "string",
+          "minLength": 1
+        },
+        "recipe_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "toolchain": {
+          "type": "string",
+          "minLength": 1
+        },
+        "toolchain_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "build_input_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "output_filename": {
+          "$ref": "#/$defs/safeFilename"
+        },
+        "output_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "recoveryMemberArtifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "version",
+        "archive_sha256",
+        "member",
+        "output_filename",
+        "output_sha256"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/token"
+        },
+        "kind": {
+          "const": "recovery-archive-member"
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "archive_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "member": {
+          "type": "string",
+          "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$"
+        },
+        "output_filename": {
+          "$ref": "#/$defs/safeFilename"
+        },
+        "output_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "staticArchiveArtifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "version", "archive_sha256", "format", "origin", "excluded"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/token"
+        },
+        "kind": {
+          "const": "static-archive"
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "archive_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "format": {
+          "enum": ["zip", "tar", "tar.gz"]
+        },
+        "origin": {
+          "$ref": "#/$defs/httpsUrl"
+        },
+        "excluded": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$"
+          }
+        }
+      }
+    }
+  }
+}

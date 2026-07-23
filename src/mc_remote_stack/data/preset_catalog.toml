@@ -1,0 +1,17 @@
+schema_version = 1
+
+[preset_catalog]
+generator = "mcrctl-preset-catalog-v1"
+canonicalization = "jcs-rfc8785-v1"
+source_sha256 = "ad7e1e93620bc5f55b17e918b7e74f931a47c4c0d60d35764f96c65a5546cff0"
+
+[[preset_catalog.presets]]
+ref = "mcremote-paper@1"
+content_sha256 = "ac6716635424dd1a13d99e4250e51969b3a7d34db4f9d17466a1db102db87c27"
+description = "Minecraft 1.21.11 Paper server with McRemote protocol 21.0.0 beta"
+status = "active"
+available_since = "2026-07-24"
+required_profile_capabilities = ["compose", "paper", "persistent-world"]
+allowed_channels = ["beta"]
+compatibility_status = "unverified"
+compatibility_records = []

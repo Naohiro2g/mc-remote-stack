@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mc-remote.example/schemas/preset-catalog-policy.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "presets"],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "presets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["ref", "status", "available_since"],
+        "properties": {
+          "ref": {
+            "$ref": "#/$defs/exactRef"
+          },
+          "status": {
+            "enum": ["active", "deprecated", "eol"]
+          },
+          "available_since": {
+            "$ref": "#/$defs/date"
+          },
+          "deprecated_since": {
+            "$ref": "#/$defs/date"
+          },
+          "eol_since": {
+            "$ref": "#/$defs/date"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1
+          },
+          "replacement": {
+            "$ref": "#/$defs/exactRef"
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "status": {
+                  "const": "deprecated"
+                }
+              }
+            },
+            "then": {
+              "required": ["deprecated_since", "reason"]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "status": {
+                  "const": "eol"
+                }
+              }
+            },
+            "then": {
+              "required": ["eol_since", "reason"]
+            }
+          }
+        ]
+      }
+    }
+  },
+  "$defs": {
+    "exactRef": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,62}@[1-9][0-9]*$"
+    },
+    "date": {
+      "type": "string",
+      "format": "date"
+    }
+  }
+}

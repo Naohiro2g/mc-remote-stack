@@ -2,7 +2,7 @@
 
 [日本語はこちら。](README_ja.md)
 
-`mc-remote-stack` is the reproducible deployment and operations package for McRemote servers. It turns one human-edited `mc-remote.yml` into validated, digest-pinned runtime configuration.
+`mc-remote-stack` is the reproducible deployment and operations package for McRemote servers. It turns a new-design `mc-remote.toml`, or a transitional legacy `mc-remote.yml`, into validated, digest-pinned runtime configuration.
 
 The project is intentionally separate from:
 
@@ -14,6 +14,14 @@ The project is intentionally separate from:
 
 - [Fresh-host bootstrap (Japanese)](docs/fresh-host-bootstrap-guide_ja.md)
 - [Legacy server-runbook migration notes (Japanese)](docs/server-runbook-migration-notes_ja.md)
+- [Preset and lock resolution design (Japanese)](docs/preset-resolution-design_ja.md): the next
+  preset registry, preset catalog, compatibility-evidence, and lock-identity model; the bundled
+  home profile/preset, instance contract, and operator-facing TOML init/resolve/fetch/render path
+  are implemented; apply remains unimplemented
+- [TOML project layout design (Japanese)](docs/toml-project-layout-design_ja.md): one environment
+  per project, no generic includes, owner separation, lossless editing, and the YAML/TOML coexistence gate;
+  the isolated TOML project, explicit volume/world/network contract, and managed TOML render path are
+  implemented, while plugin-specific operator inputs and apply remain unimplemented
 
 The legacy repository's native-systemd, package-Caddy, and release-symlink procedures are not current instructions:
 they conflict with this repository's Compose and generated-configuration architecture.
@@ -27,7 +35,56 @@ uv run ruff check .
 uv run mcrctl --help
 ```
 
-## First vertical slice
+## `home-beta` TOML operator path
+
+Initialize exactly one environment with every instance identity explicit. The directory name does not
+infer the environment identity or channel, and EULA acceptance, resolution, and artifact acquisition
+remain separate operations.
+
+```sh
+uv run mcrctl init ./deployments/home-beta \
+  --format toml \
+  --deployment-name home \
+  --profile home-server@1 \
+  --environment-identity home-beta \
+  --channel beta \
+  --exposure isolated \
+  --purpose integration \
+  --preset mcremote-paper@1 \
+  --artifact-store /var/lib/mc-remote/artifacts \
+  --volume minecraft-data=home-beta-minecraft-data \
+  --world-identity home-beta-world \
+  --bind-address 127.0.0.1 \
+  --java-port 25565 \
+  --mcremote-port 25575
+uv run mcrctl validate --project ./deployments/home-beta
+uv run mcrctl accept-eula --project ./deployments/home-beta --yes
+```
+
+The bundled `mcremote-paper@1` revision remains `unverified` until its compatibility evidence is
+recorded. For a deliberate bootstrap, a human must set
+`acknowledgements.allow_unverified = true` and a concrete `unverified_reason` in `mc-remote.toml`,
+then supply the one-shot flag:
+
+```sh
+uv run mcrctl resolve --project ./deployments/home-beta --allow-unverified
+uv run mcrctl plan --project ./deployments/home-beta
+uv run mcrctl artifact fetch --project ./deployments/home-beta
+uv run mcrctl render \
+  --project ./deployments/home-beta \
+  --output ./deployments/home-beta/generated
+```
+
+`artifact fetch` acquires only the HTTPS files named by the current lock, verifies every SHA-256, and
+stores them at `<artifact_store>/sha256/<digest>`. It rehashes existing entries, does not pull the OCI
+image, and never starts Compose. `render` likewise does not create volumes or contact a server.
+While the preset is unverified, `plan` prints the plan and warning and returns status 1. Apply is not
+implemented, so the supported path stops at managed generated output.
+
+Add `home-alpha` later as a separate initialized project with distinct volume and world identities;
+do not copy the `home-beta` directory or lock.
+
+## Legacy `official-vps` vertical slice (regression)
 
 ```sh
 uv run mcrctl init ./deployment --profile official-vps
@@ -38,7 +95,7 @@ uv run mcrctl accept-eula --project ./deployment --yes
 uv run mcrctl render --project ./deployment --output ./deployment/generated
 ```
 
-`plan` stops until EULA acceptance and immutable artifact identities are present. This includes the homepage version / archive SHA-256 as well as OCI images, Paper, and plugin JARs. It never converts an unresolved selector into a production deployment implicitly. `render` writes Compose, Caddy, Scratch runtime, Bridge route, and ServerBackup configuration only after the same gates pass. Applying those files to a host is not implemented in this first vertical slice. The initialized lock is intentionally version-neutral: a profile selects topology and policy, not a Minecraft or McRemote release. Existing-server migration can therefore pin the recovered artifacts without being forced to upgrade McRemote as part of the infrastructure move.
+`plan` stops until EULA acceptance and immutable artifact identities are present. This includes the homepage version / archive SHA-256 as well as OCI images, Paper, and plugin JARs. It never converts an unresolved selector into a production deployment implicitly. `render` writes Compose, Caddy, Scratch runtime, Bridge route, and ServerBackup configuration only after the same gates pass. This legacy path is currently a deterministic plan/render regression fixture, not the first home live deployment. Applying generated files to a host is not implemented. The initialized lock is intentionally version-neutral: a profile selects topology and policy, not a Minecraft or McRemote release. Existing-server migration can therefore pin the recovered artifacts without being forced to upgrade McRemote as part of the infrastructure move.
 
 ### Optional beta instance on the same VPS
 

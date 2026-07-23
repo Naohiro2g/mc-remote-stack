@@ -2,7 +2,7 @@
 
 [English here.](README.md)
 
-`mc-remote-stack` は、McRemote（マイクラリモコン）サーバーを再現可能な形で設置・運用するためのパッケージ。Scratchクライアントを含む。手書き編集した `mc-remote.yml` から、検証済みでdigestを固定したruntime設定を生成する。レンタルVPSサーバーを主な対象とする。
+`mc-remote-stack` は、McRemote（マイクラリモコン）サーバーを再現可能な形で設置・運用するためのパッケージ。Scratchクライアントを含む。新設計の `mc-remote.toml`、または移行前の legacy `mc-remote.yml` から、検証済みでdigestを固定したruntime設定を生成する。
 
 このプロジェクトは、次のものとは意図的に分離している。
 
@@ -14,6 +14,8 @@
 
 - [fresh host bootstrap](docs/fresh-host-bootstrap-guide_ja.md): 個人管理者ユーザー、SSH、安全な開始点、現行 `mcrctl` の停止境界
 - [旧 server-runbook の振り分け](docs/server-runbook-migration-notes_ja.md): carry した内容と、stale/history として採らなかった内容
+- [preset / lock 解決の詳細設計](docs/preset-resolution-design_ja.md): preset registry、preset catalog、compatibility evidence、lock identity。bundled home profile/preset、TOML init/resolve/fetch/renderのoperator経路を実装済み。applyは未実装
+- [TOML project layout の詳細設計](docs/toml-project-layout-design_ja.md): 一environment一project、includeなし、owner分離、lossless editing、YAML/TOML同居gate。明示的なvolume/world/network契約とmanaged renderを実装済み。plugin固有operator inputとapplyは未実装
 
 旧 `server-runbook` の native-systemd / package Caddy / release-symlink 手順は、現在の
 Compose・生成設定中心の実装と一致しないため現行 runbook として取り込みません。
@@ -45,7 +47,55 @@ uv run ruff check .
 uv run mcrctl --help
 ```
 
-## 最初の垂直スライス（機能縦割り）
+## `home-beta` TOML operator経路
+
+最初の新設計projectは、一environmentだけを明示して初期化する。directory名からidentityやchannelを
+推測せず、EULA同意、resolve、artifact取得をそれぞれ独立した操作にする。
+
+```sh
+uv run mcrctl init ./deployments/home-beta \
+  --format toml \
+  --deployment-name home \
+  --profile home-server@1 \
+  --environment-identity home-beta \
+  --channel beta \
+  --exposure isolated \
+  --purpose integration \
+  --preset mcremote-paper@1 \
+  --artifact-store /var/lib/mc-remote/artifacts \
+  --volume minecraft-data=home-beta-minecraft-data \
+  --world-identity home-beta-world \
+  --bind-address 127.0.0.1 \
+  --java-port 25565 \
+  --mcremote-port 25575
+uv run mcrctl validate --project ./deployments/home-beta
+uv run mcrctl accept-eula --project ./deployments/home-beta --yes
+```
+
+bundled `mcremote-paper@1` は、compatibility evidenceがまだ揃っていないため `unverified` である。
+bootstrapする場合だけ、`mc-remote.toml` の
+`acknowledgements.allow_unverified = true` と具体的な `unverified_reason` を人間が記録し、
+one-shot flagを付けて解決する。
+
+```sh
+uv run mcrctl resolve --project ./deployments/home-beta --allow-unverified
+uv run mcrctl plan --project ./deployments/home-beta
+uv run mcrctl artifact fetch --project ./deployments/home-beta
+uv run mcrctl render \
+  --project ./deployments/home-beta \
+  --output ./deployments/home-beta/generated
+```
+
+`artifact fetch` はcurrent lockに列挙されたHTTPS fileだけを取得し、
+`<artifact_store>/sha256/<digest>` へ検証済みbytesを保存する。既存entryも毎回再hashする。
+OCI imageをpullせず、`render` もCompose起動・volume作成・server接続を行わない。
+`plan` はunverified警告がある間は内容を表示してstatus 1を返す。applyはまだ実装されていないため、
+この手順の停止点はmanaged generated outputである。
+
+`home-alpha` は後から別projectとしてinitし、別volume identity・別world identityを与える。
+`home-beta` のdirectoryやlockをcopyして追加しない。
+
+## Legacy `official-vps` 垂直スライス（回帰用）
 
 ```sh
 uv run mcrctl init ./deployment --profile official-vps
@@ -58,7 +108,8 @@ uv run mcrctl render --project ./deployment --output ./deployment/generated
 
 `plan` は、EULAへの同意と変更不能なartifact identityがそろうまで停止。対象にはOCI image、Paper、plugin JARに加え、ホームページのversionとarchive SHA-256も含まれる。未解決のselectorを暗黙に本番deploymentへ変換することはない。
 `render` は同じgateを通過した後にだけ、Compose、Caddy、Scratch runtime、Bridge route、ServerBackup（Paperプラグイン）の設定を生成。
-この最初のvertical sliceには、生成したファイルをhostへ適用する機能はまだ実装されていない。
+このlegacy経路は当面、新TOML設計とのplan/render比較に使う回帰fixtureである。最初のhome live
+deploymentには使わない。生成したファイルをhostへ適用する機能はまだ実装されていない。
 
 初期化したlockは、意図的に特定versionへ固定していない。profileが選ぶものはトポロジーとポリシーであり、マイクラやマイクラリモコンのバージョンではない。このため既存サーバーを移行するときは、回収した現物ファイル（バージョン）を固定するため、インフラ移行と同時にMcRemoteのupgradeを強制されずに済む。
 

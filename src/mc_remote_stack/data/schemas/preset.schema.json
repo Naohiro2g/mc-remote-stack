@@ -1,0 +1,330 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mc-remote.example/schemas/preset.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "preset", "requirements", "components", "artifacts"],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "preset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "revision", "description"],
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/name"
+        },
+        "revision": {
+          "$ref": "#/$defs/revision"
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "requirements": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["profile_capabilities", "allowed_channels", "required_claims"],
+      "properties": {
+        "profile_capabilities": {
+          "$ref": "#/$defs/nonemptyTokens"
+        },
+        "allowed_channels": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": ["stable", "beta", "alpha", "dev"]
+          }
+        },
+        "required_claims": {
+          "$ref": "#/$defs/nonemptyTokens"
+        }
+      }
+    },
+    "components": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "role", "artifact"],
+        "properties": {
+          "id": {
+            "$ref": "#/$defs/token"
+          },
+          "role": {
+            "$ref": "#/$defs/token"
+          },
+          "artifact": {
+            "$ref": "#/$defs/token"
+          },
+          "protocol": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minecraft_version": {
+            "$ref": "#/$defs/minecraftVersion"
+          }
+        }
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "oneOf": [
+          {
+            "$ref": "#/$defs/ociArtifact"
+          },
+          {
+            "$ref": "#/$defs/httpsArtifact"
+          },
+          {
+            "$ref": "#/$defs/gitBuildArtifact"
+          },
+          {
+            "$ref": "#/$defs/recoveryMemberArtifact"
+          },
+          {
+            "$ref": "#/$defs/staticArchiveArtifact"
+          }
+        ]
+      }
+    }
+  },
+  "$defs": {
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"
+    },
+    "revision": {
+      "type": "string",
+      "pattern": "^[1-9][0-9]*$"
+    },
+    "token": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"
+    },
+    "nonemptyTokens": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/token"
+      }
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "ociDigest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "safeFilename": {
+      "type": "string",
+      "pattern": "^[^/\\\\]+$",
+      "minLength": 1
+    },
+    "minecraftVersion": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+(?:\\.[0-9]+)?(?:[-+][0-9A-Za-z.-]+)?$"
+    },
+    "httpsUrl": {
+      "type": "string",
+      "pattern": "^https://"
+    },
+    "ociArtifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "version", "locator", "digest"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/token"
+        },
+        "kind": {
+          "const": "oci"
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "locator": {
+          "type": "string",
+          "pattern": "^[^@\\s]+$"
+        },
+        "digest": {
+          "$ref": "#/$defs/ociDigest"
+        }
+      }
+    },
+    "httpsArtifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "version", "filename", "sha256", "origin"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/token"
+        },
+        "kind": {
+          "const": "https-file"
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "filename": {
+          "$ref": "#/$defs/safeFilename"
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "origin": {
+          "$ref": "#/$defs/httpsUrl"
+        }
+      }
+    },
+    "gitBuildArtifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "version",
+        "repository",
+        "commit",
+        "source_subdirectory",
+        "recipe",
+        "recipe_sha256",
+        "toolchain",
+        "toolchain_sha256",
+        "build_input_sha256",
+        "output_filename",
+        "output_sha256"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/token"
+        },
+        "kind": {
+          "const": "git-build"
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "repository": {
+          "$ref": "#/$defs/httpsUrl"
+        },
+        "commit": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "source_subdirectory": {
+          "type": "string",
+          "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$"
+        },
+        "recipe": {
+          "type": "string",
+          "minLength": 1
+        },
+        "recipe_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "toolchain": {
+          "type": "string",
+          "minLength": 1
+        },
+        "toolchain_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "build_input_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "output_filename": {
+          "$ref": "#/$defs/safeFilename"
+        },
+        "output_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "recoveryMemberArtifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "version",
+        "archive_sha256",
+        "member",
+        "output_filename",
+        "output_sha256"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/token"
+        },
+        "kind": {
+          "const": "recovery-archive-member"
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "archive_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "member": {
+          "type": "string",
+          "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$"
+        },
+        "output_filename": {
+          "$ref": "#/$defs/safeFilename"
+        },
+        "output_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "staticArchiveArtifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "version", "archive_sha256", "format", "origin", "excluded"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/token"
+        },
+        "kind": {
+          "const": "static-archive"
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "archive_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "format": {
+          "enum": ["zip", "tar", "tar.gz"]
+        },
+        "origin": {
+          "$ref": "#/$defs/httpsUrl"
+        },
+        "excluded": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$"
+          }
+        }
+      }
+    }
+  }
+}
