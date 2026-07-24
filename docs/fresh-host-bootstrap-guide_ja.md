@@ -43,18 +43,29 @@ sudo -v
 ## 2. SSH hardening
 
 個人管理者ユーザーの別 session を確認した後だけ、root login と password login を閉じる。
+Ubuntuではcloud-initが`50-cloud-init.conf`でpassword loginを先に有効化している場合がある。
+OpenSSHは各keywordについて最初に得た値を使うため、それより前に評価される`00-`のdrop-inを使う。
+既存drop-inを削除・編集して解決しない。
 
 ```bash
 sudo install -d -m 755 /etc/ssh/sshd_config.d
 printf '%s\n' \
   'PermitRootLogin no' \
   'PasswordAuthentication no' \
-  | sudo tee /etc/ssh/sshd_config.d/99-mc-remote-bootstrap.conf
+  | sudo tee /etc/ssh/sshd_config.d/00-mc-remote-bootstrap.conf
 sudo sshd -t
 sudo systemctl reload ssh
+sudo sshd -T | awk '
+$1=="permitrootlogin" ||
+$1=="passwordauthentication" ||
+$1=="pubkeyauthentication" {
+  print
+}'
 ```
 
-reload 後も別 terminal で SSH と `sudo -v` を再確認する。失敗した session を唯一の管理経路にしない。
+実効値が`permitrootlogin no`、`passwordauthentication no`、`pubkeyauthentication yes`になった
+ことを確認する。reload 後も別 terminal で SSH と `sudo -v` を再確認する。失敗した sessionを
+唯一の管理経路にしない。
 
 ## 3. host と toolchain の preflight
 
