@@ -34,6 +34,10 @@
   `mcremote-paper@1`のisolated `home-beta`を実機検証した。
 - repo tests / Ruff、order / lock validate、repo check、canonical plan、
   healthy container、同一lockのno-op apply、protocol `21.0.0` helloがPASSした。
+- `0c63076`を既存hostへfast-forwardし、対象host上でも202 tests / RuffがPASSした。
+  exact checkout pathの`mcrctl doctor`でcurrent lock / canonical render、managed volume /
+  healthy container、loopback限定port、protocol `21.0.0` / Minecraft `1.21.11` helloがPASSした。
+  旧版projectのroot / tracked inputは人間が明示して`0750` / `0640`へ締めた。
 - 管理端末上のagentがSSHするmodeで1台目を検証し、PATH前提、TCP LF quoting、
   private/public handoff分離の改善点を回収した。対象host上agentは正規modeとはせず未検証。
 - 既存個人管理者userはrootful Dockerを操作できるため、安全側のオンホスト実験profileに
