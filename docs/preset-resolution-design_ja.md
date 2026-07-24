@@ -956,10 +956,11 @@ artifact identity は preset record の manifest digest / SHA-256 を正とし�
 version文字列だけでは採用しない。Paper と McRemote JAR は配布bytesのSHA-256を再計算し、
 OCI image は registry の OCI index digest と照合した。
 
-この revision は preset catalog では `active` だが、compatibility record をまだ持たないため
-`unverified` である。これは live 互換性の主張ではない。最初の resolve は order 内の理由付き
-acknowledgement と one-shot `--allow-unverified` の両方を要求し、deterministic render検証と
-`home-beta` の live evidence 後に別途 compatibility record を追加する。
+初回rolloutではcompatibility recordがなく`unverified`として二段gateを通した。その後の
+sanitized live evidenceにより、exact subject `home-server@2` + `mcremote-paper@1`には
+`home-server-2-mcremote-paper-1-live-auto`を追加した。現在この組合せは`verified`であり、
+通常のresolve / applyに`--allow-unverified`は不要である。異なるprofile revisionやcomponent
+setへcoverageを流用しない。
 
 `home-alpha` は F に従って別 deployment project / order / lock とする。volume role と
 world identity を `home-beta` と共有してはならない。

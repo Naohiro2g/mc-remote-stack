@@ -3,7 +3,7 @@ schema_version = 1
 [preset_catalog]
 generator = "mcrctl-preset-catalog-v1"
 canonicalization = "jcs-rfc8785-v1"
-source_sha256 = "ad7e1e93620bc5f55b17e918b7e74f931a47c4c0d60d35764f96c65a5546cff0"
+source_sha256 = "99729926562828b10d61525b2380b0d16a1e0084ec198356d78b0e34b82793b0"
 
 [[preset_catalog.presets]]
 ref = "mcremote-paper@1"
@@ -13,5 +13,5 @@ status = "active"
 available_since = "2026-07-24"
 required_profile_capabilities = ["compose", "paper", "persistent-world"]
 allowed_channels = ["beta"]
-compatibility_status = "unverified"
-compatibility_records = []
+compatibility_status = "verified"
+compatibility_records = ["home-server-2-mcremote-paper-1-live-auto"]

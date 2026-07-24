@@ -1,0 +1,45 @@
+schema_version = 1
+
+[record]
+id = "home-server-2-mcremote-paper-1-live-auto"
+test_class = "live-auto"
+result = "pass"
+verified_at = "2026-07-24T22:35:33Z"
+
+[subject]
+preset_ref = "mcremote-paper@1"
+preset_sha256 = "ac6716635424dd1a13d99e4250e51969b3a7d34db4f9d17466a1db102db87c27"
+profile_ref = "home-server@2"
+profile_sha256 = "a59b8ac2bf4148256ee6f45884a6a47b11d8c890043603f180149e873722e63c"
+component_set_sha256 = "96e2f2291c9dbdd70e4cb6471d6dbef82a02eec5799f45593f86b958523e0166"
+
+[[claims]]
+id = "profile-render"
+constraint = "all"
+
+[[claims]]
+id = "protocol-hello"
+constraint = "all"
+
+[[evidence]]
+repository = "Naohiro2g/mc-remote-knowledge"
+commit = "9b58b62c9af80d415cfbc90925a839f07e78e4f3"
+path = "14-evidence/records/2026-07-25-home-beta-clean-bootstrap-live-auto_ja.md"
+
+[[evidence]]
+repository = "Naohiro2g/mc-remote-knowledge"
+commit = "9b58b62c9af80d415cfbc90925a839f07e78e4f3"
+path = "14-evidence/artifacts/2026-07-25-home-beta-clean-bootstrap-live-auto/bootstrap-transcript.txt"
+artifact_sha256 = "53ce3b6975e6ac79c343c8f09b71082184e75c14626baf5b79e4c924ca99af3a"
+
+[[evidence]]
+repository = "Naohiro2g/mc-remote-knowledge"
+commit = "9b58b62c9af80d415cfbc90925a839f07e78e4f3"
+path = "14-evidence/artifacts/2026-07-25-home-beta-clean-bootstrap-live-auto/doctor-transcript.txt"
+artifact_sha256 = "44e5af9e1a5821a12dcc0cdc059a1f47020c6027c324078dfe95aee0785635fa"
+
+[[evidence]]
+repository = "Naohiro2g/mc-remote-knowledge"
+commit = "9b58b62c9af80d415cfbc90925a839f07e78e4f3"
+path = "14-evidence/artifacts/2026-07-25-home-beta-clean-bootstrap-live-auto/lan-only-render-transcript.txt"
+artifact_sha256 = "b4f937debc325f7642b993f1bf82de2aa7c5b12f749d8fd204968b332a5eb3c7"

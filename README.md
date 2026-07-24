@@ -92,13 +92,11 @@ uv run mcrctl validate --project "$MC_REMOTE_PROJECT"
 uv run mcrctl accept-eula --project "$MC_REMOTE_PROJECT" --yes
 ```
 
-The bundled `mcremote-paper@1` revision remains `unverified` until its compatibility evidence is
-recorded. For a deliberate bootstrap, a human must set
-`acknowledgements.allow_unverified = true` and a concrete `unverified_reason` in `mc-remote.toml`,
-then supply the one-shot flag:
+The exact `home-server@2` + `mcremote-paper@1` subject has a bundled compatibility record, so the
+normal bootstrap does not need an unverified acknowledgement:
 
 ```sh
-uv run mcrctl resolve --project "$MC_REMOTE_PROJECT" --allow-unverified
+uv run mcrctl resolve --project "$MC_REMOTE_PROJECT"
 uv run mcrctl plan --project "$MC_REMOTE_PROJECT"
 uv run mcrctl artifact fetch --project "$MC_REMOTE_PROJECT"
 uv run mcrctl render \
@@ -109,8 +107,9 @@ uv run mcrctl render \
 `artifact fetch` acquires only the HTTPS files named by the current lock, verifies every SHA-256, and
 stores them at `<artifact_store>/sha256/<digest>`. It rehashes existing entries, does not pull the OCI
 image, and never starts Compose. `render` likewise does not create volumes or contact a server.
-While the preset is unverified, `plan` prints the plan and warning and returns status 1. Apply is not
-implicit: `render` still stops at managed generated output.
+For this exact verified subject, `plan` reports `compatibility=verified` and returns status 0. Apply
+is not implicit: `render` still stops at managed generated output. A different exact profile,
+preset, or component set remains unverified unless separately covered.
 
 The first isolated `home-beta` can be bootstrap-applied on the target host through an explicit local
 Unix-socket Docker context. Manually copy the reviewed `PLAN lock=unchanged identity=...` value;
@@ -124,8 +123,7 @@ uv run mcrctl apply \
   --expected-lock-identity "$REVIEWED_LOCK_IDENTITY" \
   --docker-context default \
   --bootstrap \
-  --yes \
-  --allow-unverified
+  --yes
 ```
 
 Apply pulls the exact OCI image, rejects unknown containers, unknown volumes, and port collisions,
@@ -142,8 +140,8 @@ uv run mcrctl doctor --project "$MC_REMOTE_PROJECT"
 By default it checks `<project>/generated` through the local Docker context named `default`. It verifies
 the current lock and canonical render, managed volume, container labels, running/healthy state, exact
 loopback port mappings, and a token-free protocol hello. It does not print container logs or
-session/player/token values. An unverified compatibility selection remains an explicit warning even
-when the runtime is healthy.
+session/player/token values. If another exact subject is unverified, doctor retains an explicit
+warning even when its runtime is healthy.
 
 Add `home-alpha` later as a separate initialized project with distinct volume and world identities;
 do not copy the `home-beta` directory or lock.

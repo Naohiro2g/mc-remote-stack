@@ -522,11 +522,11 @@ def test_eol_resolution_requires_order_and_cli_acknowledgement(tmp_path: Path) -
     assert load_lock(project, data_root=data_root)["preset_lifecycle"]["status"] == "eol"
 
 
-def test_bundled_home_preset_resolves_only_through_unverified_bootstrap_gate(tmp_path: Path) -> None:
+def test_bundled_verified_home_preset_resolves_without_unverified_ack(tmp_path: Path) -> None:
     project = init_toml_project(
         tmp_path / "home-beta",
         deployment_name="home",
-        profile="home-server@1",
+        profile="home-server@2",
         environment_identity="home-beta",
         channel="beta",
         exposure="isolated",
@@ -534,19 +534,21 @@ def test_bundled_home_preset_resolves_only_through_unverified_bootstrap_gate(tmp
         preset="mcremote-paper@1",
         **_instance_kwargs(),
     )
-    _acknowledge(project.root, "unverified")
     data_root = files("mc_remote_stack").joinpath("data")
 
     result = resolve_project(
         project.root,
         data_root=data_root,
-        allow_unverified=True,
         resolved_at=FIRST_RESOLVED_AT,
     )
     lock = load_lock(project.root, data_root=data_root)
 
     assert result.status == "created"
-    assert lock["compatibility"]["status"] == "unverified"
+    assert lock["compatibility"]["status"] == "verified"
+    assert [record["id"] for record in lock["compatibility"]["records"]] == [
+        "home-server-2-mcremote-paper-1-live-auto"
+    ]
+    assert lock["acknowledgements"]["allow_unverified"] is False
     assert [artifact["id"] for artifact in lock["artifacts"]] == [
         "minecraft-image",
         "paper-jar",

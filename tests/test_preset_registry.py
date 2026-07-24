@@ -574,6 +574,9 @@ def test_bundled_home_profile_and_preset_are_exact_and_catalogued() -> None:
     original_profile = load_profile("home-server@1")
     profile = load_profile("home-server@2")
     preset = load_preset("mcremote-paper@1")
+    compatibility = load_compatibility_record(
+        "home-server-2-mcremote-paper-1-live-auto"
+    )
 
     assert "operator_input_roles" not in original_profile.data
     assert profile.data["capabilities"]["required_component_roles"] == [
@@ -640,5 +643,20 @@ def test_bundled_home_profile_and_preset_are_exact_and_catalogued() -> None:
         }
     ]
     assert catalog["preset_catalog"]["presets"][0]["ref"] == "mcremote-paper@1"
-    assert catalog["preset_catalog"]["presets"][0]["compatibility_status"] == "unverified"
+    assert catalog["preset_catalog"]["presets"][0]["compatibility_status"] == "verified"
+    assert catalog["preset_catalog"]["presets"][0]["compatibility_records"] == [
+        "home-server-2-mcremote-paper-1-live-auto"
+    ]
+    assert compatibility.data["record"]["test_class"] == "live-auto"
+    assert compatibility.data["subject"] == {
+        "preset_ref": "mcremote-paper@1",
+        "preset_sha256": preset.content_sha256,
+        "profile_ref": "home-server@2",
+        "profile_sha256": profile.content_sha256,
+        "component_set_sha256": component_set_sha256(preset.data),
+    }
+    assert compatibility.data["claims"] == [
+        {"id": "profile-render", "constraint": "all"},
+        {"id": "protocol-hello", "constraint": "all"},
+    ]
     verify_preset_catalog()

@@ -168,7 +168,8 @@ Docker stderrやcontainer logを通常のCLI出力へ転記しない。秘密を
 2. target hostでこのrepoの検証済みcommitをcheckoutし、`uv sync --extra dev`、test、Ruffを通す。
 3. `home-beta` projectを`home-server@2` / `mcremote-paper@1` /
    `beta` / `isolated` / `integration`でinitする。
-4. EULA、理由付きunverified acknowledgement、exact artifact fetchを完了する。
+4. EULA、resolve、exact artifact fetchを完了する。初回evidence取得時だけ理由付きunverified
+   acknowledgementを使用した。
 5. `plan`をreviewし、lock identity、bind port、volume、worldを記録する。
 6. managed renderを生成する。
 7. §2のapplyを実行する。
@@ -177,9 +178,9 @@ Docker stderrやcontainer logを通常のCLI出力へ転記しない。秘密を
    `live-auto`確認する。
 10. pairingや実player操作は`live-human`として分ける。
 
-apply成功はcontainer-level bootstrapの証拠であり、protocol compatibilityのverified主張ではない。
-最初のpresetはunverifiedのままなので、live smoke後にsanitized evidenceをknowledge側へ搬送し、
-compatibility recordを別変更として追加する。
+apply成功だけではprotocol compatibilityのverified主張にならない。初回live smokeのsanitized
+evidenceを別管理し、現在はexact subject `home-server@2` + `mcremote-paper@1`を束縛する
+compatibility record `home-server-2-mcremote-paper-1-live-auto`が追加済みである。
 
 ### 8.1 read-only doctor境界
 

@@ -161,23 +161,11 @@ fi
 共有groupで複数管理者に書込みを与える運用は、この個人管理者baselineへ暗黙追加しない。
 artifact storeの公開artifact bytesは`0755/0644`、local secret storeは`0700/0600`の別境界とする。
 
-bundled `mcremote-paper@1`は最初のlive evidence前なのでunverifiedである。bootstrapする場合だけ
-`mc-remote.toml`に人間が具体的理由を記録する。
-
-```toml
-[acknowledgements]
-allow_unverified = true
-unverified_reason = "initial isolated home-beta live evidence"
-allow_eol = false
-eol_reason = ""
-```
-
-order内の理由だけでは足りない。resolve時にもone-shot flagを渡し、生成前にplanをreviewする。
+exact subject `home-server@2` + `mcremote-paper@1`にはbundled compatibility recordがあるため、
+通常のbootstrapでunverified acknowledgementは不要である。生成前にplanをreviewする。
 
 ```bash
-uv run mcrctl resolve \
-  --project "$MC_REMOTE_PROJECT" \
-  --allow-unverified
+uv run mcrctl resolve --project "$MC_REMOTE_PROJECT"
 uv run mcrctl plan --project "$MC_REMOTE_PROJECT"
 uv run mcrctl artifact fetch --project "$MC_REMOTE_PROJECT"
 uv run mcrctl render \
@@ -185,8 +173,10 @@ uv run mcrctl render \
   --output "$MC_REMOTE_PROJECT/generated"
 ```
 
-unverified警告がある`plan`は内容を表示してstatus 1を返す。lock identity、profile / preset digest、
-artifact、bind port、volume、worldを人間が確認する。秘密値はdeployment projectに保存しない。
+このexact subjectの`plan`は`compatibility=verified`を表示してstatus 0を返す。lock identity、
+profile / preset digest、artifact、bind port、volume、worldを人間が確認する。秘密値はdeployment
+projectに保存しない。profile、preset、component setが異なるsubjectは、別のevidenceでcoverage
+されない限りunverified gateの対象である。
 
 ## 6. bootstrap apply
 
@@ -200,8 +190,7 @@ uv run mcrctl apply \
   --expected-lock-identity "$REVIEWED_LOCK_IDENTITY" \
   --docker-context default \
   --bootstrap \
-  --yes \
-  --allow-unverified
+  --yes
 ```
 
 applyはcurrent lockとcanonical renderを再検証し、未知container / volume、port衝突を拒否する。
