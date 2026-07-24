@@ -799,6 +799,8 @@ mcrctl render --project <path> --output <path>
 mcrctl apply --project <path> --output <path> \
   --expected-lock-identity <identity> --docker-context <local-context> \
   --bootstrap --yes [--allow-unverified] [--allow-eol]
+mcrctl doctor --project <path> [--output <path>] \
+  [--docker-context <local-context>] [--timeout <seconds>]
 ```
 
 - top-level `mcrctl catalog` / `mcrctl registry` は作らない。
@@ -811,6 +813,12 @@ mcrctl apply --project <path> --output <path> \
   lockを使う。
 - `apply` はrender済みbytesの由来となるlock identityを必須入力にし、初版は
   `home-server@2` / `mcremote-paper@1`のisolated beta bootstrapだけを受理する。
+- `doctor`は既定の`<project>/generated`とlocal context `default`をread-only確認し、applyを
+  status commandとして再利用しない。
+- TOML `init`はproject rootを最大`0750`、初期order / README / `.gitignore`を最大`0640`で作る。
+  呼出し元umaskが厳しい場合は緩めず、既存の非空projectや後続のvalidate / doctorがpermissionを
+  暗黙変更しない。projectはsecret storeではないが、Docker権限で消費するtrusted inputとして
+  非管理主体からの書込みを許さない。
 
 ### 16.1 lock-backed artifact fetch
 
@@ -879,6 +887,22 @@ managed external volume作成、Compose `--wait`起動、lock label postcheckを
 既存のunknown container / volume、port衝突、別lock、remote Docker contextはfail closedとする。
 起動失敗時はCompose containerをdownするが、runtime-owned world volumeを削除しない。
 詳細は[`home-beta` bootstrap apply設計](home-beta-bootstrap-apply-design_ja.md)を正とする。
+
+### 16.4 read-only doctor contract
+
+`mcrctl doctor --project <path>`はcurrent lockとcanonical renderをDocker接続前に照合し、
+local Unix Docker context、managed volume、exactly oneのcurrent container、running / healthy、
+lockどおりのpublish portを確認する。既定outputは`<project>/generated`、既定contextは`default`で、
+必要な場合だけ明示overrideする。
+
+runtime preflight後、lockのplugin protocol / Minecraft version / world identityを使い、
+McRemote portへLF終端のtoken無しJSON-RPC `hello`を送る。public response fieldだけを照合し、
+認証強制時の`auth_required`はresponsiveとして区別する。生response、container log、
+session / player / tokenを通常出力へ載せない。doctorはDocker変更commandを実行せず、
+selector解決、artifact取得、render置換、container再起動を行わない。
+
+doctor PASSはcurrent runtimeと最小helloの整合だけを示し、compatibility verified、pairing、
+実player操作、全command、backup / restore、upgrade、公開networkを主張しない。
 
 plan は少なくとも次を operator に見せる。
 
@@ -1016,6 +1040,8 @@ identity から lock を再生成し、validate / plan / render の差を比較�
 - `home-beta` の別 volume / world role
 - 後続 `home-alpha` と volume / world が共有されないこと
 - live deployment command を unit test や fixture から実行しないこと
+- permissive umaskや既存の空directoryでも、新規TOML projectが`0750`、初期fileが`0640`より
+  広くならないこと
 
 ## 19. H の完了条件と F への接続
 

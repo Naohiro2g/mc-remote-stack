@@ -12,6 +12,8 @@ The project is intentionally separate from:
 
 ## Public runbooks
 
+- [Agent-assisted bootstrap (Japanese)](docs/agent-assisted-bootstrap-guide_ja.md): the no-on-host-agent
+  baseline, workstation-over-SSH assistance, and the security gate for limited on-host experiments
 - [Fresh-host bootstrap (Japanese)](docs/fresh-host-bootstrap-guide_ja.md)
 - [Legacy server-runbook migration notes (Japanese)](docs/server-runbook-migration-notes_ja.md)
 - [Preset and lock resolution design (Japanese)](docs/preset-resolution-design_ja.md): the next
@@ -42,10 +44,13 @@ uv run mcrctl --help
 
 Initialize exactly one environment with every instance identity explicit. The directory name does not
 infer the environment identity or channel, and EULA acceptance, resolution, and artifact acquisition
-remain separate operations.
+remain separate operations. Keep the instance-specific order and lock in a deployment project outside
+the package source checkout. TOML `init` caps the project root at mode `0750` and its initial files at
+`0640`, while preserving a stricter caller umask.
 
 ```sh
-uv run mcrctl init ./deployments/home-beta \
+MC_REMOTE_PROJECT="$HOME/mc-remote-deployments/home-beta"
+uv run mcrctl init "$MC_REMOTE_PROJECT" \
   --format toml \
   --deployment-name home \
   --profile home-server@2 \
@@ -54,7 +59,7 @@ uv run mcrctl init ./deployments/home-beta \
   --exposure isolated \
   --purpose integration \
   --preset mcremote-paper@1 \
-  --artifact-store /var/lib/mc-remote/artifacts \
+  --artifact-store "$HOME/.local/share/mc-remote/artifacts" \
   --volume minecraft-data=home-beta-minecraft-data \
   --world-identity home-beta-world \
   --bind-address 127.0.0.1 \
@@ -83,8 +88,8 @@ motd=McRemote home beta
 Validate after adding any operator input and before resolving:
 
 ```sh
-uv run mcrctl validate --project ./deployments/home-beta
-uv run mcrctl accept-eula --project ./deployments/home-beta --yes
+uv run mcrctl validate --project "$MC_REMOTE_PROJECT"
+uv run mcrctl accept-eula --project "$MC_REMOTE_PROJECT" --yes
 ```
 
 The bundled `mcremote-paper@1` revision remains `unverified` until its compatibility evidence is
@@ -93,12 +98,12 @@ recorded. For a deliberate bootstrap, a human must set
 then supply the one-shot flag:
 
 ```sh
-uv run mcrctl resolve --project ./deployments/home-beta --allow-unverified
-uv run mcrctl plan --project ./deployments/home-beta
-uv run mcrctl artifact fetch --project ./deployments/home-beta
+uv run mcrctl resolve --project "$MC_REMOTE_PROJECT" --allow-unverified
+uv run mcrctl plan --project "$MC_REMOTE_PROJECT"
+uv run mcrctl artifact fetch --project "$MC_REMOTE_PROJECT"
 uv run mcrctl render \
-  --project ./deployments/home-beta \
-  --output ./deployments/home-beta/generated
+  --project "$MC_REMOTE_PROJECT" \
+  --output "$MC_REMOTE_PROJECT/generated"
 ```
 
 `artifact fetch` acquires only the HTTPS files named by the current lock, verifies every SHA-256, and
@@ -114,8 +119,8 @@ do not derive it from ambient state.
 ```sh
 REVIEWED_LOCK_IDENTITY="sha256:<reviewed-64-hex>"
 uv run mcrctl apply \
-  --project ./deployments/home-beta \
-  --output ./deployments/home-beta/generated \
+  --project "$MC_REMOTE_PROJECT" \
+  --output "$MC_REMOTE_PROJECT/generated" \
   --expected-lock-identity "$REVIEWED_LOCK_IDENTITY" \
   --docker-context default \
   --bootstrap \
@@ -125,8 +130,20 @@ uv run mcrctl apply \
 
 Apply pulls the exact OCI image, rejects unknown containers, unknown volumes, and port collisions,
 then creates the managed world volume and starts Minecraft. A failed startup brings containers down
-but retains the world volume. Docker installation, firewall mutation, existing-world import, upgrades,
-and protocol smoke are outside this command.
+but retains the world volume. Docker installation, firewall mutation, existing-world import, and upgrades
+are outside this command.
+
+Use the read-only doctor after logging in instead of reusing apply as a status command:
+
+```sh
+uv run mcrctl doctor --project "$MC_REMOTE_PROJECT"
+```
+
+By default it checks `<project>/generated` through the local Docker context named `default`. It verifies
+the current lock and canonical render, managed volume, container labels, running/healthy state, exact
+loopback port mappings, and a token-free protocol hello. It does not print container logs or
+session/player/token values. An unverified compatibility selection remains an explicit warning even
+when the runtime is healthy.
 
 Add `home-alpha` later as a separate initialized project with distinct volume and world identities;
 do not copy the `home-beta` directory or lock.

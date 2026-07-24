@@ -126,6 +126,55 @@ def test_init_creates_one_environment_order_without_placeholder_lock(tmp_path: P
     assert "environments" not in order
 
 
+def test_init_clamps_project_permissions_with_a_permissive_umask(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "home-beta"
+    root.mkdir(mode=0o777)
+    root.chmod(0o777)
+    previous_umask = os.umask(0)
+    try:
+        project = init_toml_project(
+            root,
+            deployment_name="home",
+            profile="home-server@1",
+            environment_identity="home-beta",
+            channel="beta",
+            exposure="isolated",
+            purpose="integration",
+            preset="classroom-paper@3",
+            **_instance_kwargs(),
+        )
+    finally:
+        os.umask(previous_umask)
+
+    assert os.stat(project.root).st_mode & 0o777 == 0o750
+    for path in (project.order, project.readme, project.gitignore):
+        assert os.stat(path).st_mode & 0o777 == 0o640
+
+
+def test_init_preserves_a_stricter_caller_umask(tmp_path: Path) -> None:
+    previous_umask = os.umask(0o077)
+    try:
+        project = init_toml_project(
+            tmp_path / "home-beta",
+            deployment_name="home",
+            profile="home-server@1",
+            environment_identity="home-beta",
+            channel="beta",
+            exposure="isolated",
+            purpose="integration",
+            preset="classroom-paper@3",
+            **_instance_kwargs(),
+        )
+    finally:
+        os.umask(previous_umask)
+
+    assert os.stat(project.root).st_mode & 0o777 == 0o700
+    for path in (project.order, project.readme, project.gitignore):
+        assert os.stat(path).st_mode & 0o777 == 0o600
+
+
 def test_init_refuses_non_empty_directory_without_changing_it(tmp_path: Path) -> None:
     root = tmp_path / "home-beta"
     root.mkdir()

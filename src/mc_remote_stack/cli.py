@@ -17,6 +17,7 @@ from .artifacts import (
     import_recovery_archive,
 )
 from .backup import BackupTransferError, transfer_archive
+from .doctor import DoctorContractError, doctor_toml_project
 from .operator_inputs import OperatorInputError, resolve_operator_inputs
 from .preset_registry import (
     PresetDataError,
@@ -58,6 +59,7 @@ def _print_structured_failure(
     exc: (
         ArtifactFetchError
         | ApplyContractError
+        | DoctorContractError
         | OperatorInputError
         | PresetDataError
         | ProjectOrderError
@@ -644,6 +646,60 @@ def _cmd_apply(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_doctor(args: argparse.Namespace) -> int:
+    project_path = Path(args.project)
+    if not _uses_toml_project(project_path):
+        return _print_reason_failure(
+            "doctor",
+            "doctor_requires_toml",
+            project_path.resolve(),
+            "doctor supports only one-environment TOML deployment projects",
+        )
+    output = Path(args.output) if args.output else project_path / "generated"
+    try:
+        result = doctor_toml_project(
+            project_path,
+            output,
+            docker_context=args.docker_context,
+            data_root=_preset_data_root(),
+            timeout=args.timeout,
+        )
+    except (
+        DoctorContractError,
+        PresetDataError,
+        ProjectOrderError,
+        RenderContractError,
+        ResolutionError,
+    ) as exc:
+        return _print_structured_failure("doctor", exc)
+    except OSError as exc:
+        print(f"FAIL doctor: {exc}")
+        return 2
+
+    print(
+        f"OK doctor runtime={result.runtime_status} "
+        f"deployment={result.deployment} environment={result.environment}"
+    )
+    print(
+        f"OK doctor lock={result.lock_identity} "
+        f"render=current context={result.docker_context}"
+    )
+    print(
+        f"OK doctor network={result.network_scope} bind={result.bind_address} "
+        f"java-port={result.java_port} mcremote-port={result.mcremote_port}"
+    )
+    if result.protocol_status == "ok":
+        print(
+            f"OK doctor protocol={result.protocol} "
+            f"mc-version={result.minecraft_version} auth=not-required"
+        )
+    else:
+        print("OK doctor protocol=responsive auth=required")
+    if result.compatibility_status == "unverified":
+        print("WARN doctor compatibility=unverified")
+    return 0
+
+
 def _cmd_archive_inspect(args: argparse.Namespace) -> int:
     try:
         inventory = inspect_archive(Path(args.archive))
@@ -833,6 +889,16 @@ def build_parser() -> argparse.ArgumentParser:
     apply_parser.add_argument("--allow-eol", action="store_true")
     apply_parser.add_argument("--wait-timeout", type=int, default=300)
     apply_parser.set_defaults(handler=_cmd_apply)
+
+    doctor_parser = subparsers.add_parser(
+        "doctor",
+        help="read-only check of one current TOML Docker runtime and protocol",
+    )
+    doctor_parser.add_argument("--project", required=True)
+    doctor_parser.add_argument("--output")
+    doctor_parser.add_argument("--docker-context", default="default")
+    doctor_parser.add_argument("--timeout", type=int, default=5)
+    doctor_parser.set_defaults(handler=_cmd_doctor)
 
     archive_parser = subparsers.add_parser("archive", help="recovery archive operations")
     archive_subparsers = archive_parser.add_subparsers(dest="archive_command", required=True)

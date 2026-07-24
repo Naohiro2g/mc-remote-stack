@@ -173,11 +173,29 @@ Docker stderrやcontainer logを通常のCLI出力へ転記しない。秘密を
 6. managed renderを生成する。
 7. §2のapplyを実行する。
 8. `status=created`または同じlockの`unchanged`を確認する。
-9. server processの起動確認を`live-auto`、pairingや実player操作を`live-human`として分ける。
+9. `mcrctl doctor --project <project>`でcanonical render、managed runtime、port、token無しhelloを
+   `live-auto`確認する。
+10. pairingや実player操作は`live-human`として分ける。
 
 apply成功はcontainer-level bootstrapの証拠であり、protocol compatibilityのverified主張ではない。
 最初のpresetはunverifiedのままなので、live smoke後にsanitized evidenceをknowledge側へ搬送し、
 compatibility recordを別変更として追加する。
+
+### 8.1 read-only doctor境界
+
+`doctor`は既定で`<project>/generated`とlocal Docker context `default`を確認する。applyと違い
+lock identityの再入力、`--yes`、unverifiedのone-shot許可を要求せず、host状態を変更しない。
+
+- current lockとcanonical renderをDocker接続前に検証する。
+- local Unix Docker context、daemon、Compose configをread-only確認する。
+- exactly oneのcurrent container、managed volume、running / healthy、exact port publishを確認する。
+- lockの`mcremote-plugin.protocol`、`paper-server.minecraft_version`、world identityを使って、
+  TCPへLF終端のtoken無しJSON-RPC `hello`を1回だけ送る。
+- hello成功時はpublic contract fieldだけを検証し、`auth_required`はresponsiveとして区別する。
+- container logやhelloの生responseを通常出力へ載せず、session / player / tokenを表示しない。
+
+doctor PASSは現在のruntimeがlockに一致して最小helloへ応答する証拠であり、pairing、実player操作、
+全command、backup、upgrade、公開networkの証拠ではない。
 
 ## 9. test-first gate
 
@@ -190,12 +208,15 @@ compatibility recordを別変更として追加する。
 - up失敗時にComposeをdownし、volumeを削除しない
 - exact running containerへの二回目applyをno-opにする
 - CLIがlock identity、Docker context、bootstrap、confirmation、one-shot acknowledgementを明示転送する
+- doctorはgenerated drift、remote context、unmanaged / unhealthy runtime、port driftをprotocol接続前に拒否する
+- doctorのhelloはTCP実LF終端とし、protocol / Minecraft / world不一致を拒否する
+- doctorはDocker変更commandを呼ばず、生responseやcredential fieldを出力しない
 
 ## 10. 次のslice
 
 bootstrap後は次を別々に閉じる。
 
-1. deployment doctor / `live-auto` protocol smoke
+1. hello以外のread-only / reversibleな`live-auto` protocol command smoke
 2. backup / restoreの実機検証
 3. deployed-state履歴とupgrade rollback
 4. host-level multi-project collision transaction

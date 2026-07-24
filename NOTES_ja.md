@@ -1,0 +1,41 @@
+# mc-remote-stack NOTES
+
+確定前または別sliceへ送る作業だけを置く。private host名、IP、credential、account情報は書かない。
+
+## 2026-07-24 home-beta bootstrap後
+
+- [ ] operator CLI install / PATH契約を確定する。bootstrap期はcheckout内
+  `.venv/bin/mcrctl`をexact pathで使う。既存Ubuntu環境とクリーン環境の両方で、
+  `uv tool install`等の候補を比較してから公開runbookへ採る。
+- [ ] 実利用者のagent-assisted bootstrapを2台目で検証する。最初にhuman-runだけで
+  完走可能なことを保ち、管理端末からSSHする支援経路で人間checkpointを確認する。
+- [ ] 対象host上agentは、重要dataを持たない再構築可能なhostと専用非特権userで限定実験する。
+  `sudo` / rootful `docker` group / SSH agent forwarding / personal credentialを与えず、
+  agent-owned scratchと管理者所有のtrusted checkout / projectを分離する。applyとdoctorを
+  trusted側の別terminalへ戻した場合の実用性と学習価値を評価する。
+- [ ] agent-assisted bootstrapの基準経路、管理端末からの支援経路、対象host上の実験境界、
+  人間checkpoint、pause / handoff境界を
+  knowledge `20-教材/ai-learning-design_ja.md`と
+  `00-hub/llm-agent-boundary-guide_ja.md`へ搬送し、着地確認する。
+- [ ] Rootless Dockerを安全性の候補として別sliceで評価する。現行apply、managed volume、
+  backup / restoreとの互換性を確認するまで、agent利用のためにdeploymentを切り替えない。
+- [ ] token無しhello以外のread-only / reversibleなprotocol command smoke範囲を決める。
+  world変更を伴うtestは、復元境界と人間の学習価値を確認してから実施する。
+- [ ] pairing、Minecraft内command、実player操作を`live-human`として実施し、正式根拠に使う回は
+  knowledge `14-evidence`へrecord + sanitized artifactを搬送する。
+- [ ] `mcremote-paper@1`のrequired claimsと今回のunit / live-auto結果を照合し、
+  compatibility record追加を別変更として判断する。bootstrap成功だけで`verified`へ変えない。
+- [ ] backup / restore、upgrade rollback、host-level multi-project collision、
+  `lan-only` / firewall責任分界、別volume / worldの`home-alpha`を独立sliceで検証する。
+
+公開可能な現時点の観測:
+
+- 既存Ubuntu Desktop hostを再インストールせず、`home-server@2` /
+  `mcremote-paper@1`のisolated `home-beta`を実機検証した。
+- repo tests / Ruff、order / lock validate、repo check、canonical plan、
+  healthy container、同一lockのno-op apply、protocol `21.0.0` helloがPASSした。
+- 管理端末上のagentがSSHするmodeで1台目を検証し、PATH前提、TCP LF quoting、
+  private/public handoff分離の改善点を回収した。対象host上agentは正規modeとはせず未検証。
+- 既存個人管理者userはrootful Dockerを操作できるため、安全側のオンホスト実験profileに
+  合わない。1台目へagentをinstallせず、再構築可能な別hostで評価する。
+- compatibilityは意図どおり`unverified`のまま。private inventoryとraw logは本repoへ置かない。

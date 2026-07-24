@@ -12,6 +12,8 @@
 
 ## 公開 runbook
 
+- [agent-assisted bootstrap](docs/agent-assisted-bootstrap-guide_ja.md): agentを対象hostへ置かない
+  基準経路、管理端末からのSSH支援、対象host上agentの限定実験とsecurity gate
 - [fresh host bootstrap](docs/fresh-host-bootstrap-guide_ja.md): 個人管理者ユーザー、SSH、安全な開始点、現行 `mcrctl` の停止境界
 - [旧 server-runbook の振り分け](docs/server-runbook-migration-notes_ja.md): carry した内容と、stale/history として採らなかった内容
 - [preset / lock 解決の詳細設計](docs/preset-resolution-design_ja.md): preset registry、preset catalog、compatibility evidence、lock identity。bundled home profile/preset、typed operator input、TOML init/resolve/fetch/renderのoperator経路を実装済み
@@ -51,10 +53,13 @@ uv run mcrctl --help
 ## `home-beta` TOML operator経路
 
 最初の新設計projectは、一environmentだけを明示して初期化する。directory名からidentityやchannelを
-推測せず、EULA同意、resolve、artifact取得をそれぞれ独立した操作にする。
+推測せず、EULA同意、resolve、artifact取得をそれぞれ独立した操作にする。instance固有order / lockは
+package source checkoutの外にある独立projectへ置く。TOML `init`はproject rootを最大`0750`、
+初期fileを最大`0640`で作り、呼出し元のより厳しいumaskは維持する。
 
 ```sh
-uv run mcrctl init ./deployments/home-beta \
+MC_REMOTE_PROJECT="$HOME/mc-remote-deployments/home-beta"
+uv run mcrctl init "$MC_REMOTE_PROJECT" \
   --format toml \
   --deployment-name home \
   --profile home-server@2 \
@@ -63,7 +68,7 @@ uv run mcrctl init ./deployments/home-beta \
   --exposure isolated \
   --purpose integration \
   --preset mcremote-paper@1 \
-  --artifact-store /var/lib/mc-remote/artifacts \
+  --artifact-store "$HOME/.local/share/mc-remote/artifacts" \
   --volume minecraft-data=home-beta-minecraft-data \
   --world-identity home-beta-world \
   --bind-address 127.0.0.1 \
@@ -91,8 +96,8 @@ motd=McRemote home beta
 operator inputを追加した場合も、resolveより先にvalidateする。
 
 ```sh
-uv run mcrctl validate --project ./deployments/home-beta
-uv run mcrctl accept-eula --project ./deployments/home-beta --yes
+uv run mcrctl validate --project "$MC_REMOTE_PROJECT"
+uv run mcrctl accept-eula --project "$MC_REMOTE_PROJECT" --yes
 ```
 
 bundled `mcremote-paper@1` は、compatibility evidenceがまだ揃っていないため `unverified` である。
@@ -101,12 +106,12 @@ bootstrapする場合だけ、`mc-remote.toml` の
 one-shot flagを付けて解決する。
 
 ```sh
-uv run mcrctl resolve --project ./deployments/home-beta --allow-unverified
-uv run mcrctl plan --project ./deployments/home-beta
-uv run mcrctl artifact fetch --project ./deployments/home-beta
+uv run mcrctl resolve --project "$MC_REMOTE_PROJECT" --allow-unverified
+uv run mcrctl plan --project "$MC_REMOTE_PROJECT"
+uv run mcrctl artifact fetch --project "$MC_REMOTE_PROJECT"
 uv run mcrctl render \
-  --project ./deployments/home-beta \
-  --output ./deployments/home-beta/generated
+  --project "$MC_REMOTE_PROJECT" \
+  --output "$MC_REMOTE_PROJECT/generated"
 ```
 
 `artifact fetch` はcurrent lockに列挙されたHTTPS fileだけを取得し、
@@ -120,8 +125,8 @@ OCI imageをpullせず、`render` もCompose起動・volume作成・server接続
 ```sh
 REVIEWED_LOCK_IDENTITY="sha256:<planで確認した64-hex>"
 uv run mcrctl apply \
-  --project ./deployments/home-beta \
-  --output ./deployments/home-beta/generated \
+  --project "$MC_REMOTE_PROJECT" \
+  --output "$MC_REMOTE_PROJECT/generated" \
   --expected-lock-identity "$REVIEWED_LOCK_IDENTITY" \
   --docker-context default \
   --bootstrap \
@@ -131,7 +136,18 @@ uv run mcrctl apply \
 
 applyはexact OCI imageをpullし、未知container・未知volume・port衝突を拒否した後にだけmanaged
 volumeとMinecraft serviceを起動する。失敗時はcontainerをdownするが、world volumeは削除しない。
-Docker導入、firewall変更、既存world import、upgrade、protocol smokeはこのcommandの対象外である。
+Docker導入、firewall変更、既存world import、upgradeはこのcommandの対象外である。
+
+ログイン後のread-only稼働確認には`apply`を再利用せず、`doctor`を使う。
+
+```sh
+uv run mcrctl doctor --project "$MC_REMOTE_PROJECT"
+```
+
+既定では`<project>/generated`とlocal Docker context `default`を使う。doctorはcurrent lockとcanonical
+render、managed volume、container label、running / healthy、lockどおりのloopback port、
+token無しprotocol helloを確認する。container logやsession / player / tokenを通常出力へ載せない。
+compatibilityがまだ`unverified`なら、runtimeがhealthyでも警告は残る。
 
 `home-alpha` は後から別projectとしてinitし、別volume identity・別world identityを与える。
 `home-beta` のdirectoryやlockをcopyして追加しない。

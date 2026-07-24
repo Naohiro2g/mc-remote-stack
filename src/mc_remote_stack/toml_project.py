@@ -83,6 +83,7 @@ This directory contains the human-owned order for exactly one environment.
 - `operator/` contains only explicitly referenced, non-secret operator inputs.
 - Runtime volume and world identities are explicit references; their bytes stay outside this project.
 - Generated output, secrets, artifacts, runtime volumes, worlds, and backups stay outside this project.
+- The project is trusted operator input: do not grant write access to untrusted local users or agents.
 """
 
 
@@ -129,6 +130,20 @@ def _fail(reason: str, path: Path, message: str) -> None:
 
 def _project_paths(root: Path) -> TomlProjectPaths:
     return TomlProjectPaths(root.resolve())
+
+
+def _write_new_project_file(path: Path, content: str) -> None:
+    descriptor = os.open(
+        path,
+        os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+        0o640,
+    )
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            stream.write(content)
+    except BaseException:
+        path.unlink(missing_ok=True)
+        raise
 
 
 def _detect_layout(paths: TomlProjectPaths) -> None:
@@ -673,10 +688,11 @@ def init_toml_project(
     if paths.root.exists() and (not paths.root.is_dir() or any(paths.root.iterdir())):
         raise ValueError(f"refusing to initialize non-empty directory: {paths.root}")
 
-    paths.root.mkdir(parents=True, exist_ok=True)
-    paths.gitignore.write_text(PROJECT_GITIGNORE, encoding="utf-8")
-    paths.readme.write_text(PROJECT_README, encoding="utf-8")
-    paths.order.write_text(order_source, encoding="utf-8")
+    paths.root.mkdir(parents=True, exist_ok=True, mode=0o750)
+    os.chmod(paths.root, stat.S_IMODE(paths.root.stat().st_mode) & 0o750)
+    _write_new_project_file(paths.gitignore, PROJECT_GITIGNORE)
+    _write_new_project_file(paths.readme, PROJECT_README)
+    _write_new_project_file(paths.order, order_source)
     return paths
 
 

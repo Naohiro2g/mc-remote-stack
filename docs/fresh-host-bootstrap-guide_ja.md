@@ -3,6 +3,15 @@
 fresh な Ubuntu 系 host を、安全に `mc-remote-stack` の検証・生成を始められる地点まで運ぶ。
 provider、実 IP、個人名、秘密値には依存しない。
 
+クリーンインストール直後だけを利用条件にはしない。既存Ubuntu hostでは、既に入っているtoolや
+serviceをpreflightで観測し、要件を満たすものはそのまま使う。無関係なpackageやdesktop環境を
+一括削除して「fresh」に寄せない。
+
+実利用者の初期構築も、`mcrctl` install前からagent支援を利用できる。ただし、対象host上への
+agent installは必須にせず、人間のterminalだけで完走できる手順を基準にする。管理端末からの
+SSH支援、対象host上agentを試す場合のsecurity gate、人間が握るcheckpointは
+[`agent-assisted bootstrap guide`](agent-assisted-bootstrap-guide_ja.md)を正とする。
+
 ## 現在の実装境界
 
 現行の vertical slice は deployment project の `init`、`validate`、`repo check`、`plan`、
@@ -55,6 +64,9 @@ reload 後も別 terminal で SSH と `sudo -v` を再確認する。失敗し�
 command -v git
 command -v python3
 python3 --version
+if ! command -v uv >/dev/null 2>&1 && [ -x "$HOME/.local/bin/uv" ]; then
+  export PATH="$HOME/.local/bin:$PATH"
+fi
 command -v uv
 command -v docker
 docker context inspect default
@@ -82,11 +94,16 @@ uv run mcrctl --help
 ```
 
 ここで失敗したら deployment project を作らず、toolchain または repository の状態を直す。
+bootstrap期の`uv run mcrctl`は、このcheckoutの`.venv`を使うrepo-boundな呼び方であり、
+`mcrctl`をuserの`PATH`へinstallしない。別のterminalでrepo外から呼ぶ場合は、checkout位置を
+確認して`~/mc-remote-stack/.venv/bin/mcrctl`のようにexact pathを使う。恒久的なoperator向け
+tool installを、場当たり的なsymlinkで代用しない。
 
 ## 5. isolated `home-beta` project
 
 ```bash
-uv run mcrctl init ./deployments/home-beta \
+MC_REMOTE_PROJECT="$HOME/mc-remote-deployments/home-beta"
+uv run mcrctl init "$MC_REMOTE_PROJECT" \
   --format toml \
   --deployment-name home \
   --profile home-server@2 \
@@ -95,19 +112,43 @@ uv run mcrctl init ./deployments/home-beta \
   --exposure isolated \
   --purpose integration \
   --preset mcremote-paper@1 \
-  --artifact-store /var/lib/mc-remote/artifacts \
+  --artifact-store "$HOME/.local/share/mc-remote/artifacts" \
   --volume minecraft-data=home-beta-minecraft-data \
   --world-identity home-beta-world \
   --bind-address 127.0.0.1 \
   --java-port 25565 \
   --mcremote-port 25575
-uv run mcrctl validate --project ./deployments/home-beta
-uv run mcrctl repo check --project ./deployments/home-beta
-uv run mcrctl accept-eula --project ./deployments/home-beta --yes
+uv run mcrctl validate --project "$MC_REMOTE_PROJECT"
+uv run mcrctl repo check --project "$MC_REMOTE_PROJECT"
+uv run mcrctl accept-eula --project "$MC_REMOTE_PROJECT" --yes
 ```
 
 directory名からaxisやidentityを推測しない。`home-alpha`は同じfileへ追加せず、後から別project、
-別volume、別worldとして作る。
+別volume、別worldとして作る。deployment projectはpackage source checkoutの外へ置き、source codeと
+instance固有order / lockのowner境界を混ぜない。親directory名もenvironment identityの正本ではない。
+
+新しいTOML projectのrootは最大`0750`、初期order / README / `.gitignore`は最大`0640`で作り、
+呼出し元のumaskがそれより厳しければ緩めない。order / lockは秘密保存先ではないが、後でDocker権限で
+実行するtrusted inputなので、非管理主体から書込み可能にしない。旧版で作ったprojectは自動変更しない。
+所有者とgroupを確認してから、必要なprojectだけを人間が明示的に締める。
+
+```bash
+stat -c '%U %G %a %n' \
+  "$HOME/mc-remote-deployments" \
+  "$MC_REMOTE_PROJECT" \
+  "$MC_REMOTE_PROJECT/mc-remote.toml"
+chmod 750 "$HOME/mc-remote-deployments" "$MC_REMOTE_PROJECT"
+chmod 640 \
+  "$MC_REMOTE_PROJECT/.gitignore" \
+  "$MC_REMOTE_PROJECT/README.md" \
+  "$MC_REMOTE_PROJECT/mc-remote.toml"
+if [ -f "$MC_REMOTE_PROJECT/mc-remote.lock.toml" ]; then
+  chmod 640 "$MC_REMOTE_PROJECT/mc-remote.lock.toml"
+fi
+```
+
+共有groupで複数管理者に書込みを与える運用は、この個人管理者baselineへ暗黙追加しない。
+artifact storeの公開artifact bytesは`0755/0644`、local secret storeは`0700/0600`の別境界とする。
 
 bundled `mcremote-paper@1`は最初のlive evidence前なのでunverifiedである。bootstrapする場合だけ
 `mc-remote.toml`に人間が具体的理由を記録する。
@@ -124,13 +165,13 @@ order内の理由だけでは足りない。resolve時にもone-shot flagを渡�
 
 ```bash
 uv run mcrctl resolve \
-  --project ./deployments/home-beta \
+  --project "$MC_REMOTE_PROJECT" \
   --allow-unverified
-uv run mcrctl plan --project ./deployments/home-beta
-uv run mcrctl artifact fetch --project ./deployments/home-beta
+uv run mcrctl plan --project "$MC_REMOTE_PROJECT"
+uv run mcrctl artifact fetch --project "$MC_REMOTE_PROJECT"
 uv run mcrctl render \
-  --project ./deployments/home-beta \
-  --output ./deployments/home-beta/generated
+  --project "$MC_REMOTE_PROJECT" \
+  --output "$MC_REMOTE_PROJECT/generated"
 ```
 
 unverified警告がある`plan`は内容を表示してstatus 1を返す。lock identity、profile / preset digest、
@@ -143,8 +184,8 @@ reviewしたlock identityを手入力し、同じtarget host上の明示local Do
 ```bash
 REVIEWED_LOCK_IDENTITY="sha256:<planで確認した64-hex>"
 uv run mcrctl apply \
-  --project ./deployments/home-beta \
-  --output ./deployments/home-beta/generated \
+  --project "$MC_REMOTE_PROJECT" \
+  --output "$MC_REMOTE_PROJECT/generated" \
   --expected-lock-identity "$REVIEWED_LOCK_IDENTITY" \
   --docker-context default \
   --bootstrap \
@@ -158,12 +199,44 @@ postcheckを行う。起動失敗ではcontainerをdownするが、world volume�
 
 詳細は[`home-beta` bootstrap apply設計](home-beta-bootstrap-apply-design_ja.md)を正とする。
 
-## 7. 現在の停止点
+## 7. ログイン後のread-only稼働確認
 
-bootstrap applyの次はlive evidenceである。次が閉じる前に、isolated betaのcontainer起動を
+状態確認に`apply`を再利用しない。対象hostの個人管理者terminalで次を実行する。
+
+```bash
+~/mc-remote-stack/.venv/bin/mcrctl doctor \
+  --project ~/mc-remote-deployments/home-beta
+```
+
+上のpathはこのguideどおりhome directory直下へclone / initした場合である。既定では
+`<project>/generated`とlocal Docker context `default`を使う。別のmanaged
+renderやlocal contextを意図して確認する場合だけ`--output` / `--docker-context`を明示する。
+
+doctorは次をread-onlyで確認する。
+
+- order / lock / bundled profile・presetとcanonical generated treeがcurrent
+- Docker contextが対象host上のlocal Unix socket
+- managed volumeのidentity / ownership labelがcurrent lockと一致
+- exactly oneのmanaged containerがcurrent lockと一致し、runningかつhealthy
+- Java / McRemote portがlockどおりにpublishされ、isolated profileではloopback限定
+- lock済みprotocol / Minecraft / world identityに対するtoken無しJSON-RPC hello
+
+認証強制時の`auth_required`は「protocol endpointは応答、完全なhelloは認証が必要」と区別する。
+doctorはcontainer log、生response、session / player / tokenを出力しない。低レベル状態だけを人間が
+学習・切り分けしたい場合は次も使えるが、lock / protocolとの一致までは主張しない。
+
+```bash
+cd ~/mc-remote-deployments/home-beta/generated
+docker compose ps
+```
+
+## 8. 現在の停止点
+
+doctorのhello PASSまででcontainer-level bootstrapと最小`live-auto`は確認できる。次が閉じる前に、
+isolated betaのcontainer起動を
 一般production、公開network、upgrade可能、compatibility verifiedと読み替えない。
 
-- deployment doctor / protocol `live-auto` smoke
+- hello以外のprotocol command smokeとsanitized compatibility evidence
 - backup / restore の実機検証
 - upgrade / rollback のdeployed-state transaction
 - provider firewall と host firewall の責任分界
