@@ -1,3 +1,4 @@
+import os
 import shutil
 from importlib.resources import files
 from pathlib import Path
@@ -179,6 +180,35 @@ def test_successful_resolution_writes_one_exact_environment_lock(tmp_path: Path)
         "secret_injected_bytes": "excluded",
         "runtime_owned_state": "excluded",
     }
+
+
+@pytest.mark.parametrize(
+    ("caller_umask", "expected_mode"),
+    [
+        (0o000, 0o640),
+        (0o077, 0o600),
+    ],
+)
+def test_new_lock_clamps_permissions_without_relaxing_caller_umask(
+    tmp_path: Path,
+    caller_umask: int,
+    expected_mode: int,
+) -> None:
+    project, data_root = _fixture(tmp_path)
+    _acknowledge(project, "unverified")
+
+    previous_umask = os.umask(caller_umask)
+    try:
+        resolve_project(
+            project,
+            data_root=data_root,
+            allow_unverified=True,
+            resolved_at=FIRST_RESOLVED_AT,
+        )
+    finally:
+        os.umask(previous_umask)
+
+    assert (project / "mc-remote.lock.toml").stat().st_mode & 0o777 == expected_mode
 
 
 def test_resolution_requires_explicit_minecraft_eula_acceptance(tmp_path: Path) -> None:

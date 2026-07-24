@@ -385,11 +385,20 @@ def _serialize_lock(lock: dict[str, Any]) -> bytes:
     return tomlkit.dumps(lock).encode("utf-8")
 
 
+def _current_umask() -> int:
+    current = os.umask(0)
+    os.umask(current)
+    return current
+
+
 def _atomic_write_lock(path: Path, content: bytes) -> None:
     descriptor, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
     temporary = Path(temporary_name)
     try:
-        mode = path.stat().st_mode & 0o7777 if path.exists() else 0o644
+        if path.exists():
+            mode = path.stat().st_mode & 0o7777
+        else:
+            mode = 0o640 & ~_current_umask()
         os.fchmod(descriptor, mode)
         with os.fdopen(descriptor, "wb") as stream:
             stream.write(content)
