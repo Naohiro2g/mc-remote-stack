@@ -17,16 +17,20 @@
   trusted側の別terminalへ戻した場合の実用性と学習価値を評価する。
 - [ ] agent-assisted bootstrapの基準経路、管理端末からの支援経路、対象host上の実験境界、
   人間checkpoint、pause / handoff境界を
-  knowledge `20-教材/ai-learning-design_ja.md`と
-  `00-hub/llm-agent-boundary-guide_ja.md`へ搬送し、着地確認する。
+  knowledge owner向けsanitized draftとしてhandoffし、`20-教材/ai-learning-design_ja.md`と
+  `00-hub/llm-agent-boundary-guide_ja.md`への着地確認をownerへ依頼する。
 - [ ] Rootless Dockerを安全性の候補として別sliceで評価する。現行apply、managed volume、
   backup / restoreとの互換性を確認するまで、agent利用のためにdeploymentを切り替えない。
 - [ ] token無しhello以外のread-only / reversibleなprotocol command smoke範囲を決める。
   world変更を伴うtestは、復元境界と人間の学習価値を確認してから実施する。
 - [ ] pairing、Minecraft内command、実player操作を`live-human`として実施し、正式根拠に使う回は
-  knowledge `14-evidence`へrecord + sanitized artifactを搬送する。
-- [ ] `mcremote-paper@1`のrequired claimsと今回のunit / live-auto結果を照合し、
-  compatibility record追加を別変更として判断する。bootstrap成功だけで`verified`へ変えない。
+  knowledge ownerへrecord + sanitized artifact draftをhandoffする。
+- [x] `mcremote-paper@1`のrequired claimsとunit / live-auto結果を照合し、
+  exact `home-server@2` subjectへcompatibility recordを追加した。bootstrap成功だけでなく、
+  isolated runtimeのprotocol helloとlan-onlyのrender-only結果を主張境界付きで固定した。
+- [ ] compatibility record追加前のunverified lockで稼働中のruntimeを、world volumeを維持したまま
+  verified lockへ移すdeployed-state transactionを設計する。record追加はcandidate lock identityを
+  変えるため、upgrade apply未実装の現状では対象host checkoutを単純更新・再resolveしない。
 - [ ] backup / restore、upgrade rollback、host-level multi-project collision、
   `lan-only` / firewall責任分界、別volume / worldの`home-alpha`を独立sliceで検証する。
 
@@ -53,4 +57,7 @@
   緩めず作る実装修正を、それぞれ回帰テスト付きで反映した。
 - 既存個人管理者userはrootful Dockerを操作できるため、安全側のオンホスト実験profileに
   合わない。1台目へagentをinstallせず、再構築可能な別hostで評価する。
-- compatibilityは意図どおり`unverified`のまま。private inventoryとraw logは本repoへ置かない。
+- exact `home-server@2` + `mcremote-paper@1`はcompatibility record追加後の新規resolveで
+  `verified`となり、unverified acknowledgementは不要になった。record追加前のlockで稼働するhostは
+  migration transactionができるまで旧checkout / lockを維持する。private inventoryとraw logは
+  本repoへ置かない。

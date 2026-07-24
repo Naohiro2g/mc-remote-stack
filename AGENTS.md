@@ -38,6 +38,9 @@ awk '/^<!-- BEGIN: DEV-AGENT-RUNTIME -->$/{reading=1;next} \
 - Related knowledge spokes: `10-protocol/`, `11-plugin/`, `13-scratch-client/`, `14-evidence/`
 
 If the SSOT is unavailable, stop. Do not infer McRemote-specific decisions from this repository alone.
+Treat `mc-remote-knowledge` as read-only while working in this repository. Do not edit, commit, or push that
+repository. When evidence or a cross-repository decision needs to land there, prepare a sanitized draft and hand
+it off to the repository owner through the approved review workflow.
 
 Keep the operator path simple: one deployment project layout, English configuration keys, secrets outside Git,
 immutable artifact identities, and explicit plan/apply boundaries. Add tests before fixing bugs. Do not add a

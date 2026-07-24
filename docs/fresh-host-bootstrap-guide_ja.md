@@ -233,10 +233,10 @@ docker compose ps
 ## 8. 現在の停止点
 
 doctorのhello PASSまででcontainer-level bootstrapと最小`live-auto`は確認できる。次が閉じる前に、
-isolated betaのcontainer起動を
-一般production、公開network、upgrade可能、compatibility verifiedと読み替えない。
+exact `home-server@2` + `mcremote-paper@1`のcompatibilityはverifiedだが、この限定claimを
+一般production、公開network、認証全体、upgrade可能と読み替えない。
 
-- hello以外のprotocol command smokeとsanitized compatibility evidence
+- hello以外のprotocol command smoke
 - backup / restore の実機検証
 - upgrade / rollback のdeployed-state transaction
 - provider firewall と host firewall の責任分界
