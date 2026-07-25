@@ -555,3 +555,44 @@ def test_bundled_verified_home_preset_resolves_without_unverified_ack(tmp_path: 
         "mcremote-jar",
     ]
     assert lock["artifacts"][1]["sha256"] == "5ffef465eeeb5f2a3c23a24419d97c51afd7dbb4923ff42df9a3f58bba1ccfba"
+
+
+def test_bundled_alpha_preset_resolves_only_through_unverified_gate(
+    tmp_path: Path,
+) -> None:
+    project = init_toml_project(
+        tmp_path / "home-alpha",
+        deployment_name="home-alpha",
+        profile="home-server@2",
+        environment_identity="home-alpha",
+        channel="alpha",
+        exposure="isolated",
+        purpose="integration",
+        preset="mcremote-paper@2",
+        **_instance_kwargs("home-alpha"),
+    )
+    _acknowledge(project.root, "unverified")
+    data_root = files("mc_remote_stack").joinpath("data")
+
+    result = resolve_project(
+        project.root,
+        data_root=data_root,
+        allow_unverified=True,
+        resolved_at=FIRST_RESOLVED_AT,
+    )
+    lock = load_lock(project.root, data_root=data_root)
+
+    assert result.status == "created"
+    assert lock["environment"] == {
+        "identity": "home-alpha",
+        "channel": "alpha",
+        "exposure": "isolated",
+        "purpose": "integration",
+    }
+    assert lock["input"]["profile"]["ref"] == "home-server@2"
+    assert lock["input"]["preset"]["ref"] == "mcremote-paper@2"
+    assert lock["compatibility"]["status"] == "unverified"
+    assert lock["runtime"]["volumes"] == [
+        {"role": "minecraft-data", "identity": "home-alpha-minecraft-data"}
+    ]
+    assert lock["world"]["identity"] == "home-alpha-world"

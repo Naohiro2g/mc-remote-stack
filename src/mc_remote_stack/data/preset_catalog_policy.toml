@@ -4,3 +4,8 @@ schema_version = 1
 ref = "mcremote-paper@1"
 status = "active"
 available_since = "2026-07-24"
+
+[[presets]]
+ref = "mcremote-paper@2"
+status = "active"
+available_since = "2026-07-25"

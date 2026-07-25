@@ -14,7 +14,9 @@ The project is intentionally separate from:
 
 - [Agent-assisted bootstrap (Japanese)](docs/agent-assisted-bootstrap-guide_ja.md): the no-on-host-agent
   baseline, workstation-over-SSH assistance, and the security gate for limited on-host experiments
+- [Catering-type validation roadmap (Japanese)](docs/catering-type-validation-roadmap_ja.md)
 - [Fresh-host bootstrap (Japanese)](docs/fresh-host-bootstrap-guide_ja.md)
+- [Home private alpha validation (Japanese)](docs/home-alpha-validation-guide_ja.md)
 - [Legacy server-runbook migration notes (Japanese)](docs/server-runbook-migration-notes_ja.md)
 - [Preset and lock resolution design (Japanese)](docs/preset-resolution-design_ja.md): the next
   preset registry, preset catalog, compatibility-evidence, and lock-identity model; the bundled

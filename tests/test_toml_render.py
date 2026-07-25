@@ -23,17 +23,21 @@ PLUGIN_SHA256 = hashlib.sha256(PLUGIN_BYTES).hexdigest()
 OCI_DIGEST = f"sha256:{11:064x}"
 
 
-def _preset_source() -> str:
+def _preset_source(
+    *,
+    revision: str = "1",
+    allowed_channel: str = "beta",
+) -> str:
     return f"""schema_version = 1
 
 [preset]
 name = "mcremote-paper"
-revision = "1"
+revision = "{revision}"
 description = "Deterministic compose renderer fixture"
 
 [requirements]
 profile_capabilities = ["compose", "paper", "persistent-world"]
-allowed_channels = ["beta"]
+allowed_channels = ["{allowed_channel}"]
 required_claims = ["profile-render"]
 
 [[components]]
@@ -78,7 +82,14 @@ origin = "https://example.invalid/mcremote-fixture.jar"
 """
 
 
-def _render_fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
+def _render_fixture(
+    tmp_path: Path,
+    *,
+    deployment_name: str = "home",
+    identity: str = "home-beta",
+    channel: str = "beta",
+    preset_revision: str = "1",
+) -> tuple[Path, Path, Path]:
     data_root = _data_root(tmp_path, "render-data")
     profile_path = data_root / "profiles" / "home-server" / "2" / "profile.toml"
     profile_path.parent.mkdir(parents=True)
@@ -88,14 +99,26 @@ def _render_fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
         .read_text(encoding="utf-8"),
         encoding="utf-8",
     )
-    preset_path = data_root / "preset_registry" / "mcremote-paper" / "1" / "preset.toml"
+    preset_path = (
+        data_root
+        / "preset_registry"
+        / "mcremote-paper"
+        / preset_revision
+        / "preset.toml"
+    )
     preset_path.parent.mkdir(parents=True)
-    preset_path.write_text(_preset_source(), encoding="utf-8")
+    preset_path.write_text(
+        _preset_source(
+            revision=preset_revision,
+            allowed_channel=channel,
+        ),
+        encoding="utf-8",
+    )
     _write_policy(
         data_root,
         [
             {
-                "ref": "mcremote-paper@1",
+                "ref": f"mcremote-paper@{preset_revision}",
                 "status": "active",
                 "available_since": "2026-07-24",
             }
@@ -110,17 +133,17 @@ def _render_fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
     (digest_store / PLUGIN_SHA256).write_bytes(PLUGIN_BYTES)
 
     project = init_toml_project(
-        tmp_path / "home-beta",
-        deployment_name="home",
+        tmp_path / identity,
+        deployment_name=deployment_name,
         profile="home-server@2",
-        environment_identity="home-beta",
-        channel="beta",
+        environment_identity=identity,
+        channel=channel,
         exposure="isolated",
         purpose="integration",
-        preset="mcremote-paper@1",
+        preset=f"mcremote-paper@{preset_revision}",
         artifact_store=str(artifact_store),
-        runtime_volumes={"minecraft-data": "home-beta-minecraft-data"},
-        world_identity="home-beta-world",
+        runtime_volumes={"minecraft-data": f"{identity}-minecraft-data"},
+        world_identity=f"{identity}-world",
         bind_address="127.0.0.1",
         java_port=25565,
         mcremote_port=25575,

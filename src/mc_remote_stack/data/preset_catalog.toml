@@ -3,7 +3,7 @@ schema_version = 1
 [preset_catalog]
 generator = "mcrctl-preset-catalog-v1"
 canonicalization = "jcs-rfc8785-v1"
-source_sha256 = "99729926562828b10d61525b2380b0d16a1e0084ec198356d78b0e34b82793b0"
+source_sha256 = "b2c5afd20a3ace74838530789130ec608238073591b19190494a6908fdf40167"
 
 [[preset_catalog.presets]]
 ref = "mcremote-paper@1"
@@ -15,3 +15,14 @@ required_profile_capabilities = ["compose", "paper", "persistent-world"]
 allowed_channels = ["beta"]
 compatibility_status = "verified"
 compatibility_records = ["home-server-2-mcremote-paper-1-live-auto"]
+
+[[preset_catalog.presets]]
+ref = "mcremote-paper@2"
+content_sha256 = "c478272be301b383537494e66714693c4dcdfa5e77ed73aa17e53ced03a22ab8"
+description = "Exact b2 artifacts for private alpha deployment-path validation"
+status = "active"
+available_since = "2026-07-25"
+required_profile_capabilities = ["compose", "paper", "persistent-world"]
+allowed_channels = ["alpha"]
+compatibility_status = "unverified"
+compatibility_records = []

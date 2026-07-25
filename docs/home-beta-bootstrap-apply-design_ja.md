@@ -24,21 +24,18 @@
 
 初回applyは次のexact contractだけを受理する。
 
-| axis | exact value |
-| --- | --- |
-| profile | `home-server@2` |
-| preset | `mcremote-paper@1` |
-| channel | `beta` |
-| exposure | `isolated` |
-| purpose | `integration` |
-| renderer | `compose@1` |
-| service | `minecraft` |
-| runtime volume role | `minecraft-data` |
+| contract | profile | preset | channel | exposure | purpose |
+| --- | --- | --- | --- | --- | --- |
+| private beta | `home-server@2` | `mcremote-paper@1` | `beta` | `isolated` | `integration` |
+| private alpha | `home-server@2` | `mcremote-paper@2` | `alpha` | `isolated` | `integration` |
+
+どちらもrendererは`compose@1`、serviceは`minecraft`、runtime volume roleは`minecraft-data`とする。
 
 environment identityはorderの明示値を使い、`home-beta`という文字列からaxisを推測しない。
 この制限は最初のlive integration面を狭く保つbootstrap guardであり、profile一般の恒久制約ではない。
 
-`official-vps` legacy fixture、`home-alpha`、`lan-only` / `public`、既存worldを初版applyへ入れない。
+`official-vps` legacy fixture、`lan-only` / `public`、既存worldをこのbootstrap applyへ入れない。
+private alphaはbetaと別project / volume / world / portでだけ許可する。
 
 ## 2. CLI contract
 

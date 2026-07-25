@@ -14,11 +14,24 @@ from typing import Any, Protocol
 
 from .render import RenderContractError, verify_toml_render_output
 
-BOOTSTRAP_PROFILE = "home-server@2"
-BOOTSTRAP_PRESET = "mcremote-paper@1"
-BOOTSTRAP_CHANNEL = "beta"
-BOOTSTRAP_EXPOSURE = "isolated"
-BOOTSTRAP_PURPOSE = "integration"
+BOOTSTRAP_CONTRACTS = frozenset(
+    {
+        (
+            "home-server@2",
+            "mcremote-paper@1",
+            "beta",
+            "isolated",
+            "integration",
+        ),
+        (
+            "home-server@2",
+            "mcremote-paper@2",
+            "alpha",
+            "isolated",
+            "integration",
+        ),
+    }
+)
 SERVICE = "minecraft"
 DOCKER_CONTEXT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$")
 
@@ -327,19 +340,11 @@ def _validate_bootstrap_contract(
         lock["environment"]["exposure"],
         lock["environment"]["purpose"],
     )
-    expected_contract = (
-        BOOTSTRAP_PROFILE,
-        BOOTSTRAP_PRESET,
-        BOOTSTRAP_CHANNEL,
-        BOOTSTRAP_EXPOSURE,
-        BOOTSTRAP_PURPOSE,
-    )
-    if actual_contract != expected_contract:
+    if actual_contract not in BOOTSTRAP_CONTRACTS:
         _fail(
             "bootstrap_contract_unsupported",
             "environment",
-            "initial live apply supports only home-server@2 + mcremote-paper@1 "
-            "with beta/isolated/integration",
+            "initial live apply supports only explicitly listed home bootstrap contracts",
         )
     if lock["agreements"]["minecraft_eula"] is not True:
         _fail(

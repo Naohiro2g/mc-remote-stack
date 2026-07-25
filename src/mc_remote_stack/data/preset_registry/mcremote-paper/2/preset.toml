@@ -1,0 +1,51 @@
+schema_version = 1
+
+[preset]
+name = "mcremote-paper"
+revision = "2"
+description = "Exact b2 artifacts for private alpha deployment-path validation"
+
+[requirements]
+profile_capabilities = ["compose", "paper", "persistent-world"]
+allowed_channels = ["alpha"]
+required_claims = ["profile-render", "protocol-hello"]
+
+[[components]]
+id = "minecraft-runtime"
+role = "minecraft-runtime"
+artifact = "minecraft-image"
+
+[[components]]
+id = "paper-server"
+role = "paper-server"
+artifact = "paper-jar"
+minecraft_version = "1.21.11"
+
+[[components]]
+id = "mcremote-paper"
+role = "mcremote-plugin"
+artifact = "mcremote-jar"
+protocol = "21.0.0"
+
+[[artifacts]]
+id = "minecraft-image"
+kind = "oci"
+version = "2026.7.2-java21"
+locator = "docker.io/itzg/minecraft-server"
+digest = "sha256:7f69fd6688e03495c8a8f5a46e8a8e82001b4465f4b55bdcd024c02c3624d8c8"
+
+[[artifacts]]
+id = "paper-jar"
+kind = "https-file"
+version = "1.21.11-132"
+filename = "paper-1.21.11-132.jar"
+sha256 = "5ffef465eeeb5f2a3c23a24419d97c51afd7dbb4923ff42df9a3f58bba1ccfba"
+origin = "https://fill-data.papermc.io/v1/objects/5ffef465eeeb5f2a3c23a24419d97c51afd7dbb4923ff42df9a3f58bba1ccfba/paper-1.21.11-132.jar"
+
+[[artifacts]]
+id = "mcremote-jar"
+kind = "https-file"
+version = "2100.0.0b2"
+filename = "mc-remote-1.21.11-2100.0.0b2.jar"
+sha256 = "ad2674fa93645cc3c4c0d2b6aa5b37f11a8f9519162f61ac00b8be7122b023c7"
+origin = "https://github.com/Naohiro2g/McRemote/releases/download/v1.21.11-2100.0.0b2/mc-remote-1.21.11-2100.0.0b2.jar"

@@ -59,6 +59,19 @@ def _prepared_project(tmp_path: Path) -> tuple[Path, Path, Path, dict]:
     return project, data_root, output, load_lock(project, data_root=data_root)
 
 
+def _prepared_alpha_project(tmp_path: Path) -> tuple[Path, Path, Path, dict]:
+    project, data_root, _ = _render_fixture(
+        tmp_path,
+        deployment_name="home-alpha",
+        identity="home-alpha",
+        channel="alpha",
+        preset_revision="2",
+    )
+    output = project / "generated"
+    render_toml_project(project, output, data_root=data_root)
+    return project, data_root, output, load_lock(project, data_root=data_root)
+
+
 def _compose_base(output: Path) -> tuple[str, ...]:
     return _docker(
         "compose",
@@ -414,6 +427,42 @@ def test_apply_rejects_remote_docker_context_before_daemon_contact(
     tmp_path: Path,
 ) -> None:
     project, data_root, output, lock = _prepared_project(tmp_path)
+    context_command = ("docker", "context", "inspect", "remote")
+    runner = FakeDocker(
+        {
+            context_command: [
+                _result(
+                    context_command,
+                    stdout=json.dumps(
+                        [{"Endpoints": {"docker": {"Host": "ssh://private-host"}}}]
+                    )
+                    + "\n",
+                )
+            ]
+        }
+    )
+
+    with pytest.raises(ApplyContractError) as exc_info:
+        apply_toml_project(
+            project,
+            output,
+            expected_lock_identity=lock["lock_identity"],
+            docker_context="remote",
+            data_root=data_root,
+            bootstrap=True,
+            confirmed=True,
+            allow_unverified=True,
+            runner=runner,
+        )
+
+    assert exc_info.value.reason == "docker_context_not_local"
+    assert runner.calls == [(context_command, 30)]
+
+
+def test_alpha_bootstrap_contract_reaches_docker_preflight(
+    tmp_path: Path,
+) -> None:
+    project, data_root, output, lock = _prepared_alpha_project(tmp_path)
     context_command = ("docker", "context", "inspect", "remote")
     runner = FakeDocker(
         {

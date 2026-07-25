@@ -31,8 +31,12 @@
 - [ ] compatibility record追加前のunverified lockで稼働中のruntimeを、world volumeを維持したまま
   verified lockへ移すdeployed-state transactionを設計する。record追加はcandidate lock identityを
   変えるため、upgrade apply未実装の現状では対象host checkoutを単純更新・再resolveしない。
+- [ ] home private alphaを`home-server@2` / `mcremote-paper@2` /
+  `alpha` / `isolated` / `integration`の別project・別volume・別world・別portでlive検証する。
+  `mcremote-paper@2`はb2 exact artifactを使うdeployment-path検証用で、live evidence着地前は
+  unverifiedを維持する。
 - [ ] backup / restore、upgrade rollback、host-level multi-project collision、
-  `lan-only` / firewall責任分界、別volume / worldの`home-alpha`を独立sliceで検証する。
+  `lan-only` / firewall責任分界を独立sliceで検証する。
 
 公開可能な現時点の観測:
 

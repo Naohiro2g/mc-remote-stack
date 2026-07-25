@@ -635,13 +635,11 @@ def test_bundled_home_profile_and_preset_are_exact_and_catalogued() -> None:
             ),
         },
     ]
-    assert policy["presets"] == [
-        {
-            "ref": "mcremote-paper@1",
-            "status": "active",
-            "available_since": "2026-07-24",
-        }
-    ]
+    assert policy["presets"][0] == {
+        "ref": "mcremote-paper@1",
+        "status": "active",
+        "available_since": "2026-07-24",
+    }
     assert catalog["preset_catalog"]["presets"][0]["ref"] == "mcremote-paper@1"
     assert catalog["preset_catalog"]["presets"][0]["compatibility_status"] == "verified"
     assert catalog["preset_catalog"]["presets"][0]["compatibility_records"] == [
@@ -659,4 +657,28 @@ def test_bundled_home_profile_and_preset_are_exact_and_catalogued() -> None:
         {"id": "profile-render", "constraint": "all"},
         {"id": "protocol-hello", "constraint": "all"},
     ]
+    verify_preset_catalog()
+
+
+def test_bundled_alpha_preset_is_immutable_unverified_and_catalogued() -> None:
+    policy = load_catalog_policy()
+    catalog = load_preset_catalog()
+    beta = load_preset("mcremote-paper@1")
+    alpha = load_preset("mcremote-paper@2")
+
+    assert policy["presets"][1] == {
+        "ref": "mcremote-paper@2",
+        "status": "active",
+        "available_since": "2026-07-25",
+    }
+    assert alpha.data["requirements"] == {
+        "profile_capabilities": ["compose", "paper", "persistent-world"],
+        "allowed_channels": ["alpha"],
+        "required_claims": ["profile-render", "protocol-hello"],
+    }
+    assert alpha.data["components"] == beta.data["components"]
+    assert alpha.data["artifacts"] == beta.data["artifacts"]
+    assert catalog["preset_catalog"]["presets"][1]["ref"] == "mcremote-paper@2"
+    assert catalog["preset_catalog"]["presets"][1]["compatibility_status"] == "unverified"
+    assert catalog["preset_catalog"]["presets"][1]["compatibility_records"] == []
     verify_preset_catalog()
