@@ -39,9 +39,16 @@
   正式evidence着地後にexact subjectのcompatibility recordを別変更で追加する。
 - [ ] backup / restore、upgrade rollback、host-level multi-project collision、
   `lan-only` / firewall責任分界を独立sliceで検証する。
-- [ ] WoL / WoWLANを一般bootstrapの必須機能、profile capability、compatibility条件、
-  b3開始gateにはせず、hardware-specific field noteとして公開する。異なるdesktop hardware
-  class 2種で、有線magic packetによるdeep sleep / poweroff復帰とservice healthを確認済み。
+- [x] WoL / WoWLANの重要性、非標準化の理由、検証境界を
+  [`docs/wake-on-lan-field-note_ja.md`](docs/wake-on-lan-field-note_ja.md)へ公開した。
+  WoLは準24時間運用で重視する一方、一般bootstrapの必須機能、profile capability、
+  compatibility条件、b3開始gateにはせず、利用者の手元で再現不能なhardware条件を強制しない。
+  異なるdesktop hardware 2台で、Python 3.12.3 / `wakeonlan 0.41`、directed broadcast、
+  deep sleep / poweroffの相互8ケースとservice healthを確認済み。正式`live-human` evidenceは
+  knowledge commit `4b8ab4b6e173053e4c9a167011d6ed0c8ae4bd1c`の
+  `14-evidence/records/2026-07-25-ubuntu-desktop-wol-mutual-live-human_ja.md`へ着地した
+  [→DEC 2026-07-25-08]。
+- [ ] WoL / WoWLANのhardware-specificな外部技術記事化を続ける。
   同一hardwareのWindows Wi-Fi poweroff復帰はoperator観測あり、Ubuntu WoWLANは未成立として、
   firmware / NIC・Wi-Fi chipset / OS / kernel / driver / renderer / power stateを固定した事例にする。
   `Restore on AC Power Loss`やwatchdogをWoLの成功主張へ混ぜない。
@@ -82,3 +89,8 @@
   同一lockのno-op apply、doctorのhealthy runtime / current render、protocol `21.0.0` /
   Minecraft `1.21.11` helloがPASSし、既存betaもhealthy / currentを維持した。正式evidence着地前の
   ためalpha presetは意図どおり`unverified`のままとする。
+- 異なるdesktop hardware 2台を相互sender / targetとし、Python 3.12.3と
+  `wakeonlan 0.41`からdirected broadcastへmagic packetを送った。両方向のdeep sleep /
+  poweroff、boot ID、SSH、1または2 containersのhealthを8ケースすべて確認した。
+  poweroffではSSH不能が完全消灯より先行するhostがあり、人間の完全消灯確認後に送信する
+  二段checkpointが必要だった。MAC、IP、private host名は公開記録へ含めない。

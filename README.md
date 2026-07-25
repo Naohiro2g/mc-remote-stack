@@ -17,6 +17,9 @@ The project is intentionally separate from:
 - [Catering-type validation roadmap (Japanese)](docs/catering-type-validation-roadmap_ja.md)
 - [Fresh-host bootstrap (Japanese)](docs/fresh-host-bootstrap-guide_ja.md)
 - [Home private alpha validation (Japanese)](docs/home-alpha-validation-guide_ja.md)
+- [Wake-on-LAN optional operation field note (Japanese)](docs/wake-on-lan-field-note_ja.md):
+  why WoL matters for semi-always-on servers without becoming a hardware requirement, plus directed-broadcast,
+  Python / `wakeonlan`, power-state, and evidence boundaries
 - [Legacy server-runbook migration notes (Japanese)](docs/server-runbook-migration-notes_ja.md)
 - [Preset and lock resolution design (Japanese)](docs/preset-resolution-design_ja.md): the next
   preset registry, preset catalog, compatibility-evidence, and lock-identity model; the bundled
