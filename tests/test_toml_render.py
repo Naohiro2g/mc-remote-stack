@@ -604,12 +604,21 @@ minecraft = "sb.mc-remote.example"
         "internal": True,
         "enable_ipv6": False,
     }
+    assert compose["networks"]["egress"] == {
+        "internal": False,
+        "enable_ipv6": False,
+    }
     assert compose["services"]["caddy"]["networks"] == ["edge", "app"]
     assert compose["services"]["scratch"]["networks"] == ["app"]
     assert compose["services"]["bridge"]["networks"] == ["app"]
-    assert compose["services"]["minecraft"]["networks"]["app"]["aliases"] == [
-        "sb.mc-remote.example"
-    ]
+    assert compose["services"]["minecraft"]["networks"] == {
+        "app": {
+            "aliases": ["sb.mc-remote.example"],
+        },
+        "egress": {
+            "gw_priority": 1,
+        },
+    }
     assert set(rendered_files) == {
         "Caddyfile",
         "runtime/scratch.json",

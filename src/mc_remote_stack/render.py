@@ -582,7 +582,10 @@ def _compose_v2(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str]]:
                         "read_only": True,
                     },
                 ],
-                "networks": {"app": {"aliases": [routes["minecraft"]]}},
+                "networks": {
+                    "app": {"aliases": [routes["minecraft"]]},
+                    "egress": {"gw_priority": 1},
+                },
                 "labels": {
                     **common_labels,
                     "io.mc-remote.paper-sha256": paper_sha256,
@@ -593,6 +596,7 @@ def _compose_v2(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str]]:
         "networks": {
             "edge": {"internal": False, "enable_ipv6": False},
             "app": {"internal": True, "enable_ipv6": False},
+            "egress": {"internal": False, "enable_ipv6": False},
         },
         "volumes": {
             role: {"name": identity, "external": True}

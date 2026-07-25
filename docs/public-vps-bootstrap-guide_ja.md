@@ -9,7 +9,8 @@ MinecraftとMcRemoteのpublic betaを構築する。provider、実IP、個人名
 現在実装済みの`vps-server@2`は、次を一つのpublic bootstrap transactionとして扱う。
 
 - exact OCI Caddy / Scratch / Bridge / Minecraft runtime、Paper JAR、McRemote JAR
-- Caddyだけをpublic edgeへ接続し、Scratch / Bridge / Minecraftをinternal app networkへ限定
+- Caddyだけをpublic edgeへ接続し、backend間通信をinternal app networkへ限定
+- Paper初回起動に必要なMojang取得のため、Minecraftだけを明示IPv4 egressへも接続
 - HTTPS route、Scratch runtime config、Bridge origin / sandbox allowlist
 - explicit public IPv4 bind
 - managed world / Caddy state volume
@@ -213,7 +214,7 @@ unverified警告がある間、`plan`は内容を表示してstatus 1を返す�
 - OCI digest、Paper / McRemote SHA-256
 - public route、public bindとport
 - deployment、environment、world、3つのvolume identity
-- Caddyだけがedge / app、backendがinternal appだけに所属すること
+- Caddyがedge / app、Scratch / Bridgeがappだけ、Minecraftがapp / egressに所属すること
 - compatibility warningと記録した理由
 - canonical generated tree
 
@@ -299,6 +300,7 @@ sudo "$MC_REMOTE_STACK/.venv/bin/mcrctl" doctor \
 - `network=public`
 - Caddy 80 / 443、Minecraft TCP/UDP 25565、McRemote 25575がlockと一致
 - Scratch / Bridgeにはhost publishがなく、app networkは`internal=true`かつIPv6無効
+- Minecraftのdefault gatewayはIPv6無効のegressで、Mojang初回取得が成功する
 - protocol `21.0.0`、Minecraft `1.21.11`、または明示的`auth_required`
 - compatibilityは正式evidence着地まで`unverified` warning
 
@@ -386,7 +388,11 @@ HTTPS、Scratch runtime、Bridge WSSまたは内部healthをdoctorの個別claim
 現行`app` networkは`internal=false`である。これは移行中のstable BridgeがVPS外のbackendへ
 到達する構成を含むためで、恒久的に全backendへ無制限egressを与える根拠にはしない。新profileは
 Bridge routeがproject内だけで閉じる場合と、明示した外部backendを必要とする場合を区別し、
-network isolation / egressをplanへ表示する。
+network isolation / egressをplanへ表示する。実機初回起動ではPaperが
+`piston-data.mojang.com`からruntimeデータを取得するため、Minecraftまでinternal appだけへ
+閉じると`UnknownHostException`でrestart loopになった。このためScratch / Bridgeのapp isolationは
+維持し、Minecraftだけを`gw_priority`付きegressへ接続する。Compose 2.33.1以上を前提とし、
+default gatewayを暗黙のnetwork接続順へ依存させない。
 
 過去の実証済み構造を捨ててWeb面を新規発明しない。archiveの観測を現行contractとtestへ
 再著作し、残るclaimもpublic読者がarchiveなしで完結できる状態へ移す。
