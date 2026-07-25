@@ -41,3 +41,11 @@ def test_public_vps_runbook_keeps_human_apply_checkpoint() -> None:
     assert "--bootstrap" in guide
     assert "--yes" in guide
     assert "--allow-unverified" in guide
+
+
+def test_public_vps_cutover_stops_profile_selected_minecraft() -> None:
+    guide = (REPO_ROOT / "docs" / "public-vps-bootstrap-guide_ja.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert "--profile beta \\\n  down --timeout 120 --remove-orphans" in guide

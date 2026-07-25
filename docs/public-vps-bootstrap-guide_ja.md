@@ -243,9 +243,15 @@ sudo docker compose \
 sudo docker compose \
   --project-directory /etc/mc-remote/generated \
   --file /etc/mc-remote/generated/compose.yaml \
+  --profile beta \
   down --timeout 120 --remove-orphans
 sudo ss -H -lntup
 ```
+
+旧Minecraft betaはCompose profile serviceなので、`down`にも`--profile beta`が必要である。
+これがないとMinecraft containerと使用中の`app` networkが残り、新applyは
+`host_port_in_use`でfail-closedする。stableが選択中の環境では観測したprofile名を使い、
+推測で両方を指定しない。
 
 停止後も80 / 443 / 25565 / 25575を占有するprocessがあればapplyへ進まない。旧bind stateを
 削除する必要は新transactionのPASS後までなく、`rm -rf`、広いglob、未解決変数を使わない。
