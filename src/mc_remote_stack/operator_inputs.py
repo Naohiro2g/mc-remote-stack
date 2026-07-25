@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import re
+import tomllib
+from ipaddress import ip_address
 from pathlib import Path
 from typing import Any
 
@@ -10,9 +13,18 @@ from .toml_project import LoadedOrder
 
 MINECRAFT_MOTD_ADAPTER = "minecraft-motd@1"
 MINECRAFT_MOTD_PATH = "operator/minecraft-motd/server.properties"
+PUBLIC_ROUTES_ADAPTER = "public-routes@1"
+PUBLIC_ROUTES_PATH = "operator/public-routes/routes.toml"
 MAX_MOTD_SOURCE_BYTES = 4096
 MAX_MOTD_CHARACTERS = 256
-SUPPORTED_ADAPTERS = frozenset({MINECRAFT_MOTD_ADAPTER})
+SUPPORTED_ADAPTERS = frozenset({MINECRAFT_MOTD_ADAPTER, PUBLIC_ROUTES_ADAPTER})
+PUBLIC_ROUTE_KEYS = frozenset(
+    {"homepage", "homepage_aliases", "scratch", "bridge", "minecraft"}
+)
+DNS_NAME = re.compile(
+    r"^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+"
+    r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+)
 
 
 class OperatorInputError(ValueError):
@@ -97,7 +109,85 @@ def _parse_minecraft_motd(path: Path, source: bytes) -> dict[str, str]:
     return {"motd": motd}
 
 
-def _parse_adapter(adapter: str, path: Path, relative_path: str) -> dict[str, str]:
+def _public_dns_name(path: Path, key: str, value: object) -> str:
+    if not isinstance(value, str):
+        _fail("operator_input_parse_failed", path, f"{key} must be one DNS hostname")
+    if "secret://" in value.casefold() or "${" in value:
+        _fail(
+            "operator_input_secret_forbidden",
+            path,
+            f"{key} is a public route and has no secret injection point",
+        )
+    try:
+        ip_address(value)
+    except ValueError:
+        pass
+    else:
+        _fail("operator_input_parse_failed", path, f"{key} must not be an IP literal")
+    if value != value.casefold() or not DNS_NAME.fullmatch(value):
+        _fail(
+            "operator_input_parse_failed",
+            path,
+            f"{key} must be a lowercase absolute DNS hostname without a trailing dot",
+        )
+    return value
+
+
+def _parse_public_routes(path: Path, source: bytes) -> dict[str, Any]:
+    if source.startswith(b"\xef\xbb\xbf"):
+        _fail("operator_input_encoding_invalid", path, "UTF-8 BOM is forbidden")
+    try:
+        value = tomllib.loads(source.decode("utf-8"))
+    except UnicodeDecodeError as exc:
+        _fail("operator_input_encoding_invalid", path, str(exc))
+    except tomllib.TOMLDecodeError as exc:
+        _fail("operator_input_parse_failed", path, str(exc))
+    if set(value) != PUBLIC_ROUTE_KEYS:
+        missing = sorted(PUBLIC_ROUTE_KEYS - set(value))
+        extra = sorted(set(value) - PUBLIC_ROUTE_KEYS)
+        details = []
+        if missing:
+            details.append(f"missing: {', '.join(missing)}")
+        if extra:
+            details.append(f"unknown: {', '.join(extra)}")
+        _fail(
+            "operator_input_parse_failed",
+            path,
+            f"public-routes@1 requires the exact public route keys ({'; '.join(details)})",
+        )
+
+    aliases = value["homepage_aliases"]
+    if not isinstance(aliases, list) or len(aliases) > 8:
+        _fail(
+            "operator_input_parse_failed",
+            path,
+            "homepage_aliases must be an array containing at most 8 DNS hostnames",
+        )
+    semantic: dict[str, Any] = {
+        key: _public_dns_name(path, key, value[key])
+        for key in ("homepage", "scratch", "bridge", "minecraft")
+    }
+    semantic["homepage_aliases"] = sorted(
+        _public_dns_name(path, f"homepage_aliases[{index}]", alias)
+        for index, alias in enumerate(aliases)
+    )
+    all_names = [
+        semantic["homepage"],
+        *semantic["homepage_aliases"],
+        semantic["scratch"],
+        semantic["bridge"],
+        semantic["minecraft"],
+    ]
+    if len(set(all_names)) != len(all_names):
+        _fail(
+            "operator_input_parse_failed",
+            path,
+            "public route hostnames must be unique across all roles",
+        )
+    return semantic
+
+
+def _parse_adapter(adapter: str, path: Path, relative_path: str) -> dict[str, Any]:
     if adapter == MINECRAFT_MOTD_ADAPTER:
         if relative_path != MINECRAFT_MOTD_PATH:
             _fail(
@@ -106,6 +196,14 @@ def _parse_adapter(adapter: str, path: Path, relative_path: str) -> dict[str, st
                 f"{adapter} requires exact path {MINECRAFT_MOTD_PATH}",
             )
         return _parse_minecraft_motd(path, _read_source(path))
+    if adapter == PUBLIC_ROUTES_ADAPTER:
+        if relative_path != PUBLIC_ROUTES_PATH:
+            _fail(
+                "operator_input_path_invalid",
+                path,
+                f"{adapter} requires exact path {PUBLIC_ROUTES_PATH}",
+            )
+        return _parse_public_routes(path, _read_source(path))
     _fail(
         "unsupported_operator_input_adapter",
         adapter,

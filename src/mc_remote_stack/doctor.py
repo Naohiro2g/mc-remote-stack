@@ -14,7 +14,6 @@ from typing import Any, Protocol
 from .apply import DOCKER_CONTEXT
 from .render import RenderContractError, verify_toml_render_output
 
-SERVICE = "minecraft"
 MAX_HELLO_BYTES = 64 * 1024
 
 
@@ -149,19 +148,30 @@ def _component_value(lock: dict[str, Any], role: str, key: str) -> str:
     return matches[0]
 
 
-def _volume_identity(lock: dict[str, Any]) -> str:
-    matches = [
-        assignment["identity"]
+def _service_ids(lock: dict[str, Any]) -> list[str]:
+    services = [service["id"] for service in lock["render_plan"]["services"]]
+    if not services or len(services) != len(set(services)):
+        _fail(
+            "doctor_contract_unsupported",
+            "render_plan.services",
+            "doctor requires a non-empty unique service projection",
+        )
+    return services
+
+
+def _volume_identities(lock: dict[str, Any]) -> list[str]:
+    assignments = {
+        assignment["role"]: assignment["identity"]
         for assignment in lock["runtime"]["volumes"]
-        if assignment["role"] == "minecraft-data"
-    ]
-    if len(matches) != 1:
+    }
+    roles = [role["id"] for role in lock["render_plan"]["volume_roles"]]
+    if not roles or set(assignments) != set(roles) or len(roles) != len(set(roles)):
         _fail(
             "doctor_contract_unsupported",
             "runtime.volumes",
-            "doctor requires exactly one minecraft-data volume",
+            "doctor requires exactly one assignment for every declared volume role",
         )
-    return matches[0]
+    return [assignments[role] for role in roles]
 
 
 def _expected_volume_labels(lock: dict[str, Any]) -> dict[str, str]:
@@ -187,12 +197,13 @@ def _validate_volume(record: dict[str, Any], volume: str, lock: dict[str, Any]) 
         )
 
 
-def _validate_container(record: dict[str, Any], lock: dict[str, Any]) -> None:
+def _validate_container(
+    record: dict[str, Any], lock: dict[str, Any], expected_services: set[str]
+) -> str:
     config = record.get("Config")
     labels = config.get("Labels") if isinstance(config, dict) else None
     expected_labels = {
         "com.docker.compose.project": lock["deployment"]["name"],
-        "com.docker.compose.service": SERVICE,
         "io.mc-remote.deployment": lock["deployment"]["name"],
         "io.mc-remote.environment": lock["environment"]["identity"],
         "io.mc-remote.world": lock["world"]["identity"],
@@ -206,6 +217,13 @@ def _validate_container(record: dict[str, Any], lock: dict[str, Any]) -> None:
             lock["deployment"]["name"],
             "runtime container does not match the current lock",
         )
+    service = labels.get("com.docker.compose.service")
+    if service not in expected_services:
+        _fail(
+            "doctor_runtime_unmanaged",
+            lock["deployment"]["name"],
+            "runtime container service is not declared by the current lock",
+        )
 
     state = record.get("State")
     if not isinstance(state, dict) or state.get("Running") is not True:
@@ -215,7 +233,9 @@ def _validate_container(record: dict[str, Any], lock: dict[str, Any]) -> None:
             "current locked container is not running",
         )
     health = state.get("Health")
-    if not isinstance(health, dict) or health.get("Status") != "healthy":
+    if service == "minecraft" and (
+        not isinstance(health, dict) or health.get("Status") != "healthy"
+    ):
         _fail(
             "doctor_runtime_unhealthy",
             lock["deployment"]["name"],
@@ -231,20 +251,34 @@ def _validate_container(record: dict[str, Any], lock: dict[str, Any]) -> None:
             "container port mappings are unavailable",
         )
     address = lock["network"]["bind_address"]
-    expected_ports = {
-        "25565/tcp": [
-            {
-                "HostIp": address,
-                "HostPort": str(lock["network"]["java_port"]),
-            }
-        ],
-        "25575/tcp": [
-            {
-                "HostIp": address,
-                "HostPort": str(lock["network"]["mcremote_port"]),
-            }
-        ],
-    }
+    expected_ports: dict[str, list[dict[str, str]]] = {}
+    if service == "minecraft":
+        expected_ports = {
+            "25565/tcp": [
+                {
+                    "HostIp": address,
+                    "HostPort": str(lock["network"]["java_port"]),
+                }
+            ],
+            "25575/tcp": [
+                {
+                    "HostIp": address,
+                    "HostPort": str(lock["network"]["mcremote_port"]),
+                }
+            ],
+        }
+        if lock["render_plan"]["adapter_revision"] == "2":
+            expected_ports["19132/udp"] = [
+                {
+                    "HostIp": address,
+                    "HostPort": str(lock["network"]["java_port"]),
+                }
+            ]
+    elif service == "caddy":
+        expected_ports = {
+            "80/tcp": [{"HostIp": "0.0.0.0", "HostPort": "80"}],
+            "443/tcp": [{"HostIp": "0.0.0.0", "HostPort": "443"}],
+        }
     published = {key: value for key, value in ports.items() if value}
     if published != expected_ports:
         _fail(
@@ -252,6 +286,7 @@ def _validate_container(record: dict[str, Any], lock: dict[str, Any]) -> None:
             lock["deployment"]["name"],
             "live published ports do not match the current lock",
         )
+    return service
 
 
 def _validate_hello_result(
@@ -410,7 +445,7 @@ def doctor_toml_project(
     runner: CommandRunner = _default_runner,
     hello_probe=probe_protocol_hello,
 ) -> TomlDoctorResult:
-    """Check one current compose@1 runtime without mutating host state."""
+    """Check one current Compose runtime without mutating host state."""
 
     if not DOCKER_CONTEXT.fullmatch(docker_context):
         _fail(
@@ -436,7 +471,8 @@ def doctor_toml_project(
     output = verification.output
     protocol = _component_value(lock, "mcremote-plugin", "protocol")
     minecraft_version = _component_value(lock, "paper-server", "minecraft_version")
-    volume = _volume_identity(lock)
+    services = _service_ids(lock)
+    volumes = _volume_identities(lock)
 
     context = _run(
         runner,
@@ -512,38 +548,47 @@ def doctor_toml_project(
         path=lock["deployment"]["name"],
     )
     containers = _nonempty_lines(container_result)
-    if len(containers) != 1:
+    if len(containers) != len(services):
         reason = "doctor_runtime_missing" if not containers else "doctor_runtime_unmanaged"
         _fail(
             reason,
             lock["deployment"]["name"],
-            "doctor requires exactly one current Compose project container",
+            "doctor requires exactly the current lock's Compose service count",
         )
-    container = _single_inspect_record(
-        _run(
-            runner,
-            docker_prefix + ["inspect", containers[0]],
-            timeout=30,
+    actual_services = set()
+    for container_id in containers:
+        container = _single_inspect_record(
+            _run(
+                runner,
+                docker_prefix + ["inspect", container_id],
+                timeout=30,
+                reason="doctor_runtime_inspect_failed",
+                path=lock["deployment"]["name"],
+            ),
             reason="doctor_runtime_inspect_failed",
             path=lock["deployment"]["name"],
-        ),
-        reason="doctor_runtime_inspect_failed",
-        path=lock["deployment"]["name"],
-    )
-    _validate_container(container, lock)
+        )
+        actual_services.add(_validate_container(container, lock, set(services)))
+    if actual_services != set(services):
+        _fail(
+            "doctor_runtime_unmanaged",
+            lock["deployment"]["name"],
+            "runtime does not contain every service declared by the current lock",
+        )
 
-    volume_record = _single_inspect_record(
-        _run(
-            runner,
-            docker_prefix + ["volume", "inspect", volume],
-            timeout=30,
-            reason="doctor_volume_missing",
+    for volume in volumes:
+        volume_record = _single_inspect_record(
+            _run(
+                runner,
+                docker_prefix + ["volume", "inspect", volume],
+                timeout=30,
+                reason="doctor_volume_missing",
+                path=volume,
+            ),
+            reason="doctor_volume_unmanaged",
             path=volume,
-        ),
-        reason="doctor_volume_unmanaged",
-        path=volume,
-    )
-    _validate_volume(volume_record, volume, lock)
+        )
+        _validate_volume(volume_record, volume, lock)
 
     network = lock["network"]
     hello = hello_probe(
@@ -563,7 +608,11 @@ def doctor_toml_project(
         network_scope=(
             "loopback"
             if ip_address(network["bind_address"]).is_loopback
-            else "non-loopback"
+            else (
+                "public"
+                if lock["environment"]["exposure"] == "public"
+                else "non-loopback"
+            )
         ),
         bind_address=network["bind_address"],
         java_port=network["java_port"],

@@ -11,6 +11,9 @@
 | `ja/runbook_first_boot.md` / `ja/runbook_base_server.md` の個人管理者・SSH 安全柵 | 本リポ | [fresh-host bootstrap](fresh-host-bootstrap-guide_ja.md) へ一般化 |
 | `ja/runbook_oss_install.md` の「public 手順と private 実値を分ける」原則 | 本リポ | 本リポと backstage の役割境界として反映 |
 | provider、RAM、実 IP、UFW、listen port、導入済み tool の観測 | private backstage | 2026-07-03 の未再検証 snapshot として収容 |
+| 2026-07-14 official VPS migration / recovery / public end-to-end | 本リポ + public knowledge evidence | 6GB VPSのCompose、Caddy、Scratch、Bridge、Minecraft、backup、pairing、rollbackの実証範囲を現行contractとrunbookへ再著作 |
+| 2026-07-20 official VPS beta rollback rehearsal | 本リポ + public knowledge evidence | exact-lock deploy → rollback → smoke → same-hash redeployのtransactionをPhase 2設計へcarry |
+| 6GB official VPSの実inventory、SSH alias、現行deployment path / hash | private backstage | 2026-07-03無料2GB snapshotと分離し、current opsとして再確認して更新 |
 | 契約・実 host・private GitHub access の今後の運営 | private backstage | current ops として再検証してから更新 |
 | native systemd / package Caddy / `/opt/.../current` symlink deploy | frozen archive | Compose・生成設定中心の現行実装と競合するため不採用 |
 | GitHub Actions の候補 flow | frozen archive | 手動 deploy 前提の未検証案で、現行 apply contract が未実装 |
@@ -32,6 +35,36 @@ service ごとの release symlink は、現行 Compose / rendered configuration 
 - private archive へのリンクだけを公開手順にする: public 利用者が手順を完結できない。
 
 旧リポは provenance と却下理由を保つ frozen history であり、本リポの実行時依存先ではない。
+
+## 2026-07-26 carry漏れの再確認
+
+最初の公開化では、backstageへ2026-07-03の無料2GB VPS snapshotだけをcarryし、実際に構築・移行・
+rollback検証した6GB official VPSのcurrent inventoryとsanitized evidenceへの入口を落としていた。
+このため「archiveをcurrent contractにしない」という正しい境界が、「archiveにしか残っていない
+有効な観測も再著作しない」という誤った処置になった。
+
+再確認で次を照合した。
+
+- 6GB official VPSはUbuntu 24.04、Docker Compose構成で実在し、Caddy / homepage /
+  Scratch stable・beta / Bridge / Minecraftを稼働した
+- 2026-07-14にpublic HTTPS / WSS / Minecraft / McRemote、recovery archive、human pairing、
+  graceful rollbackがPASSした
+- 2026-07-20にexact-lock betaのdeploy → rollback → smoke → same-hash redeployがPASSした
+- 現在の実hostにも当時のactive beta Composeと同じSHA-256のgenerated構成が残っている
+
+carry方法はarchive全文の復活ではない。次へ分ける。
+
+| 情報 | 現行の着地 |
+| --- | --- |
+| provider、契約、IP、SSH alias、実path、稼働中hash | backstage current inventory |
+| publicに説明できるtopology、gate、rollback原則 | 本リポの[public VPS bootstrap](public-vps-bootstrap-guide_ja.md) |
+| human / live-autoのsanitized検証記録 | public knowledge `14-evidence`へowner handoff |
+| exact service / artifact / volume契約 | profile / preset / lock / renderer / test |
+| 秘密を含むraw、credential、private key | Git外 |
+
+今後のarchive棚卸しは、file単位で「carry / reject」を決めるだけでなく、観測・決定・実装契約・
+private実値・rawの粒度へ分解する。rejectした全文の中にcarryすべき有効な観測が残っていないかを
+確認し、現行着地先と照合できるまで移行完了としない。
 
 ## 開発リポへの影響
 

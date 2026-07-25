@@ -4,6 +4,10 @@
 
 ## 2026-07-24 home-beta bootstrap後
 
+- [ ] `vps-server@2` / `public-web-paper@1`をVPS実機でbootstrapし、Caddy / Scratch /
+  Bridge / Minecraft、internal app network、public bind、managed volume、token無し
+  protocol helloを`live-auto`検証する。host / provider firewallとDNSは人間checkpointとして
+  分離し、外部HTTPS / WSS readinessとhomepage artifactは後続claimとして記録する。
 - [ ] operator CLI install / PATH契約を確定する。bootstrap期はcheckout内
   `.venv/bin/mcrctl`をexact pathで使う。既存Ubuntu環境とクリーン環境の両方で、
   `uv tool install`等の候補を比較してから公開runbookへ採る。

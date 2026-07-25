@@ -7,10 +7,11 @@ from pathlib import Path
 import pytest
 import yaml
 
+import mc_remote_stack.render as render_module
 from mc_remote_stack.cli import main
 from mc_remote_stack.preset_registry import build_preset_catalog
 from mc_remote_stack.render import RenderContractError, render_toml_project
-from mc_remote_stack.resolver import ResolutionError, resolve_project
+from mc_remote_stack.resolver import ResolutionError, load_lock, resolve_project
 from mc_remote_stack.toml_project import init_toml_project, update_order_scalar
 
 from .test_preset_registry import _data_root, _write_policy
@@ -89,13 +90,25 @@ def _render_fixture(
     identity: str = "home-beta",
     channel: str = "beta",
     preset_revision: str = "1",
+    profile_name: str = "home-server",
+    profile_revision: str = "2",
+    exposure: str = "isolated",
+    bind_address: str = "127.0.0.1",
 ) -> tuple[Path, Path, Path]:
     data_root = _data_root(tmp_path, "render-data")
-    profile_path = data_root / "profiles" / "home-server" / "2" / "profile.toml"
+    profile_path = (
+        data_root / "profiles" / profile_name / profile_revision / "profile.toml"
+    )
     profile_path.parent.mkdir(parents=True)
     profile_path.write_text(
         files("mc_remote_stack")
-        .joinpath("data", "profiles", "home-server", "2", "profile.toml")
+        .joinpath(
+            "data",
+            "profiles",
+            profile_name,
+            profile_revision,
+            "profile.toml",
+        )
         .read_text(encoding="utf-8"),
         encoding="utf-8",
     )
@@ -135,16 +148,16 @@ def _render_fixture(
     project = init_toml_project(
         tmp_path / identity,
         deployment_name=deployment_name,
-        profile="home-server@2",
+        profile=f"{profile_name}@{profile_revision}",
         environment_identity=identity,
         channel=channel,
-        exposure="isolated",
+        exposure=exposure,
         purpose="integration",
         preset=f"mcremote-paper@{preset_revision}",
         artifact_store=str(artifact_store),
         runtime_volumes={"minecraft-data": f"{identity}-minecraft-data"},
         world_identity=f"{identity}-world",
-        bind_address="127.0.0.1",
+        bind_address=bind_address,
         java_port=25565,
         mcremote_port=25575,
         minecraft_eula=True,
@@ -157,6 +170,29 @@ def _render_fixture(
         resolved_at=FIRST_RESOLVED_AT,
     )
     return project.root, data_root, artifact_store
+
+
+def test_public_vps_profile_renders_exact_public_runtime(tmp_path: Path) -> None:
+    project, data_root, _ = _render_fixture(
+        tmp_path,
+        deployment_name="official-public-beta",
+        identity="official-public-beta",
+        profile_name="vps-server",
+        profile_revision="1",
+        exposure="public",
+        bind_address="0.0.0.0",
+    )
+    output = project / "generated"
+
+    result = render_toml_project(project, output, data_root=data_root)
+
+    compose = yaml.safe_load((output / "compose.yaml").read_text(encoding="utf-8"))
+    assert result.status == "created"
+    assert compose["name"] == "official-public-beta"
+    assert compose["services"]["minecraft"]["ports"] == [
+        "0.0.0.0:25565:25565/tcp",
+        "0.0.0.0:25575:25575/tcp",
+    ]
 
 
 def _tree_bytes(root: Path) -> dict[str, bytes]:
@@ -483,3 +519,114 @@ def test_toml_render_surfaces_lock_tamper_instead_of_reclassifying_it(
         render_toml_project(project, project / "generated", data_root=data_root)
 
     assert exc_info.value.reason == "lock_identity_mismatch"
+
+
+def test_compose_v2_projects_public_edge_and_private_backends(tmp_path: Path) -> None:
+    data_root = files("mc_remote_stack").joinpath("data")
+    artifact_store = tmp_path / "artifacts"
+    project = init_toml_project(
+        tmp_path / "official-public-beta",
+        deployment_name="official-public-beta",
+        profile="vps-server@2",
+        environment_identity="official-public-beta",
+        channel="beta",
+        exposure="public",
+        purpose="integration",
+        preset="public-web-paper@1",
+        artifact_store=str(artifact_store),
+        runtime_volumes={
+            "minecraft-data": "official-public-beta-minecraft-data",
+            "caddy-data": "official-public-beta-caddy-data",
+            "caddy-config": "official-public-beta-caddy-config",
+        },
+        world_identity="official-public-beta-world",
+        bind_address="0.0.0.0",
+        java_port=25565,
+        mcremote_port=25575,
+        minecraft_eula=True,
+    )
+    project.order.write_text(
+        project.order.read_text(encoding="utf-8")
+        + """
+[[operator_inputs]]
+role = "public-routes"
+adapter = "public-routes@1"
+path = "operator/public-routes/routes.toml"
+""",
+        encoding="utf-8",
+    )
+    routes = project.root / "operator" / "public-routes" / "routes.toml"
+    routes.parent.mkdir(parents=True)
+    routes.write_text(
+        """
+homepage = "mc-remote.example"
+homepage_aliases = ["www.mc-remote.example"]
+scratch = "scratch.mc-remote.example"
+bridge = "bridge.mc-remote.example"
+minecraft = "sb.mc-remote.example"
+""".lstrip(),
+        encoding="utf-8",
+    )
+    _acknowledge(project.root, "unverified")
+    resolve_project(
+        project.root,
+        data_root=data_root,
+        allow_unverified=True,
+        resolved_at=FIRST_RESOLVED_AT,
+    )
+    lock = load_lock(project.root, data_root=data_root)
+    fixture_artifacts = {
+        "paper-jar": (PAPER_SHA256, PAPER_BYTES),
+        "mcremote-jar": (PLUGIN_SHA256, PLUGIN_BYTES),
+    }
+    for artifact in lock["artifacts"]:
+        if artifact["id"] in fixture_artifacts:
+            artifact["sha256"] = fixture_artifacts[artifact["id"]][0]
+    for digest, content in fixture_artifacts.values():
+        path = artifact_store / "sha256" / digest
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(content)
+
+    compose, rendered_files = render_module._compose_v2(lock)
+
+    assert compose["services"]["caddy"]["ports"] == [
+        "0.0.0.0:80:80/tcp",
+        "0.0.0.0:443:443/tcp",
+    ]
+    assert "ports" not in compose["services"]["scratch"]
+    assert "ports" not in compose["services"]["bridge"]
+    assert compose["services"]["minecraft"]["ports"] == [
+        "0.0.0.0:25565:25565/tcp",
+        "0.0.0.0:25565:19132/udp",
+        "0.0.0.0:25575:25575/tcp",
+    ]
+    assert compose["networks"]["app"] == {
+        "internal": True,
+        "enable_ipv6": False,
+    }
+    assert compose["services"]["caddy"]["networks"] == ["edge", "app"]
+    assert compose["services"]["scratch"]["networks"] == ["app"]
+    assert compose["services"]["bridge"]["networks"] == ["app"]
+    assert compose["services"]["minecraft"]["networks"]["app"]["aliases"] == [
+        "sb.mc-remote.example"
+    ]
+    assert set(rendered_files) == {
+        "Caddyfile",
+        "runtime/scratch.json",
+        "minecraft/server.properties",
+    }
+    assert "reverse_proxy scratch:8080" in rendered_files["Caddyfile"]
+
+    staging = tmp_path / "staging"
+    staging.mkdir()
+    rendered_paths = render_module._stage_compose_v2(lock, staging)
+    manifest = json.loads((staging / "render-manifest.json").read_text(encoding="utf-8"))
+
+    assert rendered_paths == (
+        "compose.yaml",
+        "Caddyfile",
+        "runtime/scratch.json",
+        "minecraft/server.properties",
+    )
+    assert manifest["adapter_revision"] == "2"
+    assert yaml.safe_load((staging / "compose.yaml").read_text(encoding="utf-8")) == compose

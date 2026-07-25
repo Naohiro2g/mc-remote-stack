@@ -12,7 +12,12 @@ from mc_remote_stack.doctor import (
     probe_protocol_hello,
 )
 
-from .test_toml_apply import FakeDocker, _prepared_project, _result
+from .test_toml_apply import (
+    FakeDocker,
+    _prepared_project,
+    _prepared_public_project,
+    _result,
+)
 
 
 def _docker(*arguments: str) -> tuple[str, ...]:
@@ -164,6 +169,113 @@ def test_doctor_checks_current_render_runtime_and_protocol_without_mutation(
     ]
     mutation_words = {"pull", "up", "down", "create", "rm", "start", "stop", "restart"}
     assert all(not mutation_words.intersection(command) for command, _ in runner.calls)
+
+
+def test_doctor_reports_public_vps_network_scope(tmp_path: Path) -> None:
+    project, data_root, output, lock = _prepared_public_project(tmp_path)
+    base = _compose_base(output)
+    deployment = "official-public-beta"
+    volume = "official-public-beta-minecraft-data"
+    labels = {
+        "com.docker.compose.project": deployment,
+        "com.docker.compose.service": "minecraft",
+        "io.mc-remote.deployment": deployment,
+        "io.mc-remote.environment": deployment,
+        "io.mc-remote.world": "official-public-beta-world",
+        "io.mc-remote.lock": lock["lock_identity"],
+    }
+    runner = FakeDocker(
+        {
+            ("docker", "context", "inspect", "default"): [
+                _result(
+                    ("docker",),
+                    stdout=json.dumps(
+                        [{"Endpoints": {"docker": {"Host": "unix:///var/run/docker.sock"}}}]
+                    )
+                    + "\n",
+                )
+            ],
+            _docker("version", "--format", "{{.Server.Version}}"): [
+                _result(("docker",), stdout="29.1.3\n")
+            ],
+            _docker("compose", "version", "--short"): [
+                _result(("docker",), stdout="2.40.3\n")
+            ],
+            base + ("config", "--quiet"): [_result(base)],
+            _docker(
+                "ps",
+                "--all",
+                "--quiet",
+                "--filter",
+                f"label=com.docker.compose.project={deployment}",
+            ): [_result(("docker",), stdout="container-current\n")],
+            _docker("inspect", "container-current"): [
+                _result(
+                    ("docker",),
+                    stdout=json.dumps(
+                        [
+                            {
+                                "Id": "container-current",
+                                "Config": {"Labels": labels},
+                                "State": {
+                                    "Running": True,
+                                    "Health": {"Status": "healthy"},
+                                },
+                                "NetworkSettings": {
+                                    "Ports": {
+                                        "25565/tcp": [
+                                            {"HostIp": "0.0.0.0", "HostPort": "25565"}
+                                        ],
+                                        "25575/tcp": [
+                                            {"HostIp": "0.0.0.0", "HostPort": "25575"}
+                                        ],
+                                    }
+                                },
+                            }
+                        ]
+                    )
+                    + "\n",
+                )
+            ],
+            _docker("volume", "inspect", volume): [
+                _result(
+                    ("docker",),
+                    stdout=json.dumps(
+                        [
+                            {
+                                "Name": volume,
+                                "Driver": "local",
+                                "Labels": {
+                                    "io.mc-remote.owner": "mcrctl",
+                                    "io.mc-remote.deployment": deployment,
+                                    "io.mc-remote.environment": deployment,
+                                    "io.mc-remote.world": "official-public-beta-world",
+                                    "io.mc-remote.created-by-lock": lock["lock_identity"],
+                                },
+                            }
+                        ]
+                    )
+                    + "\n",
+                )
+            ],
+        }
+    )
+
+    result = doctor_toml_project(
+        project,
+        output,
+        docker_context="default",
+        data_root=data_root,
+        hello_probe=lambda *_args: ProtocolHelloResult(
+            status="ok",
+            protocol="21.0.0",
+            minecraft_version="1.21.11",
+        ),
+        runner=runner,
+    )
+
+    assert result.network_scope == "public"
+    assert result.bind_address == "0.0.0.0"
 
 
 def test_doctor_rejects_unhealthy_runtime_before_protocol_probe(tmp_path: Path) -> None:

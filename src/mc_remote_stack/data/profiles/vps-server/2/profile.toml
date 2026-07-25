@@ -1,0 +1,94 @@
+schema_version = 1
+
+[profile]
+name = "vps-server"
+revision = "2"
+description = "Public VPS Compose topology with Caddy, Scratch, Bridge, and Minecraft"
+
+[capabilities]
+provided = [
+  "compose",
+  "paper",
+  "persistent-world",
+  "public-web",
+  "scratch-runtime",
+  "websocket-bridge",
+]
+required_component_roles = [
+  "caddy-edge",
+  "scratch-runtime",
+  "websocket-bridge",
+  "minecraft-runtime",
+  "paper-server",
+  "mcremote-plugin",
+]
+
+[environment]
+allowed_channels = ["beta"]
+allowed_exposures = ["public"]
+allowed_purposes = ["integration"]
+
+[policy]
+required_security_controls = [
+  "online-mode",
+  "rcon-disabled",
+  "explicit-public-bind",
+  "host-firewall-reviewed",
+  "edge-backend-port-isolation",
+  "origin-allowlist",
+  "ipv4-only-publication",
+]
+instance_fields = [
+  "deployment.name",
+  "environment.identity",
+  "runtime.artifact_store",
+  "runtime.volumes",
+  "world.identity",
+  "network.bind_address",
+  "network.java_port",
+  "network.mcremote_port",
+  "agreements.minecraft_eula",
+]
+override_allowlist = ["capacity.memory"]
+
+[renderer]
+name = "compose"
+revision = "2"
+
+[[operator_input_roles]]
+id = "public-routes"
+adapter = "public-routes@1"
+required = true
+
+[[operator_input_roles]]
+id = "minecraft-motd"
+adapter = "minecraft-motd@1"
+required = false
+
+[[services]]
+id = "caddy"
+role = "caddy-edge"
+
+[[services]]
+id = "scratch"
+role = "scratch-runtime"
+
+[[services]]
+id = "bridge"
+role = "websocket-bridge"
+
+[[services]]
+id = "minecraft"
+role = "minecraft"
+
+[[volume_roles]]
+id = "minecraft-data"
+kind = "world"
+
+[[volume_roles]]
+id = "caddy-data"
+kind = "runtime-data"
+
+[[volume_roles]]
+id = "caddy-config"
+kind = "runtime-data"

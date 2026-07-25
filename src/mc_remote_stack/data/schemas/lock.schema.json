@@ -520,6 +520,26 @@
       }
     },
     "operatorInputRole": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/minecraftMotdRole"
+        },
+        {
+          "$ref": "#/$defs/publicRoutesRole"
+        }
+      ]
+    },
+    "operatorInput": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/minecraftMotdInput"
+        },
+        {
+          "$ref": "#/$defs/publicRoutesInput"
+        }
+      ]
+    },
+    "minecraftMotdRole": {
       "type": "object",
       "additionalProperties": false,
       "required": ["id", "adapter", "required"],
@@ -535,7 +555,23 @@
         }
       }
     },
-    "operatorInput": {
+    "publicRoutesRole": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "adapter", "required"],
+      "properties": {
+        "id": {
+          "const": "public-routes"
+        },
+        "adapter": {
+          "const": "public-routes@1"
+        },
+        "required": {
+          "type": "boolean"
+        }
+      }
+    },
+    "minecraftMotdInput": {
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -567,6 +603,69 @@
               "type": "string",
               "minLength": 1,
               "maxLength": 256
+            }
+          }
+        }
+      }
+    },
+    "publicRoutesInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "role",
+        "adapter",
+        "path",
+        "semantic_sha256",
+        "semantic"
+      ],
+      "properties": {
+        "role": {
+          "const": "public-routes"
+        },
+        "adapter": {
+          "const": "public-routes@1"
+        },
+        "path": {
+          "const": "operator/public-routes/routes.toml"
+        },
+        "semantic_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "semantic": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "homepage",
+            "homepage_aliases",
+            "scratch",
+            "bridge",
+            "minecraft"
+          ],
+          "properties": {
+            "homepage": {
+              "type": "string",
+              "minLength": 1
+            },
+            "homepage_aliases": {
+              "type": "array",
+              "maxItems": 8,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "scratch": {
+              "type": "string",
+              "minLength": 1
+            },
+            "bridge": {
+              "type": "string",
+              "minLength": 1
+            },
+            "minecraft": {
+              "type": "string",
+              "minLength": 1
             }
           }
         }

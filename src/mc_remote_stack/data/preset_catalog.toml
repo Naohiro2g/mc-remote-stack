@@ -3,7 +3,7 @@ schema_version = 1
 [preset_catalog]
 generator = "mcrctl-preset-catalog-v1"
 canonicalization = "jcs-rfc8785-v1"
-source_sha256 = "b2c5afd20a3ace74838530789130ec608238073591b19190494a6908fdf40167"
+source_sha256 = "fcab7817c66ba1350b43fd00ec0139128aee4d86f582a7d7214dde9332d0d70c"
 
 [[preset_catalog.presets]]
 ref = "mcremote-paper@1"
@@ -24,5 +24,16 @@ status = "active"
 available_since = "2026-07-25"
 required_profile_capabilities = ["compose", "paper", "persistent-world"]
 allowed_channels = ["alpha"]
+compatibility_status = "unverified"
+compatibility_records = []
+
+[[preset_catalog.presets]]
+ref = "public-web-paper@1"
+content_sha256 = "3356f45b58ea342f92e189ae8699f09c503f7f9c0cc4a272461a5e3c5e307a02"
+description = "Exact public beta Caddy, Scratch, Bridge, Paper, and McRemote artifacts"
+status = "active"
+available_since = "2026-07-26"
+required_profile_capabilities = ["compose", "paper", "persistent-world", "public-web", "scratch-runtime", "websocket-bridge"]
+allowed_channels = ["beta"]
 compatibility_status = "unverified"
 compatibility_records = []

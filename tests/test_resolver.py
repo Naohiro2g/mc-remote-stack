@@ -596,3 +596,77 @@ def test_bundled_alpha_preset_resolves_only_through_unverified_gate(
         {"role": "minecraft-data", "identity": "home-alpha-minecraft-data"}
     ]
     assert lock["world"]["identity"] == "home-alpha-world"
+
+
+def test_public_web_profile_resolves_exact_multiservice_lock(tmp_path: Path) -> None:
+    data_root = files("mc_remote_stack").joinpath("data")
+    project = init_toml_project(
+        tmp_path / "official-public-beta",
+        deployment_name="official-public-beta",
+        profile="vps-server@2",
+        environment_identity="official-public-beta",
+        channel="beta",
+        exposure="public",
+        purpose="integration",
+        preset="public-web-paper@1",
+        artifact_store=str(tmp_path / "artifacts"),
+        runtime_volumes={
+            "minecraft-data": "official-public-beta-minecraft-data",
+            "caddy-data": "official-public-beta-caddy-data",
+            "caddy-config": "official-public-beta-caddy-config",
+        },
+        world_identity="official-public-beta-world",
+        bind_address="0.0.0.0",
+        java_port=25565,
+        mcremote_port=25575,
+        minecraft_eula=True,
+    )
+    project.order.write_text(
+        project.order.read_text(encoding="utf-8")
+        + """
+[[operator_inputs]]
+role = "public-routes"
+adapter = "public-routes@1"
+path = "operator/public-routes/routes.toml"
+""",
+        encoding="utf-8",
+    )
+    routes = project.root / "operator" / "public-routes" / "routes.toml"
+    routes.parent.mkdir(parents=True)
+    routes.write_text(
+        """
+homepage = "mc-remote.example"
+homepage_aliases = ["www.mc-remote.example"]
+scratch = "scratch.mc-remote.example"
+bridge = "bridge.mc-remote.example"
+minecraft = "sb.mc-remote.example"
+""".lstrip(),
+        encoding="utf-8",
+    )
+    _acknowledge(project.root, "unverified")
+
+    result = resolve_project(
+        project.root,
+        data_root=data_root,
+        allow_unverified=True,
+        resolved_at=FIRST_RESOLVED_AT,
+    )
+    lock = load_lock(project.root, data_root=data_root)
+
+    assert result.status == "created"
+    assert lock["render_plan"]["adapter_revision"] == "2"
+    assert [service["id"] for service in lock["render_plan"]["services"]] == [
+        "caddy",
+        "scratch",
+        "bridge",
+        "minecraft",
+    ]
+    assert [artifact["id"] for artifact in lock["artifacts"]] == [
+        "caddy-image",
+        "scratch-image",
+        "bridge-image",
+        "minecraft-image",
+        "paper-jar",
+        "mcremote-jar",
+    ]
+    assert lock["compatibility"]["status"] == "unverified"

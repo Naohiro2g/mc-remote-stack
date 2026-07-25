@@ -15,6 +15,8 @@
 - [agent-assisted bootstrap](docs/agent-assisted-bootstrap-guide_ja.md): agentを対象hostへ置かない
   基準経路、管理端末からのSSH支援、対象host上agentの限定実験とsecurity gate
 - [fresh host bootstrap](docs/fresh-host-bootstrap-guide_ja.md): 個人管理者ユーザー、SSH、安全な開始点、現行 `mcrctl` の停止境界
+- [public VPS bootstrap](docs/public-vps-bootstrap-guide_ja.md): `vps-server@2`のread-only discovery、
+  exact multi-service plan/apply、public doctor、既存host cutover、残るreadiness phase
 - [Wake-on-LAN optional operation field note](docs/wake-on-lan-field-note_ja.md): 準24時間運用でWoLを
   重視しつつhardware要件にしない理由、directed broadcast、Python / `wakeonlan`、
   power stateごとの検証・証跡境界
@@ -154,6 +156,19 @@ compatibilityがまだ`unverified`なら、runtimeがhealthyでも警告は残�
 
 `home-alpha` は後から別projectとしてinitし、別volume identity・別world identityを与える。
 `home-beta` のdirectoryやlockをcopyして追加しない。
+
+## Public VPS beta（新TOML vertical slice）
+
+`vps-server@2`は、exact `public-web-paper@1`のCaddy、Scratch、Bridge、Minecraft、
+Paper、McRemoteを構築する現行ケータリング型VPS profileである。Caddyだけをpublic edgeへ
+接続し、backendはinternal app networkへ限定する。
+
+host firewall、provider firewall、DNSはproject外の人間checkpointであり、`apply`は変更しない。
+EULA、unverified理由、exact lock、canonical renderをreviewした後、対象VPS上のlocal Docker
+contextで`--bootstrap --yes`を明示してapplyする。失敗時はcontainerをdownするがmanaged world
+volumeは保持する。`doctor`はpublic bind、current lock / render、managed multi-service
+runtime、protocol helloをread-onlyで検証する。外部HTTPS / WSS readinessと
+content-addressed homepageは後続claimである。
 
 ## Legacy `official-vps` 垂直スライス（回帰用）
 

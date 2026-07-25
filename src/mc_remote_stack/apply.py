@@ -1,4 +1,4 @@
-"""Lock-bound, bootstrap-only live apply for compose@1 projects."""
+"""Lock-bound, bootstrap-only live apply for current Compose projects."""
 
 from __future__ import annotations
 
@@ -30,9 +30,22 @@ BOOTSTRAP_CONTRACTS = frozenset(
             "isolated",
             "integration",
         ),
+        (
+            "vps-server@1",
+            "mcremote-paper@1",
+            "beta",
+            "public",
+            "integration",
+        ),
+        (
+            "vps-server@2",
+            "public-web-paper@1",
+            "beta",
+            "public",
+            "integration",
+        ),
     }
 )
-SERVICE = "minecraft"
 DOCKER_CONTEXT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$")
 
 
@@ -139,19 +152,30 @@ def _compose_base(output: Path, docker_prefix: list[str]) -> list[str]:
     ]
 
 
-def _volume_identity(lock: dict[str, Any]) -> str:
-    matches = [
-        assignment["identity"]
+def _service_ids(lock: dict[str, Any]) -> list[str]:
+    services = [service["id"] for service in lock["render_plan"]["services"]]
+    if not services or len(services) != len(set(services)):
+        _fail(
+            "bootstrap_contract_unsupported",
+            "render_plan.services",
+            "bootstrap apply requires a non-empty unique service projection",
+        )
+    return services
+
+
+def _volume_identities(lock: dict[str, Any]) -> list[str]:
+    assignments = {
+        assignment["role"]: assignment["identity"]
         for assignment in lock["runtime"]["volumes"]
-        if assignment["role"] == "minecraft-data"
-    ]
-    if len(matches) != 1:
+    }
+    roles = [role["id"] for role in lock["render_plan"]["volume_roles"]]
+    if not roles or set(assignments) != set(roles) or len(roles) != len(set(roles)):
         _fail(
             "bootstrap_contract_unsupported",
             "runtime.volumes",
-            "bootstrap apply requires exactly one minecraft-data volume",
+            "bootstrap apply requires exactly one assignment for every declared volume role",
         )
-    return matches[0]
+    return [assignments[role] for role in roles]
 
 
 def _expected_volume_labels(lock: dict[str, Any]) -> dict[str, str]:
@@ -199,7 +223,8 @@ def _inspect_current_container(
     docker_prefix: list[str],
     container_id: str,
     lock: dict[str, Any],
-) -> None:
+    expected_services: set[str],
+) -> str:
     result = _run(
         runner,
         docker_prefix + ["inspect", container_id],
@@ -215,9 +240,9 @@ def _inspect_current_container(
     config = record.get("Config")
     labels = config.get("Labels") if isinstance(config, dict) else None
     state = record.get("State")
+    service = labels.get("com.docker.compose.service") if isinstance(labels, dict) else None
     expected = {
         "com.docker.compose.project": lock["deployment"]["name"],
-        "com.docker.compose.service": SERVICE,
         "io.mc-remote.deployment": lock["deployment"]["name"],
         "io.mc-remote.environment": lock["environment"]["identity"],
         "io.mc-remote.world": lock["world"]["identity"],
@@ -229,12 +254,19 @@ def _inspect_current_container(
             container_id,
             "existing Compose project does not match the current lock",
         )
+    if service not in expected_services:
+        _fail(
+            "bootstrap_runtime_unmanaged",
+            container_id,
+            "existing Compose service is not declared by the current lock",
+        )
     if not isinstance(state, dict) or state.get("Running") is not True:
         _fail(
             "bootstrap_runtime_not_running",
             container_id,
             "the current locked container exists but is not running",
         )
+    return service
 
 
 def _project_container_ids(
@@ -295,7 +327,9 @@ def _check_ports(
     port_probe: PortProbe,
 ) -> None:
     address = lock["network"]["bind_address"]
-    ports = (lock["network"]["java_port"], lock["network"]["mcremote_port"])
+    ports = [lock["network"]["java_port"], lock["network"]["mcremote_port"]]
+    if lock["render_plan"]["adapter_revision"] == "2":
+        ports = [80, 443, *ports]
     for port in ports:
         published = _run(
             runner,
@@ -344,7 +378,7 @@ def _validate_bootstrap_contract(
         _fail(
             "bootstrap_contract_unsupported",
             "environment",
-            "initial live apply supports only explicitly listed home bootstrap contracts",
+            "initial live apply supports only explicitly listed bootstrap contracts",
         )
     if lock["agreements"]["minecraft_eula"] is not True:
         _fail(
@@ -407,7 +441,7 @@ def apply_toml_project(
     runner: CommandRunner = _default_runner,
     port_probe: PortProbe = _default_port_probe,
 ) -> TomlApplyResult:
-    """Apply one exact initial compose@1 projection without supporting upgrades."""
+    """Apply one exact initial Compose projection without supporting upgrades."""
 
     if not bootstrap:
         _fail(
@@ -457,7 +491,8 @@ def apply_toml_project(
     )
 
     compose_project = lock["deployment"]["name"]
-    volume = _volume_identity(lock)
+    services = _service_ids(lock)
+    volumes = _volume_identities(lock)
     context = _run(
         runner,
         ["docker", "context", "inspect", docker_context],
@@ -508,41 +543,57 @@ def apply_toml_project(
     )
 
     containers = _project_container_ids(runner, docker_prefix, compose_project)
-    if len(containers) > 1:
+    if len(containers) > len(services):
         _fail(
             "bootstrap_runtime_unmanaged",
             compose_project,
-            "bootstrap apply found more than one container in the Compose project",
+            "bootstrap apply found more containers than the current lock declares",
         )
-    volume_exists = _volume_exists(runner, docker_prefix, volume)
-    if volume_exists:
-        _inspect_managed_volume(runner, docker_prefix, volume, lock)
+    volume_states = {
+        volume: _volume_exists(runner, docker_prefix, volume) for volume in volumes
+    }
+    for volume, exists in volume_states.items():
+        if exists:
+            _inspect_managed_volume(runner, docker_prefix, volume, lock)
     if containers:
-        if not volume_exists:
+        if not all(volume_states.values()) or len(containers) != len(services):
             _fail(
                 "bootstrap_runtime_unmanaged",
                 compose_project,
-                "current project container exists without its managed world volume",
+                "current project is incomplete relative to its locked services or volumes",
             )
-        _inspect_current_container(runner, docker_prefix, containers[0], lock)
+        actual_services = {
+            _inspect_current_container(
+                runner, docker_prefix, container_id, lock, set(services)
+            )
+            for container_id in containers
+        }
+        if actual_services != set(services):
+            _fail(
+                "bootstrap_runtime_unmanaged",
+                compose_project,
+                "current project does not contain every service declared by the lock",
+            )
         return TomlApplyResult(
             status="unchanged",
             lock_identity=lock["lock_identity"],
             compose_project=compose_project,
-            service=SERVICE,
-            volume=volume,
+            service=",".join(services),
+            volume=",".join(volumes),
         )
 
     _check_ports(runner, docker_prefix, lock, port_probe)
     _run(
         runner,
-        compose_base + ["pull", "--policy", "always", "--quiet", SERVICE],
+        compose_base + ["pull", "--policy", "always", "--quiet", *services],
         timeout=900,
         reason="compose_pull_failed",
         path="artifacts.minecraft-runtime",
     )
     status = "resumed"
-    if not volume_exists:
+    for volume, exists in volume_states.items():
+        if exists:
+            continue
         labels = _expected_volume_labels(lock)
         create_command = docker_prefix + ["volume", "create", "--driver", "local"]
         for key, value in labels.items():
@@ -577,20 +628,31 @@ def apply_toml_project(
                 "--no-build",
                 "--pull",
                 "never",
-                SERVICE,
+                *services,
             ],
             timeout=wait_timeout + 60,
             reason="compose_up_failed",
             path="docker.compose",
         )
         current = _project_container_ids(runner, docker_prefix, compose_project)
-        if len(current) != 1:
+        if len(current) != len(services):
             _fail(
                 "apply_postcheck_failed",
                 compose_project,
-                "Compose apply did not produce exactly one managed container",
+                "Compose apply did not produce exactly the locked service count",
             )
-        _inspect_current_container(runner, docker_prefix, current[0], lock)
+        actual_services = {
+            _inspect_current_container(
+                runner, docker_prefix, container_id, lock, set(services)
+            )
+            for container_id in current
+        }
+        if actual_services != set(services):
+            _fail(
+                "apply_postcheck_failed",
+                compose_project,
+                "Compose apply did not produce every locked service",
+            )
     except ApplyContractError as exc:
         _rollback_containers(runner, compose_base, exc)
 
@@ -598,6 +660,6 @@ def apply_toml_project(
         status=status,
         lock_identity=lock["lock_identity"],
         compose_project=compose_project,
-        service=SERVICE,
-        volume=volume,
+        service=",".join(services),
+        volume=",".join(volumes),
     )

@@ -15,10 +15,14 @@ SSH支援、対象host上agentを試す場合のsecurity gate、人間が握るc
 ## 現在の実装境界
 
 現行の vertical slice は deployment project の `init`、`validate`、`repo check`、`plan`、
-EULA gate、`resolve`、`artifact fetch`、`render`に加え、isolated `home-beta`の初回
-bootstrap applyまでを実装している。既存world import、upgrade、複数project transaction、
-firewall変更は実装していない。この文書も **production readinessやprotocol compatibilityを
-bootstrap applyだけから主張しない**。
+EULA gate、`resolve`、`artifact fetch`、`render`に加え、isolated `home-beta`と
+Caddy / Scratch / Bridge / Minecraft / McRemoteを含む`vps-server@2` public betaの
+初回bootstrap applyまでを
+実装している。public VPSの手順は
+[`public VPS bootstrap guide`](public-vps-bootstrap-guide_ja.md)を正とする。既存world import、
+upgrade、複数project transaction、firewall変更、外部HTTPS / WSS readiness claimは
+実装していない。この文書も **production readinessやprotocol compatibilityをbootstrap
+applyだけから主張しない**。
 
 ## 1. 最初の個人管理者ユーザー
 

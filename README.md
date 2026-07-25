@@ -16,6 +16,9 @@ The project is intentionally separate from:
   baseline, workstation-over-SSH assistance, and the security gate for limited on-host experiments
 - [Catering-type validation roadmap (Japanese)](docs/catering-type-validation-roadmap_ja.md)
 - [Fresh-host bootstrap (Japanese)](docs/fresh-host-bootstrap-guide_ja.md)
+- [Public VPS bootstrap (Japanese)](docs/public-vps-bootstrap-guide_ja.md):
+  `vps-server@2` discovery, exact multi-service plan/apply, public doctor,
+  existing-host cutover, and the remaining readiness phases
 - [Home private alpha validation (Japanese)](docs/home-alpha-validation-guide_ja.md)
 - [Wake-on-LAN optional operation field note (Japanese)](docs/wake-on-lan-field-note_ja.md):
   why WoL matters for semi-always-on servers without becoming a hardware requirement, plus directed-broadcast,
@@ -150,6 +153,20 @@ warning even when its runtime is healthy.
 
 Add `home-alpha` later as a separate initialized project with distinct volume and world identities;
 do not copy the `home-beta` directory or lock.
+
+## Public VPS beta (new TOML vertical slice)
+
+`vps-server@2` is the current catering-style VPS profile. It bootstraps exact
+`public-web-paper@1` Caddy, Scratch, Bridge, Minecraft, Paper, and McRemote artifacts.
+Caddy alone joins the public edge; backend services remain on an internal app network.
+
+The host firewall, provider firewall, and DNS remain explicit human checkpoints outside
+the deployment project; `apply` does not modify them. After reviewing the EULA,
+unverified reason, exact lock, and canonical render, run bootstrap apply on the VPS
+against its local Docker context. A failed apply removes the new containers but retains
+the managed world volume. `doctor` checks the public bind, current lock and render,
+managed multi-service runtime, and token-free protocol hello without mutation.
+External HTTPS/WSS readiness and the content-addressed homepage remain later claims.
 
 ## Legacy `official-vps` vertical slice (regression)
 
