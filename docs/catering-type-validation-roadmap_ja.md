@@ -20,10 +20,12 @@ preset catalog / preset registry、order、lock、content-addressed artifact、p
 既存Ubuntu hostとclean install hostの両方へ同じ構成機構を適用するサーバー構築方式。
 公式環境も利用者向け公開機構と同じmodule、artifact、profile / preset機構で構成する。
 
-### ケータリングパッケージ
+### ケータリングPC / ケータリングキット
 
-ノートPC等のclosed environmentで、clean Ubuntu installから利用者が構築できる配布・bootstrap面。
-ケータリング型を利用するが、VPS公開betaやb3開始条件と同じ作業線にはしない。
+`ケータリングPC`は、ケータリング型で構築し教室等へ持ち込むcomputer本体を指す。
+`ケータリングキット`は、ケータリングPC、Wi-Fi AP、USB / Ethernet adapter、cable、電源等を
+含む現場投入用の物理一式を指す。ノートPC等のclosed environmentで、clean Ubuntu installから
+利用者が構築できる配布・bootstrap面を検証するが、VPS公開betaやb3開始条件と同じ作業線にはしない。
 
 ### plain dev
 
@@ -52,10 +54,10 @@ home private alphaとplain devを独立して維持する。
   - 既存Ubuntu hostからのbootstrapを確認済み
   - clean Ubuntu Server hostからのbootstrapを確認済み
   - exact artifact、canonical render、bootstrap apply、healthy doctor、tokenなしprotocol helloを確認済み
-- home private alpha: 未検証
+- home private alpha: isolated構成のbootstrap apply / no-op apply / doctorを検証済み
 - VPS public betaのケータリング型移行: 未検証
 - plain dev: 本ロードマップの実装対象外
-- ケータリングパッケージのノートPC検証: 並行作業
+- ケータリングPC / ケータリングキットのノートPC検証: 並行作業
 - 詳細runbook: 並行作業
 
 ## 4. home private alphaの最初のorder contract
@@ -94,5 +96,6 @@ knowledge ownerへhandoffし、正式evidence着地後に別compatibility record
 - 各環境の役割、停止許容、data寿命、秘密境界が区別されている
 - 公開beta移行のrollbackまたは復旧手順が実地確認されている
 
-ケータリングパッケージの追加検証、対象host上agentの限定実験、runbookの網羅化は並行継続でき、
+ケータリングPC / ケータリングキットの追加検証、対象host上agentの限定実験、
+runbookの網羅化は並行継続でき、
 それだけを理由にb3開始を止めない。

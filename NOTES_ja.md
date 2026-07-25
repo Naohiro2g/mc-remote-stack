@@ -31,10 +31,12 @@
 - [ ] compatibility record追加前のunverified lockで稼働中のruntimeを、world volumeを維持したまま
   verified lockへ移すdeployed-state transactionを設計する。record追加はcandidate lock identityを
   変えるため、upgrade apply未実装の現状では対象host checkoutを単純更新・再resolveしない。
-- [ ] home private alphaを`home-server@2` / `mcremote-paper@2` /
+- [x] home private alphaを`home-server@2` / `mcremote-paper@2` /
   `alpha` / `isolated` / `integration`の別project・別volume・別world・別portでlive検証する。
   `mcremote-paper@2`はb2 exact artifactを使うdeployment-path検証用で、live evidence着地前は
   unverifiedを維持する。
+- [ ] home private alphaのsanitized `live-auto`素材をknowledge ownerへhandoffし、
+  正式evidence着地後にexact subjectのcompatibility recordを別変更で追加する。
 - [ ] backup / restore、upgrade rollback、host-level multi-project collision、
   `lan-only` / firewall責任分界を独立sliceで検証する。
 
@@ -65,3 +67,8 @@
   `verified`となり、unverified acknowledgementは不要になった。record追加前のlockで稼働するhostは
   migration transactionができるまで旧checkout / lockを維持する。private inventoryとraw logは
   本repoへ置かない。
+- exact `home-server@2` + `mcremote-paper@2`のhome private alphaを、既存betaと別project /
+  volume / world / loopback portでbootstrapした。対象checkoutで208 tests / Ruff、初回apply、
+  同一lockのno-op apply、doctorのhealthy runtime / current render、protocol `21.0.0` /
+  Minecraft `1.21.11` helloがPASSし、既存betaもhealthy / currentを維持した。正式evidence着地前の
+  ためalpha presetは意図どおり`unverified`のままとする。
