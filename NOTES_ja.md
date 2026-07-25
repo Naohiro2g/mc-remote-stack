@@ -39,6 +39,16 @@
   正式evidence着地後にexact subjectのcompatibility recordを別変更で追加する。
 - [ ] backup / restore、upgrade rollback、host-level multi-project collision、
   `lan-only` / firewall責任分界を独立sliceで検証する。
+- [ ] WoL / WoWLANを一般bootstrapの必須機能、profile capability、compatibility条件、
+  b3開始gateにはせず、hardware-specific field noteとして公開する。異なるdesktop hardware
+  class 2種で、有線magic packetによるdeep sleep / poweroff復帰とservice healthを確認済み。
+  同一hardwareのWindows Wi-Fi poweroff復帰はoperator観測あり、Ubuntu WoWLANは未成立として、
+  firmware / NIC・Wi-Fi chipset / OS / kernel / driver / renderer / power stateを固定した事例にする。
+  `Restore on AC Power Loss`やwatchdogをWoLの成功主張へ混ぜない。
+- [ ] ケータリングキットのnetwork topologyは既存Ethernet接続hardware APを最初の検証routeとし、
+  Wi-Fi-to-Ethernet bridge、内蔵WoWLAN、USB Wi-Fi / USB Ethernet、専用router PCを比較する。
+  USB常時給電だけでremote wake可能とはみなさず、exact USB ID / chipset / driver、
+  USB remote wake、broadcast透過、offline DHCP / DNS、client isolation、設定restoreを実機確認する。
 
 公開可能な現時点の観測:
 
