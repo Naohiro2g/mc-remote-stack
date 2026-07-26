@@ -319,7 +319,8 @@ applyはDocker / Compose、canonical render、current lock、port、container、
 `check-ports`、`pull-images`、`prepare-volumes`、
 `start-services-and-wait timeout=<seconds>`、`post-check`、`complete`が通常経路である。
 失敗時は必要に応じて`rollback-containers`を表示する。Docker log、registry応答、
-container環境値をprogressへ混ぜない。
+container環境値をprogressへ混ぜない。失敗detailはstderr（空ならstdout）の最後の非空行を
+制御文字除去・秘密値mask・長さ制限したものだけであり、完全なDocker出力ではない。
 
 ## 10. doctorとpublic reachability
 
@@ -335,7 +336,10 @@ sudo "$MC_REMOTE_STACK/.venv/bin/mcrctl" doctor \
 期待値:
 
 - `runtime=healthy`
-- `render=current`
+- canonicalな通常起動では`render=current`
+- recovery override等の追加Compose fileが残る移行中runtimeでは
+  `WARN render=additional-compose-files`。health / protocol確認は有効だが、canonical化完了とは
+  扱わない
 - `network=public`
 - Caddy 80 / 443、Minecraft TCP/UDP 25565、McRemote 25575がlockと一致
 - Scratch / Bridgeにはhost publishがなく、app networkは`internal=true`かつIPv6無効

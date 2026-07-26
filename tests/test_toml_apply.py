@@ -8,6 +8,7 @@ import pytest
 from mc_remote_stack.apply import (
     ApplyContractError,
     TomlApplyResult,
+    _safe_command_failure_detail,
     apply_toml_project,
 )
 from mc_remote_stack.cli import main
@@ -50,6 +51,45 @@ def _result(
 
 def _docker(*arguments: str) -> tuple[str, ...]:
     return ("docker", "--context", "default", *arguments)
+
+
+@pytest.mark.parametrize(
+    ("stderr", "expected", "hidden"),
+    [
+        (
+            "\x1b[31mfailed token=supersecret trailing-value\x1b[0m\n",
+            "failed token=<redacted>",
+            "supersecret",
+        ),
+        (
+            "denied https://alice:swordfish@example.invalid/image\n",
+            "denied https://<redacted>@example.invalid/image",
+            "swordfish",
+        ),
+        (
+            'response {"authorization": "Bearer abc", "status": 401}\n',
+            'response {"authorization": <redacted>, "status": 401}',
+            "Bearer abc",
+        ),
+    ],
+)
+def test_command_failure_detail_redacts_sensitive_values(
+    stderr: str,
+    expected: str,
+    hidden: str,
+) -> None:
+    detail = _safe_command_failure_detail(
+        _result(
+            ("docker",),
+            returncode=1,
+            stdout="less useful stdout\n",
+            stderr=stderr,
+        )
+    )
+
+    assert detail == expected
+    assert hidden not in detail
+    assert "less useful stdout" not in detail
 
 
 def _prepared_project(tmp_path: Path) -> tuple[Path, Path, Path, dict]:
@@ -133,13 +173,24 @@ def _managed_volume(lock: dict) -> dict:
     }
 
 
-def _managed_container(lock: dict, *, running: bool = True) -> dict:
+def _managed_container(
+    lock: dict,
+    output: Path,
+    *,
+    running: bool = True,
+) -> dict:
     return {
         "Id": "container-current",
         "Config": {
             "Labels": {
                 "com.docker.compose.project": "home",
                 "com.docker.compose.service": "minecraft",
+                "com.docker.compose.project.config_files": str(
+                    output.resolve() / "compose.yaml"
+                ),
+                "com.docker.compose.project.working_dir": str(
+                    output.resolve()
+                ),
                 "io.mc-remote.deployment": "home",
                 "io.mc-remote.environment": "home-beta",
                 "io.mc-remote.world": "home-beta-world",
@@ -275,7 +326,8 @@ def test_bootstrap_apply_is_bound_to_current_lock_and_verified_render(
             _docker("inspect", "container-current"): [
                 _result(
                     ("docker",),
-                    stdout=json.dumps([_managed_container(lock)]) + "\n",
+                    stdout=json.dumps([_managed_container(lock, output)])
+                    + "\n",
                 )
             ],
         }
@@ -623,7 +675,17 @@ def test_failed_compose_up_rolls_back_containers_but_retains_world_volume(
                 "--pull",
                 "never",
                 "minecraft",
-            ): [_result(base, returncode=1, stderr="startup failed")],
+            ): [
+                _result(
+                    base,
+                    returncode=1,
+                    stdout="less useful stdout",
+                    stderr=(
+                        "startup failed token=supersecret "
+                        "container-environment"
+                    ),
+                )
+            ],
             base + ("down", "--timeout", "120"): [_result(base)],
         }
     )
@@ -644,6 +706,10 @@ def test_failed_compose_up_rolls_back_containers_but_retains_world_volume(
         )
 
     assert exc_info.value.reason == "compose_up_failed"
+    assert "startup failed token=<redacted>" in str(exc_info.value)
+    assert "supersecret" not in str(exc_info.value)
+    assert "container-environment" not in str(exc_info.value)
+    assert "less useful stdout" not in str(exc_info.value)
     assert (base + ("down", "--timeout", "120"), 180) in runner.calls
     assert all(command[:5] != _docker("volume", "rm") for command, _ in runner.calls)
 
@@ -656,7 +722,10 @@ def test_exact_running_bootstrap_is_an_apply_noop(tmp_path: Path) -> None:
         volume_names=["home-beta-minecraft-data"],
     )
     responses[_docker("inspect", "container-current")] = [
-        _result(("docker",), stdout=json.dumps([_managed_container(lock)]) + "\n")
+        _result(
+            ("docker",),
+            stdout=json.dumps([_managed_container(lock, output)]) + "\n",
+        )
     ]
     responses[_docker("volume", "inspect", "home-beta-minecraft-data")] = [
         _result(("docker",), stdout=json.dumps([_managed_volume(lock)]) + "\n")
@@ -678,6 +747,52 @@ def test_exact_running_bootstrap_is_an_apply_noop(tmp_path: Path) -> None:
 
     assert result.status == "unchanged"
     assert all("pull" not in command and "up" not in command for command, _ in runner.calls)
+
+
+def test_exact_lock_with_additional_compose_file_is_not_apply_noop(
+    tmp_path: Path,
+) -> None:
+    project, data_root, output, lock = _prepared_project(tmp_path)
+    responses = _read_only_responses(
+        output,
+        project_containers=["container-current"],
+        volume_names=["home-beta-minecraft-data"],
+    )
+    container = _managed_container(lock, output)
+    labels = container["Config"]["Labels"]
+    labels["com.docker.compose.project.config_files"] = (
+        f"{output.resolve() / 'compose.yaml'},"
+        f"{tmp_path / 'recovery.override.yaml'}"
+    )
+    responses[_docker("inspect", "container-current")] = [
+        _result(("docker",), stdout=json.dumps([container]) + "\n")
+    ]
+    responses[_docker("volume", "inspect", "home-beta-minecraft-data")] = [
+        _result(
+            ("docker",),
+            stdout=json.dumps([_managed_volume(lock)]) + "\n",
+        )
+    ]
+    runner = FakeDocker(responses)
+
+    with pytest.raises(ApplyContractError) as exc_info:
+        apply_toml_project(
+            project,
+            output,
+            expected_lock_identity=lock["lock_identity"],
+            docker_context="default",
+            data_root=data_root,
+            bootstrap=True,
+            confirmed=True,
+            allow_unverified=True,
+            runner=runner,
+        )
+
+    assert exc_info.value.reason == "bootstrap_runtime_composition_mismatch"
+    assert all(
+        "pull" not in command and "up" not in command
+        for command, _ in runner.calls
+    )
 
 
 def test_cli_apply_passes_explicit_bootstrap_and_lock_acknowledgements(

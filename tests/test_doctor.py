@@ -36,13 +36,24 @@ def _compose_base(output: Path) -> tuple[str, ...]:
     )
 
 
-def _managed_container(lock: dict, *, health: str = "healthy") -> dict:
+def _managed_container(
+    lock: dict,
+    output: Path,
+    *,
+    health: str = "healthy",
+) -> dict:
     return {
         "Id": "container-current",
         "Config": {
             "Labels": {
                 "com.docker.compose.project": "home",
                 "com.docker.compose.service": "minecraft",
+                "com.docker.compose.project.config_files": str(
+                    output.resolve() / "compose.yaml"
+                ),
+                "com.docker.compose.project.working_dir": str(
+                    output.resolve()
+                ),
                 "io.mc-remote.deployment": "home",
                 "io.mc-remote.environment": "home-beta",
                 "io.mc-remote.world": "home-beta-world",
@@ -105,7 +116,10 @@ def _doctor_responses(output: Path, lock: dict, *, health: str = "healthy") -> d
         _docker("inspect", "container-current"): [
             _result(
                 ("docker",),
-                stdout=json.dumps([_managed_container(lock, health=health)]) + "\n",
+                stdout=json.dumps(
+                    [_managed_container(lock, output, health=health)]
+                )
+                + "\n",
             )
         ],
         _docker("volume", "inspect", "home-beta-minecraft-data"): [
@@ -155,6 +169,7 @@ def test_doctor_checks_current_render_runtime_and_protocol_without_mutation(
         lock_identity=lock["lock_identity"],
         docker_context="default",
         runtime_status="healthy",
+        render_status="current",
         network_scope="loopback",
         bind_address="127.0.0.1",
         java_port=25565,
@@ -171,6 +186,39 @@ def test_doctor_checks_current_render_runtime_and_protocol_without_mutation(
     assert all(not mutation_words.intersection(command) for command, _ in runner.calls)
 
 
+def test_doctor_reports_additional_compose_files_without_hiding_health(
+    tmp_path: Path,
+) -> None:
+    project, data_root, output, lock = _prepared_project(tmp_path)
+    responses = _doctor_responses(output, lock)
+    container = _managed_container(lock, output)
+    labels = container["Config"]["Labels"]
+    labels["com.docker.compose.project.config_files"] = (
+        f"{output.resolve() / 'compose.yaml'},"
+        f"{tmp_path / 'recovery.override.yaml'}"
+    )
+    responses[_docker("inspect", "container-current")] = [
+        _result(("docker",), stdout=json.dumps([container]) + "\n")
+    ]
+    runner = FakeDocker(responses)
+
+    result = doctor_toml_project(
+        project,
+        output,
+        docker_context="default",
+        data_root=data_root,
+        runner=runner,
+        hello_probe=lambda *_args: ProtocolHelloResult(
+            status="ok",
+            protocol="21.0.0",
+            minecraft_version="1.21.11",
+        ),
+    )
+
+    assert result.runtime_status == "healthy"
+    assert result.render_status == "additional-compose-files"
+
+
 def test_doctor_reports_public_vps_network_scope(tmp_path: Path) -> None:
     project, data_root, output, lock = _prepared_public_project(tmp_path)
     base = _compose_base(output)
@@ -179,6 +227,10 @@ def test_doctor_reports_public_vps_network_scope(tmp_path: Path) -> None:
     labels = {
         "com.docker.compose.project": deployment,
         "com.docker.compose.service": "minecraft",
+        "com.docker.compose.project.config_files": str(
+            output.resolve() / "compose.yaml"
+        ),
+        "com.docker.compose.project.working_dir": str(output.resolve()),
         "io.mc-remote.deployment": deployment,
         "io.mc-remote.environment": deployment,
         "io.mc-remote.world": "official-public-beta-world",
@@ -305,7 +357,7 @@ def test_doctor_rejects_unhealthy_runtime_before_protocol_probe(tmp_path: Path) 
 def test_doctor_rejects_live_port_drift_before_protocol_probe(tmp_path: Path) -> None:
     project, data_root, output, lock = _prepared_project(tmp_path)
     responses = _doctor_responses(output, lock)
-    container = _managed_container(lock)
+    container = _managed_container(lock, output)
     container["NetworkSettings"]["Ports"]["25575/tcp"][0]["HostIp"] = "0.0.0.0"
     responses[_docker("inspect", "container-current")] = [
         _result(("docker",), stdout=json.dumps([container]) + "\n")
@@ -531,6 +583,7 @@ def test_cli_doctor_uses_simple_local_defaults_and_does_not_echo_secrets(
             lock_identity=f"sha256:{'1' * 64}",
             docker_context="default",
             runtime_status="healthy",
+            render_status="current",
             network_scope="loopback",
             bind_address="127.0.0.1",
             java_port=25565,
@@ -550,9 +603,46 @@ def test_cli_doctor_uses_simple_local_defaults_and_does_not_echo_secrets(
     assert received["docker_context"] == "default"
     output = capsys.readouterr().out
     assert "OK doctor runtime=healthy deployment=home environment=home-beta" in output
+    assert "OK doctor lock=" in output
+    assert "render=current" in output
     assert "OK doctor network=loopback bind=127.0.0.1 java-port=25565 mcremote-port=25575" in output
     assert "OK doctor protocol=21.0.0 mc-version=1.21.11 auth=not-required" in output
     assert "WARN doctor compatibility=unverified" in output
     assert "token" not in output
     assert "session" not in output
     assert "player" not in output
+
+
+def test_cli_doctor_warns_when_runtime_uses_additional_compose_files(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    project = tmp_path / "home-beta"
+    project.mkdir()
+    (project / "mc-remote.toml").write_text("schema_version = 1\n")
+    monkeypatch.setattr(
+        "mc_remote_stack.cli.doctor_toml_project",
+        lambda *_args, **_kwargs: TomlDoctorResult(
+            deployment="home",
+            environment="home-beta",
+            lock_identity=f"sha256:{'1' * 64}",
+            docker_context="default",
+            runtime_status="healthy",
+            render_status="additional-compose-files",
+            network_scope="loopback",
+            bind_address="127.0.0.1",
+            java_port=25565,
+            mcremote_port=25575,
+            protocol_status="ok",
+            protocol="21.0.0",
+            minecraft_version="1.21.11",
+            compatibility_status="unverified",
+        ),
+    )
+
+    assert main(["doctor", "--project", str(project)]) == 0
+
+    output = capsys.readouterr().out
+    assert "WARN doctor lock=" in output
+    assert "render=additional-compose-files" in output

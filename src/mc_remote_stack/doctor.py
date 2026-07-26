@@ -11,7 +11,7 @@ from ipaddress import ip_address
 from pathlib import Path
 from typing import Any, Protocol
 
-from .apply import DOCKER_CONTEXT
+from .apply import DOCKER_CONTEXT, compose_render_status
 from .render import RenderContractError, verify_toml_render_output
 
 MAX_HELLO_BYTES = 64 * 1024
@@ -57,6 +57,7 @@ class TomlDoctorResult:
     lock_identity: str
     docker_context: str
     runtime_status: str
+    render_status: str
     network_scope: str
     bind_address: str
     java_port: int
@@ -198,8 +199,11 @@ def _validate_volume(record: dict[str, Any], volume: str, lock: dict[str, Any]) 
 
 
 def _validate_container(
-    record: dict[str, Any], lock: dict[str, Any], expected_services: set[str]
-) -> str:
+    record: dict[str, Any],
+    lock: dict[str, Any],
+    expected_services: set[str],
+    output: Path,
+) -> tuple[str, str]:
     config = record.get("Config")
     labels = config.get("Labels") if isinstance(config, dict) else None
     expected_labels = {
@@ -286,7 +290,7 @@ def _validate_container(
             lock["deployment"]["name"],
             "live published ports do not match the current lock",
         )
-    return service
+    return service, compose_render_status(labels, output)
 
 
 def _validate_hello_result(
@@ -556,6 +560,7 @@ def doctor_toml_project(
             "doctor requires exactly the current lock's Compose service count",
         )
     actual_services = set()
+    render_statuses = set()
     for container_id in containers:
         container = _single_inspect_record(
             _run(
@@ -568,13 +573,26 @@ def doctor_toml_project(
             reason="doctor_runtime_inspect_failed",
             path=lock["deployment"]["name"],
         )
-        actual_services.add(_validate_container(container, lock, set(services)))
+        service, render_status = _validate_container(
+            container,
+            lock,
+            set(services),
+            output,
+        )
+        actual_services.add(service)
+        render_statuses.add(render_status)
     if actual_services != set(services):
         _fail(
             "doctor_runtime_unmanaged",
             lock["deployment"]["name"],
             "runtime does not contain every service declared by the current lock",
         )
+    if render_statuses == {"current"}:
+        runtime_render_status = "current"
+    elif render_statuses <= {"current", "additional-compose-files"}:
+        runtime_render_status = "additional-compose-files"
+    else:
+        runtime_render_status = "noncanonical"
 
     for volume in volumes:
         volume_record = _single_inspect_record(
@@ -605,6 +623,7 @@ def doctor_toml_project(
         lock_identity=lock["lock_identity"],
         docker_context=docker_context,
         runtime_status="healthy",
+        render_status=runtime_render_status,
         network_scope=(
             "loopback"
             if ip_address(network["bind_address"]).is_loopback

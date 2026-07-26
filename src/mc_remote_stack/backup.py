@@ -64,6 +64,7 @@ class BackupEndpoint:
 class RemoteArchive:
     name: str
     size_bytes: int
+    record_present: bool
 
 
 @dataclass(frozen=True)
@@ -583,15 +584,34 @@ def list_remote_archives(
         except (AttributeError, ftplib.error_perm):
             mlsd_entries = None
         if mlsd_entries is None:
-            archives = [
-                RemoteArchive(name=name, size_bytes=size)
+            listed_names = {
+                name
                 for name in client.nlst()
                 if _safe_remote_name(name)
-                and name.endswith(".age")
+            }
+            archives = [
+                RemoteArchive(
+                    name=name,
+                    size_bytes=size,
+                    record_present=(
+                        f"{name}.transfer.json" in listed_names
+                    ),
+                )
+                for name in listed_names
+                if name.endswith(".age")
                 and (size := _remote_size(client, name)) is not None
             ]
         else:
             archives = []
+            listed_names = {
+                name
+                for name, facts in mlsd_entries
+                if (
+                    _safe_remote_name(name)
+                    and isinstance(facts, dict)
+                    and facts.get("type") == "file"
+                )
+            }
             for name, facts in mlsd_entries:
                 if (
                     not _safe_remote_name(name)
@@ -608,7 +628,13 @@ def list_remote_archives(
                 if size < 0:
                     continue
                 archives.append(
-                    RemoteArchive(name=name, size_bytes=size)
+                    RemoteArchive(
+                        name=name,
+                        size_bytes=size,
+                        record_present=(
+                            f"{name}.transfer.json" in listed_names
+                        ),
+                    )
                 )
         client.quit()
     except Exception:

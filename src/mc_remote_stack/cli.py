@@ -705,9 +705,12 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
         f"OK doctor runtime={result.runtime_status} "
         f"deployment={result.deployment} environment={result.environment}"
     )
+    render_level = (
+        "OK" if result.render_status == "current" else "WARN"
+    )
     print(
-        f"OK doctor lock={result.lock_identity} "
-        f"render=current context={result.docker_context}"
+        f"{render_level} doctor lock={result.lock_identity} "
+        f"render={result.render_status} context={result.docker_context}"
     )
     print(
         f"OK doctor network={result.network_scope} bind={result.bind_address} "
@@ -1038,7 +1041,11 @@ def _cmd_backup_list(args: argparse.Namespace) -> int:
         print("REMOTE none")
         return 0
     for archive in archives:
-        print(f"REMOTE name={archive.name} size-bytes={archive.size_bytes}")
+        record = "present" if archive.record_present else "missing"
+        print(
+            f"REMOTE name={archive.name} "
+            f"size-bytes={archive.size_bytes} record={record}"
+        )
     return 0
 
 

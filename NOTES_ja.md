@@ -89,10 +89,13 @@
   `82eb7be298226b018bdac965c577e2fd398b2231245d57f02908487ce7c49100`、
   statusは`download-verified`。XServerはupload中の既知名`SIZE`を受理する一方、`NLST`後の
   `SIZE`を550にするため、remote listはsize factを持つ`MLSD`を優先し、非対応serverだけ
-  `NLST` + `SIZE`へfallbackする。新CLIによるlive world restoreは未実施である。
+  `NLST` + `SIZE`へfallbackする。remote listは暗号文をsidecar有無とともに表示し、
+  `record=missing`を復元可能とは扱わない。新CLIによるlive world restoreは未実施である。
   現行official public betaは一時的な`compose.recovery-plugins.yaml`を併用しているため、
   canonical composeだけで再起動するworld restore applyはplugin setを外す。restore preflightは
-  追加Compose fileを検出して拒否する。live applyはplugin compositionを正規lockへ取り込んだ後に行う。
+  追加Compose fileを検出して拒否する。doctorはruntime / protocol確認を続けながら
+  `render=additional-compose-files`を警告し、applyも同じlockのno-opとは扱わずmutation前に拒否する。
+  live applyはplugin compositionを正規lockへ取り込んだ後に行う。
   TOML deployment用off-host transportはprivate mode-0600 fileを明示指定し、provider /
   account inventoryをpublic project orderへ混ぜず、passwordは既存secret storeから参照する。
   ServerBackup 2.10.0の公式仕様では`DeleteOldBackups`は日数、`BackupLimiter`が総世代数である。
@@ -102,8 +105,10 @@
   `.transfer.json`が残り、両recordとも`download-verified`だった。一方、
   2026-07-21--26のMinecraft 1.21.11 beta最新6世代については、home配下に暗号文 /
   transfer record / 現行transport configを確認できず、off-host転送済みか未判定だった。
-  XServer側のaccount rootはFTPS session内の`/`として観測され、旧形式のstable / beta
-  backupは`mcrctl backup list`の対象外、新形式はlive smoke前に0件だった。
+  XServer側のaccount rootはFTPS session内の`/`として観測された。remoteには旧stable /
+  beta候補の暗号文2件と今回の自動搬送 / smoke暗号文2件が見える。旧2件にはremote sidecarがなく、
+  今回の2件にはsidecarがあるため、`backup list`はそれぞれ`record=missing` /
+  `record=present`として区別する。
 - [ ] plugin compositionを通常の非container運用に近い表現力へ上げる。JAR identityだけでなく、
   pluginごとのconfig template / override、secret注入、data directory所有権、load順・依存、
   runtime library / content download、update check、egress、backup / restore policyを

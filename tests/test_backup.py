@@ -342,6 +342,7 @@ def test_remote_list_returns_only_completed_age_archives(
     ftps.files = {
         "beta-b.age": b"bb",
         "beta-a.age": b"a",
+        "beta-a.age.transfer.json": b"record",
         ".beta-c.age.uploading": b"partial",
         "notes.txt": b"ignored",
     }
@@ -351,9 +352,12 @@ def test_remote_list_returns_only_completed_age_archives(
         ftps_factory=lambda **kwargs: ftps,
     )
 
-    assert [(item.name, item.size_bytes) for item in result] == [
-        ("beta-a.age", 1),
-        ("beta-b.age", 2),
+    assert [
+        (item.name, item.size_bytes, item.record_present)
+        for item in result
+    ] == [
+        ("beta-a.age", 1, True),
+        ("beta-b.age", 2, False),
     ]
     assert ("prot_p",) in ftps.calls
 
@@ -386,8 +390,11 @@ def test_remote_list_uses_mlsd_facts_when_size_command_is_unavailable(
         ftps_factory=lambda **kwargs: ftps,
     )
 
-    assert [(item.name, item.size_bytes) for item in result] == [
-        ("beta.age", len(b"ciphertext")),
+    assert [
+        (item.name, item.size_bytes, item.record_present)
+        for item in result
+    ] == [
+        ("beta.age", len(b"ciphertext"), True),
     ]
 
 
@@ -712,7 +719,16 @@ def test_cli_backup_recovery_commands_report_verified_identities(
     monkeypatch.setattr(
         "mc_remote_stack.cli.list_remote_archives",
         lambda project: [
-            RemoteArchive(name="backup.zip.test.age", size_bytes=123)
+            RemoteArchive(
+                name="backup.zip.test.age",
+                size_bytes=123,
+                record_present=True,
+            ),
+            RemoteArchive(
+                name="legacy.zip.test.age",
+                size_bytes=456,
+                record_present=False,
+            ),
         ],
     )
 
@@ -814,7 +830,14 @@ def test_cli_backup_recovery_commands_report_verified_identities(
     )
 
     output = capsys.readouterr().out
-    assert "REMOTE name=backup.zip.test.age size-bytes=123" in output
+    assert (
+        "REMOTE name=backup.zip.test.age size-bytes=123 record=present"
+        in output
+    )
+    assert (
+        "REMOTE name=legacy.zip.test.age size-bytes=456 record=missing"
+        in output
+    )
     assert "OK backup download-record status=record-downloaded-verified" in output
     assert "OK backup download status=downloaded-verified" in output
     assert "sha256=" + "2" * 64 in output
