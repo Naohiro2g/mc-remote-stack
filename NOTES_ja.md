@@ -2,6 +2,68 @@
 
 確定前または別sliceへ送る作業だけを置く。private host名、IP、credential、account情報は書かない。
 
+## 2026-07-27 catering VPS session handoff
+
+### Git / deployment現在地
+
+- 作業branchは`codex/catering-recovery-transactions`。Phase 1は
+  `7f02d69 Add catering recovery transactions`、Phase 2は
+  `fe74ce9 Refine live recovery diagnostics`、CLI検証環境の分担計画は
+  `c2a08de Record CLI validation environment plan`である。push / PRはしていない。
+- VPSのtrusted checkoutは`fe74ce9`、local checkoutは`c2a08de`でclean。後者は文書だけの差分で、
+  現行runtimeを更新する理由にはしない。
+- `official-public-beta`はlock
+  `sha256:979a677b3fb9c83a1ed5e1704c60f3054bcc8ae3e758a8877df9134b502f4d56`、
+  Minecraft 1.21.11、protocol 21.0.0でhealthy。doctorは
+  `render=additional-compose-files`をWARNし、compatibilityは
+  `public VPS catering transaction evidence is being established`を理由にunverifiedを維持する。
+- Scratch betaからの接続、`postToChat`、`setBlocks`は人間確認済み。world 3 root、
+  server icon、11 active plugin JARを最新beta backupから復元している。
+
+### 現在の停止境界
+
+- 現行plugin set / config / secretは一時的なrecovery Compose overrideで供給する。
+  plugin compositionを正規order / lock / renderへ取り込むまで、通常`apply`、world restore apply、
+  canonical migrationを現行VPSへ実行しない。
+- 現行world volumeを実験用に使わず、recovery overrideを正規lockへ暗黙昇格しない。
+- remote backup、local暗号文、transfer record、restore rollback directoryは、retention /
+  finalize契約を確定するまで自動削除しない。
+- 他repoを編集・commit・pushしない。本repoも人間の明示指示なしにpushしない。
+
+### backup / restore現在地
+
+- ServerBackupは00:30 / 04:30 / 08:30 / 12:30 / 16:30 / 20:30の1日6回、
+  local plaintext最新6世代、plugin内蔵FTP無効。完成ZIPはsystemd timerからage暗号化し、
+  explicit FTPS adapterでoff-host搬送する。
+- 自動搬送、remote再download SHA-256、ZIP CRC、activation marker、stable-age、
+  duplicate skipはlive PASS。実remoteには旧暗号文2件が`record=missing`、今回の自動搬送 /
+  smoke暗号文2件が`record=present`として見える。
+- record / ciphertext download、decrypt、archive inspect、world-only restore transactionは
+  deterministic CLIとして実装済み。実FTPS世代からのlive world restore applyは未実施で、
+  canonical plugin composition後に行う。
+- local / remote暗号文のretention、legacy `record=missing`の扱い、成功後rollback directoryの
+  manual rollback / finalizeは未決定・未実装である。
+
+### plugin recovery現在地
+
+- DiscordSRV secretはconfigured、Geyser / Floodgate / ServerBackup configは復元・調整済み。
+  Floodgate keyは不要でabsent、LuckPerms DBはfreshのまま。plugin JAR / data / configは
+  recovery overrideで供給し、正式なplugin data復元範囲は未批准である。
+- plugin compositionでは、JAR identityに加えてconfig template / override、secret参照、
+  data directory所有権、load順・依存、runtime download、update check、egress、
+  backup / restore policyをlock / render / doctorへ投影する必要がある。
+
+### 次の順序と人間判断
+
+- 環境分担と安全な検証順は
+  [`docs/cli-validation-environment-plan_ja.md`](docs/cli-validation-environment-plan_ja.md)を入口とする。
+  まずlocalでplugin compositionとupgrade / reapply transactionを実装し、ケータリングPCで
+  破壊的bootstrap / rollback / restore、home serverの別lab projectで長期統合を行う。
+  現行VPSは稼働を維持し、最後に人間checkpoint付きcanonical migrationとpublic evidenceを行う。
+- 人間判断待ちは、McRemoteオリジナル箱庭template、server icon規定のarchiveからの回収、
+  local / remote backup retention、legacy暗号文、rollback directoryの削除時点、
+  plugin dataの正式復元範囲、LuckPerms DB復元、compatibility evidenceの正式着地時点である。
+
 ## 2026-07-24 home-beta bootstrap後
 
 - [ ] Paperのdefaultに依存しないMcRemoteオリジナルのserver templateを別sliceで設計する。
@@ -11,7 +73,7 @@
   関連箇所では規定を特定できていないため、記憶だけで再定義せず、approved knowledge handoffで
   出典を回収してからformat / size、asset provenance、immutable identity、render / install契約を
   上記server templateの近接仕様として確定する。
-- [ ] `vps-server@4` / `public-web-paper@1`をVPS実機でbootstrapし、Caddy / Scratch /
+- [x] `vps-server@4` / `public-web-paper@1`をVPS実機でbootstrapし、Caddy / Scratch /
   Bridge / Minecraft、internal app network、public bind、managed volume、token無し
   protocol helloを`live-auto`検証する。host / provider firewallとDNSは人間checkpointとして
   分離し、外部HTTPS / WSS readinessとhomepage artifactは後続claimとして記録する。
