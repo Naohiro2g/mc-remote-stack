@@ -624,6 +624,10 @@ def _cmd_apply(args: argparse.Namespace) -> int:
             allow_unverified=args.allow_unverified,
             allow_eol=args.allow_eol,
             wait_timeout=args.wait_timeout,
+            progress=lambda step: print(
+                f"PROGRESS apply step={step}",
+                flush=True,
+            ),
         )
     except (
         ApplyContractError,

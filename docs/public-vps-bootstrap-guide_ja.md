@@ -282,6 +282,13 @@ applyはDocker / Compose、canonical render、current lock、port、container、
 失敗時は新containerをdownするがmanaged world volumeを削除しない。自動rollbackの失敗は
 `apply_rollback_failed`として停止し、成功を主張しない。
 
+長時間無表示にしないため、applyは秘密を含まない固定stepだけを逐次表示する。
+`verify-render`、`validate-lock`、`docker-preflight`、`runtime-preflight`、
+`check-ports`、`pull-images`、`prepare-volumes`、
+`start-services-and-wait timeout=<seconds>`、`post-check`、`complete`が通常経路である。
+失敗時は必要に応じて`rollback-containers`を表示する。Docker log、registry応答、
+container環境値をprogressへ混ぜない。
+
 ## 10. doctorとpublic reachability
 
 対象host上のread-only doctor:

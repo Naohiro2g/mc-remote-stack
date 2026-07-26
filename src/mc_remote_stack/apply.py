@@ -58,6 +58,7 @@ class CommandRunner(Protocol):
 
 
 PortProbe = Callable[[str, int], None]
+ProgressReporter = Callable[[str], None]
 
 
 class ApplyContractError(ValueError):
@@ -98,6 +99,10 @@ def _default_runner(
 def _default_port_probe(address: str, port: int) -> None:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
         probe.bind((address, port))
+
+
+def _no_progress(_step: str) -> None:
+    pass
 
 
 def _run(
@@ -408,7 +413,9 @@ def _rollback_containers(
     runner: CommandRunner,
     compose_base: list[str],
     original: ApplyContractError,
+    progress: ProgressReporter,
 ) -> None:
+    progress("rollback-containers")
     try:
         _run(
             runner,
@@ -440,6 +447,7 @@ def apply_toml_project(
     wait_timeout: int = 300,
     runner: CommandRunner = _default_runner,
     port_probe: PortProbe = _default_port_probe,
+    progress: ProgressReporter = _no_progress,
 ) -> TomlApplyResult:
     """Apply one exact initial Compose projection without supporting upgrades."""
 
@@ -468,6 +476,7 @@ def apply_toml_project(
             "Docker context must be an explicit name token",
         )
 
+    progress("verify-render")
     try:
         verification = verify_toml_render_output(
             project_root,
@@ -484,6 +493,7 @@ def apply_toml_project(
             "apply.expected_lock_identity",
             f"expected {expected_lock_identity} does not match current {lock['lock_identity']}",
         )
+    progress("validate-lock")
     _validate_bootstrap_contract(
         lock,
         allow_unverified=allow_unverified,
@@ -493,6 +503,7 @@ def apply_toml_project(
     compose_project = lock["deployment"]["name"]
     services = _service_ids(lock)
     volumes = _volume_identities(lock)
+    progress("docker-preflight")
     context = _run(
         runner,
         ["docker", "context", "inspect", docker_context],
@@ -542,6 +553,7 @@ def apply_toml_project(
         path=output / "compose.yaml",
     )
 
+    progress("runtime-preflight")
     containers = _project_container_ids(runner, docker_prefix, compose_project)
     if len(containers) > len(services):
         _fail(
@@ -574,6 +586,7 @@ def apply_toml_project(
                 compose_project,
                 "current project does not contain every service declared by the lock",
             )
+        progress("complete")
         return TomlApplyResult(
             status="unchanged",
             lock_identity=lock["lock_identity"],
@@ -582,7 +595,9 @@ def apply_toml_project(
             volume=",".join(volumes),
         )
 
+    progress("check-ports")
     _check_ports(runner, docker_prefix, lock, port_probe)
+    progress("pull-images")
     _run(
         runner,
         compose_base + ["pull", "--policy", "always", "--quiet", *services],
@@ -591,6 +606,7 @@ def apply_toml_project(
         path="artifacts.minecraft-runtime",
     )
     status = "resumed"
+    progress("prepare-volumes")
     for volume, exists in volume_states.items():
         if exists:
             continue
@@ -616,6 +632,7 @@ def apply_toml_project(
         status = "created"
 
     try:
+        progress(f"start-services-and-wait timeout={wait_timeout}")
         _run(
             runner,
             compose_base
@@ -634,6 +651,7 @@ def apply_toml_project(
             reason="compose_up_failed",
             path="docker.compose",
         )
+        progress("post-check")
         current = _project_container_ids(runner, docker_prefix, compose_project)
         if len(current) != len(services):
             _fail(
@@ -654,8 +672,9 @@ def apply_toml_project(
                 "Compose apply did not produce every locked service",
             )
     except ApplyContractError as exc:
-        _rollback_containers(runner, compose_base, exc)
+        _rollback_containers(runner, compose_base, exc, progress)
 
+    progress("complete")
     return TomlApplyResult(
         status=status,
         lock_identity=lock["lock_identity"],

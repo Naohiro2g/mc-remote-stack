@@ -282,6 +282,7 @@ def test_bootstrap_apply_is_bound_to_current_lock_and_verified_render(
     )
     runner = FakeDocker(responses)
     probed: list[tuple[str, int]] = []
+    progress: list[str] = []
 
     result = apply_toml_project(
         project,
@@ -294,6 +295,7 @@ def test_bootstrap_apply_is_bound_to_current_lock_and_verified_render(
         allow_unverified=True,
         runner=runner,
         port_probe=lambda address, port: probed.append((address, port)),
+        progress=progress.append,
     )
 
     assert result.status == "created"
@@ -301,6 +303,18 @@ def test_bootstrap_apply_is_bound_to_current_lock_and_verified_render(
     assert result.compose_project == "home"
     assert result.volume == "home-beta-minecraft-data"
     assert probed == [("127.0.0.1", 25565), ("127.0.0.1", 25575)]
+    assert progress == [
+        "verify-render",
+        "validate-lock",
+        "docker-preflight",
+        "runtime-preflight",
+        "check-ports",
+        "pull-images",
+        "prepare-volumes",
+        "start-services-and-wait timeout=300",
+        "post-check",
+        "complete",
+    ]
     commands = [command for command, _ in runner.calls]
     assert commands.index(base + ("pull", "--policy", "always", "--quiet", "minecraft")) < commands.index(
         _docker(
@@ -686,6 +700,9 @@ def test_cli_apply_passes_explicit_bootstrap_and_lock_acknowledgements(
                 **kwargs,
             }
         )
+        progress = kwargs["progress"]
+        assert callable(progress)
+        progress("start-services-and-wait timeout=300")
         return TomlApplyResult(
             status="created",
             lock_identity=lock["lock_identity"],
@@ -725,6 +742,9 @@ def test_cli_apply_passes_explicit_bootstrap_and_lock_acknowledgements(
     assert received["confirmed"] is True
     assert received["allow_unverified"] is True
     output_text = capsys.readouterr().out
+    assert (
+        "PROGRESS apply step=start-services-and-wait timeout=300" in output_text
+    )
     assert "OK apply status=created bootstrap=true" in output_text
     assert "WARN live bootstrap used the one-shot unverified acknowledgement" in output_text
 
