@@ -603,7 +603,7 @@ def test_public_web_profile_resolves_exact_multiservice_lock(tmp_path: Path) -> 
     project = init_toml_project(
         tmp_path / "official-public-beta",
         deployment_name="official-public-beta",
-        profile="vps-server@2",
+        profile="vps-server@3",
         environment_identity="official-public-beta",
         channel="beta",
         exposure="public",
@@ -654,7 +654,7 @@ minecraft = "sb.mc-remote.example"
     lock = load_lock(project.root, data_root=data_root)
 
     assert result.status == "created"
-    assert lock["render_plan"]["adapter_revision"] == "2"
+    assert lock["render_plan"]["adapter_revision"] == "3"
     assert [service["id"] for service in lock["render_plan"]["services"]] == [
         "caddy",
         "scratch",

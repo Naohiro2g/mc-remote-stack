@@ -15,7 +15,7 @@
 - [agent-assisted bootstrap](docs/agent-assisted-bootstrap-guide_ja.md): agentを対象hostへ置かない
   基準経路、管理端末からのSSH支援、対象host上agentの限定実験とsecurity gate
 - [fresh host bootstrap](docs/fresh-host-bootstrap-guide_ja.md): 個人管理者ユーザー、SSH、安全な開始点、現行 `mcrctl` の停止境界
-- [public VPS bootstrap](docs/public-vps-bootstrap-guide_ja.md): `vps-server@2`のread-only discovery、
+- [public VPS bootstrap](docs/public-vps-bootstrap-guide_ja.md): `vps-server@3`のread-only discovery、
   exact multi-service plan/apply、public doctor、既存host cutover、残るreadiness phase
 - [Wake-on-LAN optional operation field note](docs/wake-on-lan-field-note_ja.md): 準24時間運用でWoLを
   重視しつつhardware要件にしない理由、directed broadcast、Python / `wakeonlan`、
@@ -159,7 +159,7 @@ compatibilityがまだ`unverified`なら、runtimeがhealthyでも警告は残�
 
 ## Public VPS beta（新TOML vertical slice）
 
-`vps-server@2`は、exact `public-web-paper@1`のCaddy、Scratch、Bridge、Minecraft、
+`vps-server@3`は、exact `public-web-paper@1`のCaddy、Scratch、Bridge、Minecraft、
 Paper、McRemoteを構築する現行ケータリング型VPS profileである。Caddyだけをpublic edgeへ
 接続し、backendはinternal app networkへ限定する。
 

@@ -17,7 +17,7 @@ The project is intentionally separate from:
 - [Catering-type validation roadmap (Japanese)](docs/catering-type-validation-roadmap_ja.md)
 - [Fresh-host bootstrap (Japanese)](docs/fresh-host-bootstrap-guide_ja.md)
 - [Public VPS bootstrap (Japanese)](docs/public-vps-bootstrap-guide_ja.md):
-  `vps-server@2` discovery, exact multi-service plan/apply, public doctor,
+  `vps-server@3` discovery, exact multi-service plan/apply, public doctor,
   existing-host cutover, and the remaining readiness phases
 - [Home private alpha validation (Japanese)](docs/home-alpha-validation-guide_ja.md)
 - [Wake-on-LAN optional operation field note (Japanese)](docs/wake-on-lan-field-note_ja.md):
@@ -156,7 +156,7 @@ do not copy the `home-beta` directory or lock.
 
 ## Public VPS beta (new TOML vertical slice)
 
-`vps-server@2` is the current catering-style VPS profile. It bootstraps exact
+`vps-server@3` is the current catering-style VPS profile. It bootstraps exact
 `public-web-paper@1` Caddy, Scratch, Bridge, Minecraft, Paper, and McRemote artifacts.
 Caddy alone joins the public edge; backend services remain on an internal app network.
 

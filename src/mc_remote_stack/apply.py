@@ -38,7 +38,7 @@ BOOTSTRAP_CONTRACTS = frozenset(
             "integration",
         ),
         (
-            "vps-server@2",
+            "vps-server@3",
             "public-web-paper@1",
             "beta",
             "public",
@@ -328,7 +328,7 @@ def _check_ports(
 ) -> None:
     address = lock["network"]["bind_address"]
     ports = [lock["network"]["java_port"], lock["network"]["mcremote_port"]]
-    if lock["render_plan"]["adapter_revision"] == "2":
+    if lock["render_plan"]["adapter_revision"] in {"2", "3"}:
         ports = [80, 443, *ports]
     for port in ports:
         published = _run(

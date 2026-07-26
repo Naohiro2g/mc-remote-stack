@@ -582,10 +582,7 @@ def _compose_v2(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str]]:
                         "read_only": True,
                     },
                 ],
-                "networks": {
-                    "app": {"aliases": [routes["minecraft"]]},
-                    "egress": {"gw_priority": 1},
-                },
+                "networks": {"app": {"aliases": [routes["minecraft"]]}},
                 "labels": {
                     **common_labels,
                     "io.mc-remote.paper-sha256": paper_sha256,
@@ -596,7 +593,6 @@ def _compose_v2(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str]]:
         "networks": {
             "edge": {"internal": False, "enable_ipv6": False},
             "app": {"internal": True, "enable_ipv6": False},
-            "egress": {"internal": False, "enable_ipv6": False},
         },
         "volumes": {
             role: {"name": identity, "external": True}
@@ -610,6 +606,27 @@ def _compose_v2(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str]]:
         "minecraft/server.properties": properties,
     }
     return compose, files_to_render
+
+
+def _compose_v3(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str]]:
+    compose, rendered_files = _compose_v2(lock)
+    compose["services"]["minecraft"]["networks"] = {
+        "app": {
+            "aliases": compose["services"]["minecraft"]["networks"]["app"][
+                "aliases"
+            ]
+        },
+        "egress": {"gw_priority": 1},
+    }
+    compose["networks"]["egress"] = {
+        "internal": False,
+        "enable_ipv6": False,
+    }
+    rendered_files = {
+        relative: content.replace("compose@2", "compose@3")
+        for relative, content in rendered_files.items()
+    }
+    return compose, rendered_files
 
 
 def _write_synced(path: Path, content: bytes) -> None:
@@ -688,12 +705,46 @@ def _stage_compose_v2(lock: dict[str, Any], staging: Path) -> tuple[str, ...]:
     return rendered_paths
 
 
+def _stage_compose_v3(lock: dict[str, Any], staging: Path) -> tuple[str, ...]:
+    compose, rendered_files = _compose_v3(lock)
+    _write_synced(
+        staging / "compose.yaml",
+        yaml.safe_dump(compose, sort_keys=False, allow_unicode=True).encode("utf-8"),
+    )
+    for relative, content in rendered_files.items():
+        _write_synced(staging / PurePosixPath(relative), content.encode("utf-8"))
+    rendered_paths = ("compose.yaml", *rendered_files)
+    manifest = {
+        "schema_version": 1,
+        "adapter": "compose",
+        "adapter_revision": "3",
+        "lock_identity": lock["lock_identity"],
+        "render_plan_sha256": lock["render_plan"]["semantic_sha256"],
+        "files": [
+            {
+                "path": relative,
+                "sha256": _sha256_file(staging / PurePosixPath(relative)),
+            }
+            for relative in rendered_paths
+        ],
+    }
+    _write_synced(
+        staging / "render-manifest.json",
+        (json.dumps(manifest, ensure_ascii=False, indent=2) + "\n").encode("utf-8"),
+    )
+    for directory in (staging / "runtime", staging / "minecraft", staging):
+        _fsync_directory(directory)
+    return rendered_paths
+
+
 def _stage_current(lock: dict[str, Any], staging: Path) -> tuple[str, ...]:
     revision = lock["render_plan"]["adapter_revision"]
     if revision == "1":
         return _stage_compose_v1(lock, staging)
     if revision == "2":
         return _stage_compose_v2(lock, staging)
+    if revision == "3":
+        return _stage_compose_v3(lock, staging)
     _render_fail("unsupported_renderer", "render_plan", f"unsupported renderer: compose@{revision}")
 
 
@@ -739,7 +790,7 @@ def _load_managed_manifest(output: Path) -> dict[str, Any] | None:
         }
         or manifest.get("schema_version") != 1
         or manifest.get("adapter") != "compose"
-        or manifest.get("adapter_revision") not in {"1", "2"}
+        or manifest.get("adapter_revision") not in {"1", "2", "3"}
         or not isinstance(manifest.get("files"), list)
     ):
         _render_fail("render_output_tampered", manifest_path, "managed render manifest shape is invalid")
@@ -852,7 +903,7 @@ def _load_current_toml_render_lock(
     lock = load_lock(project_root, data_root=data_root)
     adapter = lock["render_plan"]["adapter"]
     adapter_revision = lock["render_plan"]["adapter_revision"]
-    if adapter != "compose" or adapter_revision not in {"1", "2"}:
+    if adapter != "compose" or adapter_revision not in {"1", "2", "3"}:
         _render_fail(
             "unsupported_renderer",
             "render_plan",

@@ -527,7 +527,7 @@ def test_compose_v2_projects_public_edge_and_private_backends(tmp_path: Path) ->
     project = init_toml_project(
         tmp_path / "official-public-beta",
         deployment_name="official-public-beta",
-        profile="vps-server@2",
+        profile="vps-server@3",
         environment_identity="official-public-beta",
         channel="beta",
         exposure="public",
@@ -587,7 +587,7 @@ minecraft = "sb.mc-remote.example"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(content)
 
-    compose, rendered_files = render_module._compose_v2(lock)
+    compose, rendered_files = render_module._compose_v3(lock)
 
     assert compose["services"]["caddy"]["ports"] == [
         "0.0.0.0:80:80/tcp",
@@ -628,7 +628,7 @@ minecraft = "sb.mc-remote.example"
 
     staging = tmp_path / "staging"
     staging.mkdir()
-    rendered_paths = render_module._stage_compose_v2(lock, staging)
+    rendered_paths = render_module._stage_compose_v3(lock, staging)
     manifest = json.loads((staging / "render-manifest.json").read_text(encoding="utf-8"))
 
     assert rendered_paths == (
@@ -637,5 +637,5 @@ minecraft = "sb.mc-remote.example"
         "runtime/scratch.json",
         "minecraft/server.properties",
     )
-    assert manifest["adapter_revision"] == "2"
+    assert manifest["adapter_revision"] == "3"
     assert yaml.safe_load((staging / "compose.yaml").read_text(encoding="utf-8")) == compose

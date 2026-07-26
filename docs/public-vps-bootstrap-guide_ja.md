@@ -6,7 +6,7 @@ MinecraftとMcRemoteのpublic betaを構築する。provider、実IP、個人名
 
 ## 0. 現在の完成範囲
 
-現在実装済みの`vps-server@2`は、次を一つのpublic bootstrap transactionとして扱う。
+現在実装済みの`vps-server@3`は、次を一つのpublic bootstrap transactionとして扱う。
 
 - exact OCI Caddy / Scratch / Bridge / Minecraft runtime、Paper JAR、McRemote JAR
 - Caddyだけをpublic edgeへ接続し、backend間通信をinternal app networkへ限定
@@ -124,7 +124,7 @@ cd "$MC_REMOTE_STACK"
 uv run mcrctl init "$MC_REMOTE_PROJECT" \
   --format toml \
   --deployment-name official-public-beta \
-  --profile vps-server@2 \
+  --profile vps-server@3 \
   --environment-identity official-public-beta \
   --channel beta \
   --exposure public \
@@ -177,7 +177,7 @@ cd "$MC_REMOTE_STACK"
 uv run mcrctl accept-eula --project "$MC_REMOTE_PROJECT" --yes
 ```
 
-`vps-server@2` + `public-web-paper@1`は、public VPSでの新TOML live evidenceが正式着地するまでは
+`vps-server@3` + `public-web-paper@1`は、public VPSでの新TOML live evidenceが正式着地するまでは
 `unverified`である。bootstrapを行う人間は`mc-remote.toml`へ次を記録する。
 
 ```toml
@@ -345,7 +345,7 @@ knowledge ownerへevidence draftとしてhandoffする。rawはGit外、private 
 
 ## 12. 残る完成度phase
 
-Caddy、Scratch、Bridgeのcore transactionは`vps-server@2`へ取り込んだ。過去の6GB official
+Caddy、Scratch、Bridgeのcore transactionは`vps-server@3`へ取り込んだ。過去の6GB official
 VPSで実証したTLS / WSS / rollbackを現行SSOTの自動claimとして完成させる残作業は次である。
 
 1. homepageのcontent-addressed artifactとprovenance

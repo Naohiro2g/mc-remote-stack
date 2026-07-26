@@ -4,7 +4,7 @@
 
 ## 2026-07-24 home-beta bootstrap後
 
-- [ ] `vps-server@2` / `public-web-paper@1`をVPS実機でbootstrapし、Caddy / Scratch /
+- [ ] `vps-server@3` / `public-web-paper@1`をVPS実機でbootstrapし、Caddy / Scratch /
   Bridge / Minecraft、internal app network、public bind、managed volume、token無し
   protocol helloを`live-auto`検証する。host / provider firewallとDNSは人間checkpointとして
   分離し、外部HTTPS / WSS readinessとhomepage artifactは後続claimとして記録する。
