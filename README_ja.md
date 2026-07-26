@@ -203,13 +203,66 @@ sudo bash /etc/mc-remote/generated/operations/use-production.sh
 
 ## 暗号化したoff-host backup転送
 
-最初のtransfer adapterは、ServerBackupのarchiveを公開age recipientで暗号化してから、明示的なFTPS sessionを開始する。証明書の検証を必須とし、data connectionを保護、passive modeを使用。一時的なファイル名でuploadした後にリモートでファイル名変更、最終的なファイルサイズを検証する。`--verify-download` を付けると、リモートの暗号文をダウンロード、そのSHA-256も比較する。平文と暗号化済みのローカルファイルはqueueに残り、転送処理後に削除しない。
+transfer adapterは、ServerBackupのarchiveを公開age recipientで暗号化してから、明示的なFTPS sessionを開始する。証明書の検証を必須とし、data connectionを保護、passive modeを使用。一時的なファイル名でuploadした後にリモートでファイル名変更、最終的なファイルサイズを検証する。`--verify-download` を付けると、リモートの暗号文をダウンロード、そのSHA-256も比較する。復元が転送元VPSに依存しないよう、秘密値を含まないtransfer record sidecarも暗号文と一緒に保存する。平文と暗号化済みのローカルファイルはqueueに残り、転送処理後に削除しない。
 
 ```sh
 uv run mcrctl backup transfer /backup/outbox/backup.zip \
   --project ./deployment \
+  --transport-config /secure/path/backup-transport.toml \
   --verify-download
 ```
+
+定期実行では、既存世代を暗黙に搬送対象へ含めないよう、運用開始時にactivation markerを
+作る。`drain`はmarkerより新しく、mtimeから120秒以上経過し、ZIP CRC検査中にidentity・
+size・mtimeが変化しなかったarchiveだけを順番に搬送する。各搬送はremoteから暗号文を
+再downloadしてSHA-256を検証する。`download-verified`のlocal transfer recordがある
+archiveは再搬送しない。
+
+```sh
+install -m 600 /dev/null /secure/state/backup-transfer-activated
+
+uv run mcrctl backup drain /backup/outbox \
+  --after /secure/state/backup-transfer-activated \
+  --project ./deployment \
+  --transport-config /secure/path/backup-transport.toml
+```
+
+marker作成とtimer等への永続登録はoperator checkpointである。markerは既存archiveを
+調べた後、初回自動実行より前に一度だけ作る。`drain`は平文、local暗号文、transfer
+record、remote世代を削除しない。local queueのretentionはsnapshotの世代保持と分けて
+明示的に決める。
+
+TOML deploymentではprovider / account inventoryをmode `0600`のprivate transport fileへ
+分離する。legacy YAML deploymentは移行中の埋め込みtransport tableを引き続き利用できる。
+どちらにもpassword値は保存しない。
+
+復元する世代は必ず明示的に選択する。完了済み暗号文を一覧し、選んだrecordと暗号文を取得した後、
+復号して元の平文SHA-256を検証する。
+
+```sh
+uv run mcrctl backup list --project ./deployment \
+  --transport-config /secure/path/backup-transport.toml
+
+REMOTE_NAME='backup.zip.<encrypted-sha256>.age'
+uv run mcrctl backup download-record "$REMOTE_NAME" \
+  --project ./deployment \
+  --transport-config /secure/path/backup-transport.toml \
+  --output ./recovery/backup.transfer.json
+uv run mcrctl backup download "$REMOTE_NAME" \
+  --project ./deployment \
+  --transport-config /secure/path/backup-transport.toml \
+  --record ./recovery/backup.transfer.json \
+  --output ./recovery/backup.zip.age
+uv run mcrctl backup decrypt ./recovery/backup.zip.age \
+  --record ./recovery/backup.transfer.json \
+  --identity /secure/path/age-identity.txt \
+  --output ./recovery/backup.zip
+uv run mcrctl archive inspect ./recovery/backup.zip --json
+```
+
+これらのcommandは`latest`を暗黙に選択せず、remote世代を削除せず、既存のlocal出力を
+上書きせず、FTPS passwordやage identityを表示しない。age identityはdeployment projectと
+Gitの外に保管する。
 
 FTPS passwordは `secret://backup_ftps_password` として参照し、`mcrctl secret set` で保存。deployment projectには保存しない。VPSしか持たない利用者は、既存のSSH/SFTP経路を使ってoutboxのartifactをdownloadし、別の場所へuploadすることも可能。
 このパッケージはVPSへFTP daemonをinstallしない。VPS内にだけ存在するsnapshotはlocal recovery stateであり、off-host backupではない。
@@ -221,6 +274,45 @@ uv run mcrctl archive inspect /path/to/backup.zip --json
 ```
 
 結果にはarchiveのSHA-256、ZIP CRCの検査結果、合計size、region数、rootにあるserver JARのidentity、使用中の`plugins/*.jar` のSHA-256が含まれる。Paperのremap cacheやplugin libraryも数えるが、使用中のpluginとして誤って報告しない。plugin設定の内容は表示しない。
+pluginがPaper runtime libraryとして宣言したcoordinateは`runtime_libraries`として報告する。
+これはdownload宣言のinventoryであり、transitive contentがlock済みであるとは主張しない。
+
+選択したworld rootだけをcurrent TOML deploymentへ復元するには、次を実行する。
+
+```sh
+uv run mcrctl world restore plan ./recovery/backup.zip \
+  --project ./deployment \
+  --output ./deployment/generated \
+  --source-world world \
+  --expected-archive-sha256 '<64-lowercase-hex>' \
+  --expected-lock-identity 'sha256:<64-hex>'
+
+uv run mcrctl world restore apply ./recovery/backup.zip \
+  --project ./deployment \
+  --output ./deployment/generated \
+  --source-world world \
+  --expected-archive-sha256 '<64-lowercase-hex>' \
+  --expected-lock-identity 'sha256:<64-hex>' \
+  --yes
+```
+
+このtransactionは、危険または重複したZIP entryとsymlinkを拒否し、overworldと存在する
+Nether / End rootだけをstagingする。cutover時にはMinecraftだけを停止し、current lockの
+serviceを起動してdoctorを実行する。plugin dataとcredentialは展開しない。起動またはdoctorが
+失敗した場合は旧world rootを戻す。成功時も、operator検証が終わるまで旧rootを報告された
+rollback directoryへ保持する。追加Compose fileで起動したcontainerもapply前に拒否する。
+canonical renderだけで再起動して、overrideが供給するservice、mount、pluginを暗黙に外すことを
+防ぐためである。
+
+起動logに明示されたruntime dependency downloadとupdate checkを、raw lineやURL pathを
+再出力せず分類するには、次を実行する。
+
+```sh
+uv run mcrctl runtime audit-log ./minecraft-startup.log --json
+```
+
+Paper library download、Geyser型runtime content download、update checkを識別する。
+一致eventが無いことは、pluginがnetwork requestを行っていない証明にはならない。
 
 deployment lockで指定したPaperとplugin JARだけをrecovery archiveから取り込むには、次を実行。
 

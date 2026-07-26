@@ -50,6 +50,69 @@
   正式evidence着地後にexact subjectのcompatibility recordを別変更で追加する。
 - [ ] backup / restore、upgrade rollback、host-level multi-project collision、
   `lan-only` / firewall責任分界を独立sliceで検証する。
+- [ ] official VPS betaのbackup / restore contractを現行TOML経路へ移す。2026-07-26観測では、
+  `/var/lib/mc-remote/backup-beta/outbox`に毎日03:33のwhole-server ZIPが
+  2026-07-21から2026-07-26まで6世代あり、各約786.5--787.0 MB、ownerはruntime UID/GID
+  `10001:10001`だった。最新世代
+  `backup-2026-07-26~03-33-00-..zip`はSHA-256
+  `ec5dd15316e76036b8618c13278e802507c9ced102c24ab548fdb9bf0a94ea1c`、
+  CRC OK、1525 entry、244 region、11 active plugin JARだった。world 3 rootとserver iconを
+  current managed volumeへ復元し、Minecraft 1.21.11、11 plugin、doctor、public endpoint、
+  Scratch betaからの接続・`postToChat`・`setBlocks`までlive確認した。
+  外部生成元`/etc/mc-remote/generated/minecraft-beta/plugins/ServerBackup/config.yml`は
+  `BackupDestination: /backup/outbox`、`DeleteOldBackups: 0`、`BackupLimiter: 0`、
+  plugin FTP upload / local deleteともfalseだった。6世代・約4.7 GBは上限ではなく稼働日数の
+  結果だった。復元後のbetaは00:30 / 04:30 / 08:30 / 12:30 / 16:30 / 20:30、
+  `BackupLimiter: 6`、`BackupDestination: /backup/outbox`、plugin FTP無効で起動し、
+  runtime UID/GID `1000:1000`からoutboxへ書込みできることを確認した。local plaintextは
+  6世代となったが、adapter所有の暗号文 / transfer recordのretentionは別途決める。
+- [ ] archive
+  `mc-remote-knowledge-archive@54652a9e25c7535b637645a4b88a1543cc998006:
+  40-サービス運用/server-package-design_ja.md`のbackup契約を回収候補として照合する。
+  snapshot生成と外部転送を分離し、betaは03:33、producer outputは`/backup/outbox`、
+  whole-server archiveはsecret-bearing、通常world restoreはcredential storeを上書きしない。
+  archiveは現行SSOTへ未着地なので、そのまま実装根拠にせずknowledge ownerへ搬送する。
+- [ ] off-host restore経路のlive smokeを完成させる。決定論的CLIにはage暗号化、
+  explicit FTPS upload、remote size / download SHA-256検証、秘密を含まないtransfer record
+  sidecarのatomic upload、明示remote list、record / ciphertext download、record照合、
+  age復号と平文SHA-256照合を実装した。world-only restoreもunsafe / duplicate / symlink
+  entry拒否、credential除外、current lock / render / managed volume束縛、staging、停止、
+  cutover、start、doctor、失敗時rollback、成功時旧world保持まで実装した。実FTPS相手の
+  sidecar付き往復は、最新betaと同じSHA-256のcopyをage暗号化し、explicit FTPSでatomic
+  upload、remote再download SHA-256まで`download-verified`でPASSした。暗号文は
+  787,157,433 bytes、SHA-256
+  `744cedbc9febec5f42feeae75484e4af2b1286033851e847d03cbd0a21b776a4`。
+  `backup drain`は明示activation markerより新しいarchiveだけを対象にし、120秒のstable age、
+  ZIP CRC、検査中のidentity / size / mtime不変、`download-verified` recordによる重複防止を
+  行う。systemd timerの初回はmarker以前の6世代を`none-ready`として除外し、手動で生成した
+  新しいwhole-server ZIPだけを自動搬送した。暗号文は776,236,198 bytes、SHA-256
+  `82eb7be298226b018bdac965c577e2fd398b2231245d57f02908487ce7c49100`、
+  statusは`download-verified`。XServerはupload中の既知名`SIZE`を受理する一方、`NLST`後の
+  `SIZE`を550にするため、remote listはsize factを持つ`MLSD`を優先し、非対応serverだけ
+  `NLST` + `SIZE`へfallbackする。新CLIによるlive world restoreは未実施である。
+  現行official public betaは一時的な`compose.recovery-plugins.yaml`を併用しているため、
+  canonical composeだけで再起動するworld restore applyはplugin setを外す。restore preflightは
+  追加Compose fileを検出して拒否する。live applyはplugin compositionを正規lockへ取り込んだ後に行う。
+  TOML deployment用off-host transportはprivate mode-0600 fileを明示指定し、provider /
+  account inventoryをpublic project orderへ混ぜず、passwordは既存secret storeから参照する。
+  ServerBackup 2.10.0の公式仕様では`DeleteOldBackups`は日数、`BackupLimiter`が総世代数である。
+  official betaは毎日00:30 / 04:30 / 08:30 / 12:30 / 16:30 / 20:30、local最新6世代、
+  producer内蔵FTPは無効、完成archiveをage + explicit FTPS adapterで毎回転送する。
+  VPS homeには2026-07-13 beta候補と2026-07-14 stable候補の`.zip.age` /
+  `.transfer.json`が残り、両recordとも`download-verified`だった。一方、
+  2026-07-21--26のMinecraft 1.21.11 beta最新6世代については、home配下に暗号文 /
+  transfer record / 現行transport configを確認できず、off-host転送済みか未判定だった。
+  XServer側のaccount rootはFTPS session内の`/`として観測され、旧形式のstable / beta
+  backupは`mcrctl backup list`の対象外、新形式はlive smoke前に0件だった。
+- [ ] plugin compositionを通常の非container運用に近い表現力へ上げる。JAR identityだけでなく、
+  pluginごとのconfig template / override、secret注入、data directory所有権、load順・依存、
+  runtime library / content download、update check、egress、backup / restore policyを
+  lock / render / doctorへ投影する。今回の復元起動ではDirectionHUDがPaper libraryをMavenから
+  取得し、GeyserがMinecraft JARを取得、ServerBackup / DiscordSRV / ViaVersionがupdate checkを
+  行った。`archive inspect`はplugin descriptorのruntime library宣言をinventoryし、
+  `runtime audit-log`は明示log eventをURL pathやraw lineなしで分類するが、network accessの
+  不在証明やtransitive dependency lockではない。正式plugin setとplugin data復元範囲は
+  判断待ちのため、現行recovery overrideを正規lockへ暗黙昇格しない。
 - [x] WoL / WoWLANの重要性、非標準化の理由、検証境界を
   [`docs/wake-on-lan-field-note_ja.md`](docs/wake-on-lan-field-note_ja.md)へ公開した。
   WoLは準24時間運用で重視する一方、一般bootstrapの必須機能、profile capability、

@@ -16,7 +16,16 @@ from .artifacts import (
     fetch_locked_artifacts,
     import_recovery_archive,
 )
-from .backup import BackupTransferError, transfer_archive
+from .backup import (
+    BackupTransferError,
+    decrypt_downloaded_archive,
+    download_remote_archive,
+    download_remote_record,
+    list_remote_archives,
+    load_backup_endpoint,
+    ready_outbox_archives,
+    transfer_archive,
+)
 from .doctor import DoctorContractError, doctor_toml_project
 from .operator_inputs import OperatorInputError, resolve_operator_inputs
 from .preset_registry import (
@@ -29,6 +38,12 @@ from .project import accept_eula, init_project
 from .render import RenderContractError, RenderError, render_project, render_toml_project
 from .repo_check import check_repository
 from .resolver import ResolutionError, inspect_lock, load_lock, resolve_project
+from .restore import (
+    WorldRestoreError,
+    apply_world_restore,
+    plan_world_restore,
+)
+from .runtime_audit import audit_minecraft_log
 from .secrets import list_secrets, set_secret
 from .toml_project import (
     ProjectOrderError,
@@ -380,6 +395,12 @@ def _cmd_accept_eula(args: argparse.Namespace) -> int:
 
 
 def _deployment_name(project_path: str) -> tuple[str | None, int]:
+    if _uses_toml_project(Path(project_path)):
+        try:
+            order = load_order(Path(project_path))
+        except ProjectOrderError as exc:
+            return None, _print_structured_failure("secret", exc)
+        return order.order["deployment"]["name"], 0
     project, issues = try_load_project(Path(project_path))
     load_failures = [issue for issue in issues if issue.path == str(Path(project_path).resolve())]
     if project is None or load_failures:
@@ -737,7 +758,105 @@ def _cmd_archive_inspect(args: argparse.Namespace) -> int:
                 f"PLUGIN filename={plugin['filename']} sha256={plugin['sha256']} size-bytes={plugin['size_bytes']}"
                 f" descriptor={descriptor['status']}{identity}"
             )
+            for library in descriptor.get("runtime_libraries", []):
+                print(
+                    f"PLUGIN-RUNTIME-LIBRARY plugin={plugin['filename']} "
+                    f"coordinate={library}"
+                )
     return 0 if inventory["crc_ok"] else 2
+
+
+def _print_world_restore_plan(result) -> None:
+    print(
+        f"PLAN world-restore lock={result.lock_identity} "
+        f"archive-sha256={result.archive_sha256} volume={result.volume}"
+    )
+    print(
+        f"PLAN world-restore entries={result.world_entry_count} "
+        f"uncompressed-bytes={result.world_uncompressed_size_bytes} "
+        f"rollback={result.rollback_name}"
+    )
+    for source, destination in result.world_mapping:
+        print(f"PLAN world-restore world={source}->{destination}")
+
+
+def _cmd_world_restore_plan(args: argparse.Namespace) -> int:
+    print(
+        "STEP world restore plan verify-render-and-archive "
+        "(large archives can take several minutes)",
+        flush=True,
+    )
+    try:
+        result = plan_world_restore(
+            Path(args.project),
+            Path(args.output),
+            Path(args.archive),
+            source_world=args.source_world,
+            expected_archive_sha256=args.expected_archive_sha256,
+            expected_lock_identity=args.expected_lock_identity,
+            data_root=_preset_data_root(),
+        )
+    except (WorldRestoreError, OSError, ValueError, zipfile.BadZipFile) as exc:
+        print(f"FAIL world restore plan: {exc}")
+        return 2
+    _print_world_restore_plan(result)
+    return 0
+
+
+def _cmd_world_restore_apply(args: argparse.Namespace) -> int:
+    try:
+        result = apply_world_restore(
+            Path(args.project),
+            Path(args.output),
+            Path(args.archive),
+            source_world=args.source_world,
+            expected_archive_sha256=args.expected_archive_sha256,
+            expected_lock_identity=args.expected_lock_identity,
+            docker_context=args.docker_context,
+            data_root=_preset_data_root(),
+            confirmed=args.yes,
+            wait_timeout=args.wait_timeout,
+            progress=lambda step: print(f"STEP world restore {step}", flush=True),
+        )
+    except (WorldRestoreError, OSError, ValueError, zipfile.BadZipFile) as exc:
+        print(f"FAIL world restore apply: {exc}")
+        return 2
+    mapping = ",".join(
+        f"{source}->{destination}"
+        for source, destination in result.world_mapping
+    )
+    print(
+        f"OK world restore status={result.status} lock={result.lock_identity} "
+        f"archive-sha256={result.archive_sha256} volume={result.volume} "
+        f"world={mapping} rollback={result.rollback_name}"
+    )
+    print(
+        "WARN prior world roots are retained in the rollback directory; "
+        "do not remove them until operator validation is complete"
+    )
+    return 0
+
+
+def _cmd_runtime_audit_log(args: argparse.Namespace) -> int:
+    try:
+        result = audit_minecraft_log(Path(args.log))
+    except OSError as exc:
+        print(f"FAIL runtime audit-log: {exc}")
+        return 2
+    if args.json:
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0
+    if not result["events"]:
+        print("RUNTIME-EVENT none")
+    for event in result["events"]:
+        host = event["host"] or "not-observed"
+        print(
+            f"RUNTIME-EVENT category={event['category']} "
+            f"component={event['component']} host={host} count={event['count']}"
+        )
+    for limitation in result["limitations"]:
+        print(f"WARN runtime audit-log {limitation}")
+    return 0
 
 
 def _cmd_artifact_import_archive(args: argparse.Namespace) -> int:
@@ -786,18 +905,208 @@ def _cmd_artifact_fetch(args: argparse.Namespace) -> int:
 
 
 def _cmd_backup_transfer(args: argparse.Namespace) -> int:
-    project, issues = try_load_project(Path(args.project))
-    failures = [issue for issue in issues if issue.severity == "FAIL"]
-    if project is None or failures:
-        return _print_issues(issues)
+    project, status = _load_backup_project(
+        args.project,
+        transport_config=args.transport_config,
+    )
+    if project is None:
+        return status
+    archive_name = Path(args.archive).name
+
+    def report_progress(phase: str) -> None:
+        print(
+            f"STEP backup transfer archive={archive_name} phase={phase}",
+            flush=True,
+        )
+
     try:
-        result = transfer_archive(project, Path(args.archive), verify_download=args.verify_download)
+        result = transfer_archive(
+            project,
+            Path(args.archive),
+            verify_download=args.verify_download,
+            progress=report_progress,
+        )
     except (BackupTransferError, ftplib.Error, OSError, ValueError) as exc:
         print(f"FAIL backup transfer: {exc}")
         return 2
     print(
         f"OK backup transfer status={result.status} remote={result.remote_name} "
         f"sha256={result.encrypted_sha256} size-bytes={result.encrypted_size_bytes} record={result.record_path}"
+    )
+    return 0
+
+
+def _cmd_backup_drain(args: argparse.Namespace) -> int:
+    project, status = _load_backup_project(
+        args.project,
+        transport_config=args.transport_config,
+    )
+    if project is None:
+        return status
+    try:
+        print(
+            "STEP backup drain phase=scan "
+            "verification=activation-marker+stable-age+zip-crc",
+            flush=True,
+        )
+        archives = ready_outbox_archives(
+            Path(args.outbox),
+            activated_after=Path(args.after),
+        )
+        if not archives:
+            print("OK backup drain status=none-ready archives=0")
+            return 0
+        for archive in archives:
+            print(
+                f"STEP backup drain archive={archive.name} "
+                "verification=stable-age+zip-crc",
+                flush=True,
+            )
+
+            def report_progress(
+                phase: str,
+                archive_name: str = archive.name,
+            ) -> None:
+                print(
+                    f"STEP backup drain archive={archive_name} "
+                    f"phase={phase}",
+                    flush=True,
+                )
+
+            result = transfer_archive(
+                project,
+                archive,
+                verify_download=True,
+                progress=report_progress,
+            )
+            print(
+                f"OK backup drain archive={archive.name} "
+                f"status={result.status} remote={result.remote_name} "
+                f"sha256={result.encrypted_sha256} "
+                f"size-bytes={result.encrypted_size_bytes}"
+            )
+    except (BackupTransferError, ftplib.Error, OSError, ValueError) as exc:
+        print(f"FAIL backup drain: {exc}")
+        return 2
+    print(f"OK backup drain status=complete archives={len(archives)}")
+    return 0
+
+
+def _load_backup_project(
+    project_path: str,
+    *,
+    transport_config: str | None,
+):
+    path = Path(project_path)
+    if _uses_toml_project(path):
+        if transport_config is None:
+            print(
+                "FAIL backup: TOML deployment requires --transport-config "
+                "pointing to a private mode-0600 file"
+            )
+            return None, 2
+        try:
+            order = load_order(path)
+            endpoint = load_backup_endpoint(
+                Path(transport_config),
+                deployment_name=order.order["deployment"]["name"],
+            )
+        except (BackupTransferError, ProjectOrderError, OSError) as exc:
+            print(f"FAIL backup: {exc}")
+            return None, 2
+        return endpoint, 0
+    project, issues = try_load_project(path)
+    failures = [issue for issue in issues if issue.severity == "FAIL"]
+    if project is None or failures:
+        return None, _print_issues(issues)
+    return project, 0
+
+
+def _cmd_backup_list(args: argparse.Namespace) -> int:
+    project, status = _load_backup_project(
+        args.project,
+        transport_config=args.transport_config,
+    )
+    if project is None:
+        return status
+    try:
+        archives = list_remote_archives(project)
+    except (BackupTransferError, ftplib.Error, OSError, ValueError) as exc:
+        print(f"FAIL backup list: {exc}")
+        return 2
+    if not archives:
+        print("REMOTE none")
+        return 0
+    for archive in archives:
+        print(f"REMOTE name={archive.name} size-bytes={archive.size_bytes}")
+    return 0
+
+
+def _cmd_backup_download(args: argparse.Namespace) -> int:
+    project, status = _load_backup_project(
+        args.project,
+        transport_config=args.transport_config,
+    )
+    if project is None:
+        return status
+    try:
+        result = download_remote_archive(
+            project,
+            args.remote_name,
+            record_path=Path(args.record),
+            output=Path(args.output),
+        )
+    except (BackupTransferError, ftplib.Error, OSError, ValueError) as exc:
+        print(f"FAIL backup download: {exc}")
+        return 2
+    print(
+        f"OK backup download status={result.status} "
+        f"remote={result.remote_name} sha256={result.encrypted_sha256} "
+        f"size-bytes={result.encrypted_size_bytes} "
+        f"output={result.encrypted_path} record={result.record_path}"
+    )
+    return 0
+
+
+def _cmd_backup_download_record(args: argparse.Namespace) -> int:
+    project, status = _load_backup_project(
+        args.project,
+        transport_config=args.transport_config,
+    )
+    if project is None:
+        return status
+    try:
+        result = download_remote_record(
+            project,
+            args.remote_name,
+            output=Path(args.output),
+        )
+    except (BackupTransferError, ftplib.Error, OSError, ValueError) as exc:
+        print(f"FAIL backup download-record: {exc}")
+        return 2
+    print(
+        f"OK backup download-record status={result.status} "
+        f"remote={result.remote_name} remote-record={result.remote_record_name} "
+        f"output={result.record_path}"
+    )
+    return 0
+
+
+def _cmd_backup_decrypt(args: argparse.Namespace) -> int:
+    try:
+        result = decrypt_downloaded_archive(
+            Path(args.encrypted),
+            record_path=Path(args.record),
+            identity=Path(args.identity),
+            output=Path(args.output),
+        )
+    except (BackupTransferError, OSError, ValueError) as exc:
+        print(f"FAIL backup decrypt: {exc}")
+        return 2
+    print(
+        f"OK backup decrypt status={result.status} "
+        f"sha256={result.archive_sha256} output={result.archive_path} "
+        f"record={result.record_path}"
     )
     return 0
 
@@ -904,6 +1213,60 @@ def build_parser() -> argparse.ArgumentParser:
     doctor_parser.add_argument("--timeout", type=int, default=5)
     doctor_parser.set_defaults(handler=_cmd_doctor)
 
+    runtime_parser = subparsers.add_parser(
+        "runtime",
+        help="sanitized runtime diagnostics",
+    )
+    runtime_subparsers = runtime_parser.add_subparsers(
+        dest="runtime_command",
+        required=True,
+    )
+    runtime_audit_parser = runtime_subparsers.add_parser(
+        "audit-log",
+        help="classify explicit dependency downloads and update checks in a log",
+    )
+    runtime_audit_parser.add_argument("log")
+    runtime_audit_parser.add_argument("--json", action="store_true")
+    runtime_audit_parser.set_defaults(handler=_cmd_runtime_audit_log)
+
+    world_parser = subparsers.add_parser("world", help="world lifecycle operations")
+    world_subparsers = world_parser.add_subparsers(
+        dest="world_command",
+        required=True,
+    )
+    world_restore_parser = world_subparsers.add_parser(
+        "restore",
+        help="lock-bound world-only restore",
+    )
+    world_restore_subparsers = world_restore_parser.add_subparsers(
+        dest="world_restore_command",
+        required=True,
+    )
+    for action in ("plan", "apply"):
+        action_parser = world_restore_subparsers.add_parser(
+            action,
+            help=f"{action} an exact world-only restore",
+        )
+        action_parser.add_argument("archive")
+        action_parser.add_argument("--project", required=True)
+        action_parser.add_argument("--output", required=True)
+        action_parser.add_argument("--source-world", required=True)
+        action_parser.add_argument(
+            "--expected-archive-sha256",
+            required=True,
+        )
+        action_parser.add_argument(
+            "--expected-lock-identity",
+            required=True,
+        )
+        if action == "apply":
+            action_parser.add_argument("--docker-context", default="default")
+            action_parser.add_argument("--wait-timeout", type=int, default=300)
+            action_parser.add_argument("--yes", action="store_true")
+            action_parser.set_defaults(handler=_cmd_world_restore_apply)
+        else:
+            action_parser.set_defaults(handler=_cmd_world_restore_plan)
+
     archive_parser = subparsers.add_parser("archive", help="recovery archive operations")
     archive_subparsers = archive_parser.add_subparsers(dest="archive_command", required=True)
     inspect_parser = archive_subparsers.add_parser("inspect", help="verify and inventory a ZIP without extracting it")
@@ -936,8 +1299,56 @@ def build_parser() -> argparse.ArgumentParser:
     )
     transfer_parser.add_argument("archive")
     transfer_parser.add_argument("--project", required=True)
+    transfer_parser.add_argument("--transport-config")
     transfer_parser.add_argument("--verify-download", action="store_true")
     transfer_parser.set_defaults(handler=_cmd_backup_transfer)
+    drain_parser = backup_subparsers.add_parser(
+        "drain",
+        help=(
+            "verify and transfer stable outbox ZIPs created after an "
+            "activation marker"
+        ),
+    )
+    drain_parser.add_argument("outbox")
+    drain_parser.add_argument("--after", required=True)
+    drain_parser.add_argument("--project", required=True)
+    drain_parser.add_argument("--transport-config")
+    drain_parser.set_defaults(handler=_cmd_backup_drain)
+    list_parser = backup_subparsers.add_parser(
+        "list",
+        help="list completed encrypted archives on the configured FTPS target",
+    )
+    list_parser.add_argument("--project", required=True)
+    list_parser.add_argument("--transport-config")
+    list_parser.set_defaults(handler=_cmd_backup_list)
+    download_record_parser = backup_subparsers.add_parser(
+        "download-record",
+        help="download and validate the recovery sidecar for one named ciphertext",
+    )
+    download_record_parser.add_argument("remote_name")
+    download_record_parser.add_argument("--project", required=True)
+    download_record_parser.add_argument("--transport-config")
+    download_record_parser.add_argument("--output", required=True)
+    download_record_parser.set_defaults(handler=_cmd_backup_download_record)
+    download_parser = backup_subparsers.add_parser(
+        "download",
+        help="download one named ciphertext and verify its transfer record",
+    )
+    download_parser.add_argument("remote_name")
+    download_parser.add_argument("--project", required=True)
+    download_parser.add_argument("--transport-config")
+    download_parser.add_argument("--record", required=True)
+    download_parser.add_argument("--output", required=True)
+    download_parser.set_defaults(handler=_cmd_backup_download)
+    decrypt_parser = backup_subparsers.add_parser(
+        "decrypt",
+        help="decrypt a downloaded ciphertext and verify the source archive hash",
+    )
+    decrypt_parser.add_argument("encrypted")
+    decrypt_parser.add_argument("--record", required=True)
+    decrypt_parser.add_argument("--identity", required=True)
+    decrypt_parser.add_argument("--output", required=True)
+    decrypt_parser.set_defaults(handler=_cmd_backup_decrypt)
     return parser
 
 

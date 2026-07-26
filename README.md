@@ -196,13 +196,68 @@ Only a stopped instance counts as dormant. Before removing the exclusive switch 
 
 ## Encrypted off-host backup transfer
 
-The initial transfer adapter encrypts a ServerBackup archive with a public age recipient before opening an explicit FTPS session. It requires certificate verification, protects the data connection, uses passive mode, uploads through a temporary remote name, and verifies the final remote size. `--verify-download` additionally downloads the remote ciphertext and compares its SHA-256. Plaintext and encrypted local files remain in the queue; transfer does not prune them.
+The transfer adapter encrypts a ServerBackup archive with a public age recipient before opening an explicit FTPS session. It requires certificate verification, protects the data connection, uses passive mode, uploads through a temporary remote name, and verifies the final remote size. `--verify-download` additionally downloads the remote ciphertext and compares its SHA-256. A non-secret transfer-record sidecar is published with the ciphertext so recovery does not depend on the source VPS. Plaintext and encrypted local files remain in the queue; transfer does not prune them.
 
 ```sh
 uv run mcrctl backup transfer /backup/outbox/backup.zip \
   --project ./deployment \
+  --transport-config /secure/path/backup-transport.toml \
   --verify-download
 ```
+
+For scheduled operation, create an activation marker so existing generations
+are not selected implicitly. `drain` considers only archives newer than the
+marker, at least 120 seconds old, valid under a full ZIP CRC check, and
+unchanged in identity, size, and mtime while checked. Every selected archive is
+downloaded again after upload and its ciphertext SHA-256 is verified. An
+archive with a local `download-verified` transfer record is not sent again.
+
+```sh
+install -m 600 /dev/null /secure/state/backup-transfer-activated
+
+uv run mcrctl backup drain /backup/outbox \
+  --after /secure/state/backup-transfer-activated \
+  --project ./deployment \
+  --transport-config /secure/path/backup-transport.toml
+```
+
+Creating the marker and registering a persistent timer are operator
+checkpoints. Create the marker once, after inspecting existing archives and
+before the first automatic run. `drain` does not delete plaintext archives,
+local ciphertexts, transfer records, or remote generations. Decide local queue
+retention explicitly and separately from snapshot generation retention.
+
+TOML deployments keep provider/account inventory in a separate private mode-`0600`
+transport file. Legacy YAML deployments may continue to use their embedded transitional
+transport table. Neither form contains the password value.
+
+Recovery selection is always explicit. List completed ciphertexts, retrieve the selected
+record and archive, then decrypt and verify the original plaintext SHA-256:
+
+```sh
+uv run mcrctl backup list --project ./deployment \
+  --transport-config /secure/path/backup-transport.toml
+
+REMOTE_NAME='backup.zip.<encrypted-sha256>.age'
+uv run mcrctl backup download-record "$REMOTE_NAME" \
+  --project ./deployment \
+  --transport-config /secure/path/backup-transport.toml \
+  --output ./recovery/backup.transfer.json
+uv run mcrctl backup download "$REMOTE_NAME" \
+  --project ./deployment \
+  --transport-config /secure/path/backup-transport.toml \
+  --record ./recovery/backup.transfer.json \
+  --output ./recovery/backup.zip.age
+uv run mcrctl backup decrypt ./recovery/backup.zip.age \
+  --record ./recovery/backup.transfer.json \
+  --identity /secure/path/age-identity.txt \
+  --output ./recovery/backup.zip
+uv run mcrctl archive inspect ./recovery/backup.zip --json
+```
+
+The commands never choose “latest,” delete a remote generation, overwrite an existing
+local output, or print the FTPS password or age identity. Keep the age identity outside
+the deployment project and Git.
 
 The FTPS password is referenced as `secret://backup_ftps_password` and stored with `mcrctl secret set`; it is never placed in the deployment project. A VPS-only user can instead download and upload outbox artifacts over the existing SSH/SFTP path. The package does not install an FTP daemon on the VPS. A snapshot that exists only on the VPS is local recovery state, not an off-host backup.
 
@@ -213,6 +268,48 @@ uv run mcrctl archive inspect /path/to/backup.zip --json
 ```
 
 The result contains the archive SHA-256, ZIP CRC result, aggregate sizes, region count, root server JAR identities, and active `plugins/*.jar` SHA-256 values. Nested Paper remap caches and plugin libraries are counted but not misreported as active plugins. It does not print plugin configuration contents.
+Plugin-declared Paper runtime library coordinates are reported as
+`runtime_libraries`; this inventories a download declaration but does not claim that
+the transitive content is locked.
+
+Restore only the selected world roots into a current TOML deployment:
+
+```sh
+uv run mcrctl world restore plan ./recovery/backup.zip \
+  --project ./deployment \
+  --output ./deployment/generated \
+  --source-world world \
+  --expected-archive-sha256 '<64-lowercase-hex>' \
+  --expected-lock-identity 'sha256:<64-hex>'
+
+uv run mcrctl world restore apply ./recovery/backup.zip \
+  --project ./deployment \
+  --output ./deployment/generated \
+  --source-world world \
+  --expected-archive-sha256 '<64-lowercase-hex>' \
+  --expected-lock-identity 'sha256:<64-hex>' \
+  --yes
+```
+
+The transaction rejects unsafe or duplicate ZIP entries and symlinks, stages only
+the overworld and present Nether/End roots, stops only Minecraft for cutover, starts
+the current locked service, and runs doctor. Plugin data and credentials are not
+extracted. A failed start or doctor check restores the prior roots. A successful
+transaction retains the prior roots in the reported rollback directory until the
+operator completes validation. Apply also rejects a container started with additional
+Compose files because restarting it from the canonical render could silently remove
+services, mounts, or plugins supplied by an override.
+
+Classify explicit runtime dependency downloads and update checks from a startup log
+without reproducing raw log lines or URL paths:
+
+```sh
+uv run mcrctl runtime audit-log ./minecraft-startup.log --json
+```
+
+This diagnostic recognizes Paper library downloads, Geyser-style runtime content
+downloads, and update checks. Absence of a matching event does not prove that a
+plugin made no network request.
 
 Import only the Paper and plugin JAR members named by a deployment lock from a recovery archive:
 

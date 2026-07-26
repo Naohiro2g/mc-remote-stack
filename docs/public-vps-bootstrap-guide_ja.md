@@ -388,7 +388,7 @@ Caddy、Scratch、Bridgeのcore transactionは`vps-server@4`へ取り込んだ�
 VPSで実証したTLS / WSS / rollbackを現行SSOTの自動claimとして完成させる残作業は次である。
 
 1. homepageのcontent-addressed artifactとprovenance
-2. backup / restore contract
+2. backup retention / off-host live smoke / rollback cleanup contract
 3. HTTPS / WSS / Bridge→Minecraft smokeのdoctor claim
 4. stable / betaの排他切替、upgrade、同一hash redeploy
 5. provider filter / UFW / `DOCKER-USER`観測のsanitized evidence schema
@@ -407,6 +407,14 @@ port driftと誤判定しない。一方、IPv6 `DOCKER-USER`には同等chain�
 provider IPv6 filter、DNS AAAA、Docker IPv6 publishのいずれかが有効なら非対称な公開面になる。
 Phase 2は「IPv6を使わずAAAAも無い」または「IPv4と同等の明示filterを持つ」のどちらかを
 plan / doctorで確認し、未判定のままpublic readinessを主張しない。
+
+backup / restoreの決定論的CLIには、age暗号文とtransfer record sidecarのoff-host転送、
+明示的なremote list / record download / ciphertext download / decrypt、およびcurrent
+lockへ束縛したworld-only `plan` / `apply`がある。world restoreはarchive SHA-256、CRC、
+entry安全性、managed volume、current containerを検証し、plugin dataやcredentialを
+展開しない。起動またはdoctor失敗時は旧worldへrollbackし、成功時も旧worldを保持する。
+残るphase 2は、実FTPS相手の往復smoke、retention値、成功後rollback directoryの削除時点を
+人間review込みで確定することである。
 
 2026-07-26時点で、official homepage / Scratch stable・beta / Bridge stable・beta /
 Minecraft stable・betaの公開名にはAAAA RRが無いことをRR type指定で確認した。CNAMEだけの
