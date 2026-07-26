@@ -603,7 +603,7 @@ def test_public_web_profile_resolves_exact_multiservice_lock(tmp_path: Path) -> 
     project = init_toml_project(
         tmp_path / "official-public-beta",
         deployment_name="official-public-beta",
-        profile="vps-server@3",
+        profile="vps-server@4",
         environment_identity="official-public-beta",
         channel="beta",
         exposure="public",
@@ -628,6 +628,11 @@ def test_public_web_profile_resolves_exact_multiservice_lock(tmp_path: Path) -> 
 role = "public-routes"
 adapter = "public-routes@1"
 path = "operator/public-routes/routes.toml"
+
+[[operator_inputs]]
+role = "minecraft-server"
+adapter = "minecraft-server@1"
+path = "operator/minecraft-server/server.toml"
 """,
         encoding="utf-8",
     )
@@ -643,6 +648,31 @@ minecraft = "sb.mc-remote.example"
 """.lstrip(),
         encoding="utf-8",
     )
+    server = project.root / "operator" / "minecraft-server" / "server.toml"
+    server.parent.mkdir(parents=True)
+    server.write_text(
+        """
+allow_flight = false
+difficulty = "hard"
+enable_query = false
+enable_status = true
+force_gamemode = true
+gamemode = "creative"
+hardcore = true
+log_ips = true
+management_server_enabled = false
+max_players = 18
+max_tick_time = -1
+max_world_size = 9984
+motd = "McRemote Sandbox Server"
+network_compression_threshold = -1
+simulation_distance = 6
+spawn_protection = 150
+view_distance = 10
+white_list = false
+""".lstrip(),
+        encoding="utf-8",
+    )
     _acknowledge(project.root, "unverified")
 
     result = resolve_project(
@@ -654,7 +684,7 @@ minecraft = "sb.mc-remote.example"
     lock = load_lock(project.root, data_root=data_root)
 
     assert result.status == "created"
-    assert lock["render_plan"]["adapter_revision"] == "3"
+    assert lock["render_plan"]["adapter_revision"] == "4"
     assert [service["id"] for service in lock["render_plan"]["services"]] == [
         "caddy",
         "scratch",

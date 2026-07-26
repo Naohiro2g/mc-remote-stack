@@ -6,7 +6,7 @@ MinecraftとMcRemoteのpublic betaを構築する。provider、実IP、個人名
 
 ## 0. 現在の完成範囲
 
-現在実装済みの`vps-server@3`は、次を一つのpublic bootstrap transactionとして扱う。
+現在実装済みの`vps-server@4`は、次を一つのpublic bootstrap transactionとして扱う。
 
 - exact OCI Caddy / Scratch / Bridge / Minecraft runtime、Paper JAR、McRemote JAR
 - Caddyだけをpublic edgeへ接続し、backend間通信をinternal app networkへ限定
@@ -124,7 +124,7 @@ cd "$MC_REMOTE_STACK"
 uv run mcrctl init "$MC_REMOTE_PROJECT" \
   --format toml \
   --deployment-name official-public-beta \
-  --profile vps-server@3 \
+  --profile vps-server@4 \
   --environment-identity official-public-beta \
   --channel beta \
   --exposure public \
@@ -149,6 +149,11 @@ uv run mcrctl repo check --project "$MC_REMOTE_PROJECT"
 role = "public-routes"
 adapter = "public-routes@1"
 path = "operator/public-routes/routes.toml"
+
+[[operator_inputs]]
+role = "minecraft-server"
+adapter = "minecraft-server@1"
+path = "operator/minecraft-server/server.toml"
 ```
 
 `$MC_REMOTE_PROJECT/operator/public-routes/routes.toml`を作成し、DNSで実際に向けるlowercase名を
@@ -160,6 +165,33 @@ homepage_aliases = ["www.mc-remote.example"]
 scratch = "scratch.mc-remote.example"
 bridge = "bridge.mc-remote.example"
 minecraft = "sb.mc-remote.example"
+```
+
+汎用profileはofficial server固有のgameplay / world / performance値を埋め込まない。
+`$MC_REMOTE_PROJECT/operator/minecraft-server/server.toml`へ、このrevisionが所有する
+typed instance設定を置く。
+online mode、secure profile、RCON無効、server port、level identityはこの入力へ委譲せず、
+rendererのsecurity invariantとして固定する。
+
+```toml
+allow_flight = false
+difficulty = "hard"
+enable_query = false
+enable_status = true
+force_gamemode = true
+gamemode = "creative"
+hardcore = true
+log_ips = true
+management_server_enabled = false
+max_players = 18
+max_tick_time = -1
+max_world_size = 9984
+motd = "McRemote Sandbox Server"
+network_compression_threshold = -1
+simulation_distance = 6
+spawn_protection = 150
+view_distance = 10
+white_list = false
 ```
 
 `0.0.0.0`は全interfaceでlistenする明示値であり、公開成功や安全性を単独では意味しない。
@@ -177,7 +209,7 @@ cd "$MC_REMOTE_STACK"
 uv run mcrctl accept-eula --project "$MC_REMOTE_PROJECT" --yes
 ```
 
-`vps-server@3` + `public-web-paper@1`は、public VPSでの新TOML live evidenceが正式着地するまでは
+`vps-server@4` + `public-web-paper@1`は、public VPSでの新TOML live evidenceが正式着地するまでは
 `unverified`である。bootstrapを行う人間は`mc-remote.toml`へ次を記録する。
 
 ```toml
@@ -352,7 +384,7 @@ knowledge ownerへevidence draftとしてhandoffする。rawはGit外、private 
 
 ## 12. 残る完成度phase
 
-Caddy、Scratch、Bridgeのcore transactionは`vps-server@3`へ取り込んだ。過去の6GB official
+Caddy、Scratch、Bridgeのcore transactionは`vps-server@4`へ取り込んだ。過去の6GB official
 VPSで実証したTLS / WSS / rollbackを現行SSOTの自動claimとして完成させる残作業は次である。
 
 1. homepageのcontent-addressed artifactとprovenance

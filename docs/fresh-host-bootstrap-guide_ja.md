@@ -16,7 +16,7 @@ SSH支援、対象host上agentを試す場合のsecurity gate、人間が握るc
 
 現行の vertical slice は deployment project の `init`、`validate`、`repo check`、`plan`、
 EULA gate、`resolve`、`artifact fetch`、`render`に加え、isolated `home-beta`と
-Caddy / Scratch / Bridge / Minecraft / McRemoteを含む`vps-server@3` public betaの
+Caddy / Scratch / Bridge / Minecraft / McRemoteを含む`vps-server@4` public betaの
 初回bootstrap applyまでを
 実装している。public VPSの手順は
 [`public VPS bootstrap guide`](public-vps-bootstrap-guide_ja.md)を正とする。既存world import、

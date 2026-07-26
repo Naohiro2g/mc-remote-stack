@@ -3,6 +3,10 @@ from pathlib import Path
 import pytest
 
 from mc_remote_stack.cli import main
+from mc_remote_stack.operator_inputs import (
+    OperatorInputError,
+    _parse_minecraft_server,
+)
 from mc_remote_stack.preset_registry import semantic_sha256
 from mc_remote_stack.resolver import (
     ResolutionError,
@@ -227,6 +231,37 @@ def test_public_routes_adapter_fails_closed(
         )
 
     assert exc_info.value.reason == reason
+
+
+def test_minecraft_server_adapter_rejects_management_listener(
+    tmp_path: Path,
+) -> None:
+    source = b"""
+allow_flight = false
+difficulty = "hard"
+enable_query = false
+enable_status = true
+force_gamemode = true
+gamemode = "creative"
+hardcore = true
+log_ips = true
+management_server_enabled = true
+max_players = 18
+max_tick_time = -1
+max_world_size = 9984
+motd = "McRemote Sandbox Server"
+network_compression_threshold = -1
+simulation_distance = 6
+spawn_protection = 150
+view_distance = 10
+white_list = false
+""".lstrip()
+
+    with pytest.raises(OperatorInputError) as exc_info:
+        _parse_minecraft_server(tmp_path / "server.toml", source)
+
+    assert exc_info.value.reason == "operator_input_parse_failed"
+    assert "management server must remain disabled" in str(exc_info.value)
 
 
 @pytest.mark.parametrize(

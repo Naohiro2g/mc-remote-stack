@@ -24,10 +24,11 @@ def test_public_vps_runbook_uses_the_real_toml_init_cli() -> None:
 
     assert "mcrctl init-toml" not in guide
     assert "mcrctl init \"$MC_REMOTE_PROJECT\" \\\n  --format toml" in guide
-    assert "--profile vps-server@3" in guide
+    assert "--profile vps-server@4" in guide
     assert "--preset public-web-paper@1" in guide
     assert "--volume caddy-data=official-public-beta-caddy-data" in guide
     assert 'adapter = "public-routes@1"' in guide
+    assert 'adapter = "minecraft-server@1"' in guide
     assert "--exposure public" in guide
 
 

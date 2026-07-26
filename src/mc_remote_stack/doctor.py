@@ -267,7 +267,7 @@ def _validate_container(
                 }
             ],
         }
-        if lock["render_plan"]["adapter_revision"] in {"2", "3"}:
+        if lock["render_plan"]["adapter_revision"] in {"2", "3", "4"}:
             expected_ports["19132/udp"] = [
                 {
                     "HostIp": address,

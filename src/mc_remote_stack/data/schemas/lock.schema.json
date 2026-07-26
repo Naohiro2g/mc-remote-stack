@@ -526,6 +526,9 @@
         },
         {
           "$ref": "#/$defs/publicRoutesRole"
+        },
+        {
+          "$ref": "#/$defs/minecraftServerRole"
         }
       ]
     },
@@ -536,6 +539,9 @@
         },
         {
           "$ref": "#/$defs/publicRoutesInput"
+        },
+        {
+          "$ref": "#/$defs/minecraftServerInput"
         }
       ]
     },
@@ -565,6 +571,22 @@
         },
         "adapter": {
           "const": "public-routes@1"
+        },
+        "required": {
+          "type": "boolean"
+        }
+      }
+    },
+    "minecraftServerRole": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "adapter", "required"],
+      "properties": {
+        "id": {
+          "const": "minecraft-server"
+        },
+        "adapter": {
+          "const": "minecraft-server@1"
         },
         "required": {
           "type": "boolean"
@@ -667,6 +689,115 @@
               "type": "string",
               "minLength": 1
             }
+          }
+        }
+      }
+    },
+    "minecraftServerInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "role",
+        "adapter",
+        "path",
+        "semantic_sha256",
+        "semantic"
+      ],
+      "properties": {
+        "role": {
+          "const": "minecraft-server"
+        },
+        "adapter": {
+          "const": "minecraft-server@1"
+        },
+        "path": {
+          "const": "operator/minecraft-server/server.toml"
+        },
+        "semantic_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "semantic": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "allow_flight",
+            "difficulty",
+            "enable_query",
+            "enable_status",
+            "force_gamemode",
+            "gamemode",
+            "hardcore",
+            "log_ips",
+            "management_server_enabled",
+            "max_players",
+            "max_tick_time",
+            "max_world_size",
+            "motd",
+            "network_compression_threshold",
+            "simulation_distance",
+            "spawn_protection",
+            "view_distance",
+            "white_list"
+          ],
+          "properties": {
+            "allow_flight": {"type": "boolean"},
+            "difficulty": {
+              "enum": ["peaceful", "easy", "normal", "hard"]
+            },
+            "enable_query": {"const": false},
+            "enable_status": {"type": "boolean"},
+            "force_gamemode": {"type": "boolean"},
+            "gamemode": {
+              "enum": ["survival", "creative", "adventure", "spectator"]
+            },
+            "hardcore": {"type": "boolean"},
+            "log_ips": {"type": "boolean"},
+            "management_server_enabled": {"const": false},
+            "max_players": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000
+            },
+            "max_tick_time": {
+              "anyOf": [
+                {"const": -1},
+                {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              ]
+            },
+            "max_world_size": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 29999984
+            },
+            "motd": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "network_compression_threshold": {
+              "type": "integer",
+              "minimum": -1,
+              "maximum": 1024
+            },
+            "simulation_distance": {
+              "type": "integer",
+              "minimum": 3,
+              "maximum": 32
+            },
+            "spawn_protection": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 4096
+            },
+            "view_distance": {
+              "type": "integer",
+              "minimum": 3,
+              "maximum": 32
+            },
+            "white_list": {"type": "boolean"}
           }
         }
       }

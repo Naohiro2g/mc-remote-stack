@@ -4,7 +4,14 @@
 
 ## 2026-07-24 home-beta bootstrap後
 
-- [ ] `vps-server@3` / `public-web-paper@1`をVPS実機でbootstrapし、Caddy / Scratch /
+- [ ] Paperのdefaultに依存しないMcRemoteオリジナルのserver templateを別sliceで設計する。
+  汎用`minecraft-server@1`のtyped instance設定とは分離し、教材・公開体験向けにアレンジした
+  「箱庭」のgameplay、world、performance、表示文、初期contentを再利用可能なpresetとして定義する。
+- [ ] McRemote server iconの既存規定を現行public SSOTから回収する。今回確認した公開knowledgeの
+  関連箇所では規定を特定できていないため、記憶だけで再定義せず、approved knowledge handoffで
+  出典を回収してからformat / size、asset provenance、immutable identity、render / install契約を
+  上記server templateの近接仕様として確定する。
+- [ ] `vps-server@4` / `public-web-paper@1`をVPS実機でbootstrapし、Caddy / Scratch /
   Bridge / Minecraft、internal app network、public bind、managed volume、token無し
   protocol helloを`live-auto`検証する。host / provider firewallとDNSは人間checkpointとして
   分離し、外部HTTPS / WSS readinessとhomepage artifactは後続claimとして記録する。

@@ -15,15 +15,45 @@ MINECRAFT_MOTD_ADAPTER = "minecraft-motd@1"
 MINECRAFT_MOTD_PATH = "operator/minecraft-motd/server.properties"
 PUBLIC_ROUTES_ADAPTER = "public-routes@1"
 PUBLIC_ROUTES_PATH = "operator/public-routes/routes.toml"
+MINECRAFT_SERVER_ADAPTER = "minecraft-server@1"
+MINECRAFT_SERVER_PATH = "operator/minecraft-server/server.toml"
 MAX_MOTD_SOURCE_BYTES = 4096
 MAX_MOTD_CHARACTERS = 256
-SUPPORTED_ADAPTERS = frozenset({MINECRAFT_MOTD_ADAPTER, PUBLIC_ROUTES_ADAPTER})
+SUPPORTED_ADAPTERS = frozenset(
+    {
+        MINECRAFT_MOTD_ADAPTER,
+        MINECRAFT_SERVER_ADAPTER,
+        PUBLIC_ROUTES_ADAPTER,
+    }
+)
 PUBLIC_ROUTE_KEYS = frozenset(
     {"homepage", "homepage_aliases", "scratch", "bridge", "minecraft"}
 )
 DNS_NAME = re.compile(
     r"^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+"
     r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+)
+MINECRAFT_SERVER_KEYS = frozenset(
+    {
+        "allow_flight",
+        "difficulty",
+        "enable_query",
+        "enable_status",
+        "force_gamemode",
+        "gamemode",
+        "hardcore",
+        "log_ips",
+        "management_server_enabled",
+        "max_players",
+        "max_tick_time",
+        "max_world_size",
+        "motd",
+        "network_compression_threshold",
+        "simulation_distance",
+        "spawn_protection",
+        "view_distance",
+        "white_list",
+    }
 )
 
 
@@ -187,6 +217,106 @@ def _parse_public_routes(path: Path, source: bytes) -> dict[str, Any]:
     return semantic
 
 
+def _parse_minecraft_server(path: Path, source: bytes) -> dict[str, Any]:
+    if source.startswith(b"\xef\xbb\xbf"):
+        _fail("operator_input_encoding_invalid", path, "UTF-8 BOM is forbidden")
+    try:
+        value = tomllib.loads(source.decode("utf-8"))
+    except UnicodeDecodeError as exc:
+        _fail("operator_input_encoding_invalid", path, str(exc))
+    except tomllib.TOMLDecodeError as exc:
+        _fail("operator_input_parse_failed", path, str(exc))
+    if set(value) != MINECRAFT_SERVER_KEYS:
+        missing = sorted(MINECRAFT_SERVER_KEYS - set(value))
+        extra = sorted(set(value) - MINECRAFT_SERVER_KEYS)
+        details = []
+        if missing:
+            details.append(f"missing: {', '.join(missing)}")
+        if extra:
+            details.append(f"unknown: {', '.join(extra)}")
+        _fail(
+            "operator_input_parse_failed",
+            path,
+            f"minecraft-server@1 requires the exact keys ({'; '.join(details)})",
+        )
+
+    boolean_keys = {
+        "allow_flight",
+        "enable_query",
+        "enable_status",
+        "force_gamemode",
+        "hardcore",
+        "log_ips",
+        "management_server_enabled",
+        "white_list",
+    }
+    if any(not isinstance(value[key], bool) for key in boolean_keys):
+        _fail(
+            "operator_input_parse_failed",
+            path,
+            "Minecraft boolean fields must use TOML true or false",
+        )
+    if value["enable_query"] or value["management_server_enabled"]:
+        _fail(
+            "operator_input_parse_failed",
+            path,
+            "query and management server must remain disabled in minecraft-server@1",
+        )
+    if value["difficulty"] not in {"peaceful", "easy", "normal", "hard"}:
+        _fail("operator_input_parse_failed", path, "difficulty is invalid")
+    if value["gamemode"] not in {"survival", "creative", "adventure", "spectator"}:
+        _fail("operator_input_parse_failed", path, "gamemode is invalid")
+
+    integer_ranges = {
+        "max_players": (1, 1000),
+        "max_world_size": (1, 29_999_984),
+        "network_compression_threshold": (-1, 1024),
+        "simulation_distance": (3, 32),
+        "spawn_protection": (0, 4096),
+        "view_distance": (3, 32),
+    }
+    for key, (minimum, maximum) in integer_ranges.items():
+        number = value[key]
+        if isinstance(number, bool) or not isinstance(number, int):
+            _fail("operator_input_parse_failed", path, f"{key} must be an integer")
+        if number < minimum or number > maximum:
+            _fail(
+                "operator_input_parse_failed",
+                path,
+                f"{key} must be between {minimum} and {maximum}",
+            )
+    max_tick_time = value["max_tick_time"]
+    if (
+        isinstance(max_tick_time, bool)
+        or not isinstance(max_tick_time, int)
+        or (max_tick_time != -1 and max_tick_time < 1)
+    ):
+        _fail(
+            "operator_input_parse_failed",
+            path,
+            "max_tick_time must be -1 or a positive integer",
+        )
+    motd = value["motd"]
+    if (
+        not isinstance(motd, str)
+        or not motd
+        or len(motd) > MAX_MOTD_CHARACTERS
+        or any(ord(character) < 0x20 or ord(character) == 0x7F for character in motd)
+    ):
+        _fail(
+            "operator_input_parse_failed",
+            path,
+            f"motd must contain 1 through {MAX_MOTD_CHARACTERS} safe characters",
+        )
+    if "secret://" in motd.casefold() or "${" in motd:
+        _fail(
+            "operator_input_secret_forbidden",
+            path,
+            "minecraft-server@1 contains only public non-secret settings",
+        )
+    return {key: value[key] for key in sorted(MINECRAFT_SERVER_KEYS)}
+
+
 def _parse_adapter(adapter: str, path: Path, relative_path: str) -> dict[str, Any]:
     if adapter == MINECRAFT_MOTD_ADAPTER:
         if relative_path != MINECRAFT_MOTD_PATH:
@@ -204,6 +334,14 @@ def _parse_adapter(adapter: str, path: Path, relative_path: str) -> dict[str, An
                 f"{adapter} requires exact path {PUBLIC_ROUTES_PATH}",
             )
         return _parse_public_routes(path, _read_source(path))
+    if adapter == MINECRAFT_SERVER_ADAPTER:
+        if relative_path != MINECRAFT_SERVER_PATH:
+            _fail(
+                "operator_input_path_invalid",
+                path,
+                f"{adapter} requires exact path {MINECRAFT_SERVER_PATH}",
+            )
+        return _parse_minecraft_server(path, _read_source(path))
     _fail(
         "unsupported_operator_input_adapter",
         adapter,
