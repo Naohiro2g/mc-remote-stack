@@ -14,6 +14,8 @@
 
 - [agent-assisted bootstrap](docs/agent-assisted-bootstrap-guide_ja.md): agentを対象hostへ置かない
   基準経路、管理端末からのSSH支援、対象host上agentの限定実験とsecurity gate
+- [CLI検証環境の分担計画](docs/cli-validation-environment-plan_ja.md): ローカル、ケータリングPC、
+  ホームサーバー、稼働中VPSの役割と安全な検証順
 - [fresh host bootstrap](docs/fresh-host-bootstrap-guide_ja.md): 個人管理者ユーザー、SSH、安全な開始点、現行 `mcrctl` の停止境界
 - [public VPS bootstrap](docs/public-vps-bootstrap-guide_ja.md): `vps-server@4`のread-only discovery、
   exact multi-service plan/apply、public doctor、既存host cutover、残るreadiness phase

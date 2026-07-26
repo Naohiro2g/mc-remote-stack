@@ -14,6 +14,9 @@ The project is intentionally separate from:
 
 - [Agent-assisted bootstrap (Japanese)](docs/agent-assisted-bootstrap-guide_ja.md): the no-on-host-agent
   baseline, workstation-over-SSH assistance, and the security gate for limited on-host experiments
+- [CLI validation environment plan (Japanese)](docs/cli-validation-environment-plan_ja.md):
+  responsibilities and safe sequencing across local development, a catering PC, a home server,
+  and the running VPS
 - [Catering-type validation roadmap (Japanese)](docs/catering-type-validation-roadmap_ja.md)
 - [Fresh-host bootstrap (Japanese)](docs/fresh-host-bootstrap-guide_ja.md)
 - [Public VPS bootstrap (Japanese)](docs/public-vps-bootstrap-guide_ja.md):
