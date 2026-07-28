@@ -2,6 +2,80 @@
 
 確定前または別sliceへ送る作業だけを置く。private host名、IP、credential、account情報は書かない。
 
+## 2026-07-28 dev/alpha/実験環境の物理host分離とadmin access方針
+
+- `dev` / `alpha` channelを別物理hostへ分離する運用へ移行する。従来は単一ラップトップが
+  唯一のローカルリポだったが、`dev`用hostを新設し、これを主たるローカルリポ・commit/push元とする。
+  `alpha`用hostは「trusted checkout」として扱い、そこでの直接編集・commitはせず、
+  人間がテスト・Ruff green を確認したexact commitをfast-forwardで反映する（既存VPS運用と同型）。
+  別に、自由に破壊実験してよい環境も用意し、そこのgit stateは正本として扱わない。
+  具体的host名・IP・private inventoryは`mc-remote-backstage`側の管轄であり、本行には書かない。
+- ラップトップは、貢献者PCの役割（fork/Issue/PR経由での関与を実地で試す用途）へ転用する案がある。
+  外部貢献者が実際にたどる導線を運営者自身が検証できる。
+- admin access（`dev` hostへのSSHなど）は、home router側でのSSH inbound port開放は避け、
+  mesh VPN（Tailscale）を採用済み。全管理devicesへ導入し、古いiPadでも問題なく動作した。
+  管理面の標準ツールとして確定する。tailnet参加端末同士は物理LAN内外を問わず同一private
+  IP/MagicDNS名で到達でき、モバイル環境からの利用も場所を意識せず接続できる。
+  tailnet未参加の同一LAN上の他デバイス（家族・来客等）には影響しない。
+- 公開domainをLAN内から参照する際のhairpin NAT回避には、TailscaleのSplit DNS機能
+  （tailnetスコープでdomain解決先を内部DNSリゾルバへ振り向ける）を採用する。バックエンドの内部DNS
+  リゾルバは軽量なdnsmasqを使う（tailscale自体が権威応答するわけではない）。これにより従来の
+  `/etc/hosts`手動書き換えが不要になる（場所・tailnet参加有無に依存しない解決）。ルーター/家庭内DNSでの
+  override（LANスコープ限定）は見送った。ポート転送設定（一部portのみ外部公開）とは独立したレイヤーであり、
+  互いに競合しない。
+
+## 2026-07-28 通信方式とカリキュラムの関係（並列ビークル論の拡張）
+
+- 「socket→WS→WSS→tunnel」を単一の難易度階段として教材化しない。direct TCPは、既存の
+  `並列ビークル論`（Scratch/Python、20-教材`ai-learning-design_ja.md`）と整合する形で、
+  Scratch側のWS/WSS/Bridge/Tunnelへ至る「踏み石」ではなく、それ自体で完結する独立した
+  vehicleとして維持する方針。`2026-07-16-04`の「direct TCPをsocket入門の第一級transportとして
+  維持」とも一致する。
+- socket入門をMcRemote plugin本体で提供する必然性はなく、fork版や別pluginでの提供も
+  選択肢に含めてよい。「並列ビークル」は単一codebaseでの実装を要求しておらず、vehicleの
+  並立だけを指すため、この分離は既存原則と矛盾しない。
+- 会話の中で、通信方式の学習設計（カリキュラム軸）とネットワーク公開手段の運用設計
+  （インフラ軸）を混同しかけた場面があった。両者は独立した軸として扱う。
+
+## 2026-07-29 Cloudflare Tunnelによるhome公開経路（分岐component検証・stable showcase用）
+
+- 恒常的な公式public betaの代替ではなく、**分岐していくcomponent組み合わせの短命な実験公開**、および
+  **stable版の複数variation showcase**向けに、Cloudflare Tunnelでのhome公開経路を確立する方針。
+  近日中に検証する。
+- 評価結果: home可用性は高くこれを理由に見送らない。inbound攻撃面はCloudflare Tunnelの構造上
+  発生しない（listening portが無い）。残るのは事業者依存リスクのみで、これは許容範囲と判断した。
+  レンタルVPS（XServer等）への依存とは性質が異なる点に留意する。VPS依存は「箱そのもの」を預ける依存
+  （障害時は別VPSへの丸ごと移設が必要。ケータリング型のpreset/order/lockが移設容易性を担保）。
+  Cloudflare依存は「経路」だけの依存（実体はhomeに残り、障害時は別経路——port forwardやSSH tunnel等
+  ——へ切り替えるだけで済み、データ自体の移動は不要）。
+- **背景**: Paper 26.2が安定版になったため追従が必要。自分たちの安定版リリース時は、26.2と
+  1.21.11を並行維持することになる見込み（`2026-07-25-02`⑤のversion別instance＋Bridgeの
+  `server_id→host:port` route mapで分離、Velocity/Gatewayは不要）。このhome公開経路は、
+  複数stable variationを並行して外部showcaseする用途にも使える。
+
+## 2026-07-28 学校でのケータリング型展開：接続方式の検討結果
+
+- 生徒がMcRemote/Minecraftへ、教室外（帰宅後・長期休み中）からも継続してアクセスできる方式を広く検討した
+  （Tailscale Funnel、Cloudflare Tunnel、port forward、VPS上への生徒専用instance）。結論として、
+  既存の並列構成（教室完結のケータリング型＋別途VPS上の公式箱庭／公式world）を上回る決定的な代替案は
+  見つからなかった。
+- **唯一拾えた知見**: school networkがoutbound SSHを許可する場合、ケータリングPCからVPSへの
+  reverse SSH tunnel（`ssh -R`、`autossh`等で常駐化、VPS側は転送専用の制限付きaccountを分離）が、
+  Tailscale Funnel・無料Cloudflare Tunnelのどちらも運べないraw TCP（Minecraft本体プロトコル）を
+  中継できる唯一の手段だった。VPS側はPaperを動かさず中継のみのため、最安tierのVPSで足りる。
+  Minecraft世界の実体はケータリングPC側に置いたまま、VPSは公開到達点としてのみ機能する。
+  ただしMinecraft世界に保存価値・所有権を持たせず使い捨て前提（定期リセット＋生徒コードから
+  自動再構築）とするなら、ケータリングPC側とVPS側の世界を同期する必要はなく、VPS側に生徒専用の
+  独立した使い捨てinstanceを別途用意する方がむしろ単純になる。
+- **展開の枠組み（未言語化だった整理）**: 導入摩擦を下げるため、まず単体で完結し教師の管理が容易な
+  scopeへあえて限定したケータリングPC構成で教室の内側に入る。教室外の継続利用は、需要（主に生徒からの
+  要望）が先に立ってから、担当教員が校長へ提案し予算化・学校のIT委託業者による構築（必要なら本プロジェクトも
+  支援）という別トラックで開く。教室外の選択肢としては、学校専用VPS（部活動等の限定利用になり得る）に加え、
+  本プロジェクトの公式箱庭・公式worldも並行した選択肢となる。単一のtopologyで教室内・教室外の両方を
+  最適化しようとしない、という整理。
+- **未整理のまま残った項目**: 個人環境でのCloudflare Tunnelの具体的な用途、VPS-ホームサーバー間の
+  SSH tunnel構成。いずれも別途検討が要る。
+
 ## 2026-07-27 catering VPS session handoff
 
 ### Git / deployment現在地
