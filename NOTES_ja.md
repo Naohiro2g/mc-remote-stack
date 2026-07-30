@@ -18,6 +18,15 @@
 - 捕捉cleanup（既存VPSの`Bridge stable`/`Bridge beta`がケータリング型以前の残骸か確認・除却）は
   knowledge側では追跡せず、この実装が固まった後のmc-remote-backstage専任セッションの作業として
   持ち出す。
+- Scratch側とのconnection_targets突き合わせ検証は、home非公開alpha（m720s1、`home-server@2`）では
+  できないと判明した。`home-server@2`は`renderer=compose@1`で`[[services]]`が`minecraft`単体のみ、
+  Caddy/Scratch/Bridgeを持たない。運営者は当初alpha環境にScratchがある前提だったが、実際には
+  セットアップ後に自分でテストしておらず、現状の内容を正確に把握していなかった。Scratch/Bridgeを
+  含むのは`compose@2`〜`@4`（`vps-server@4`のみ現存）で、これは`exposure=public`/`bind_address=
+  0.0.0.0`前提。DECISIONS `2026-07-25-03`（ケータリング型確立をrelease系より優先）を踏まえ、
+  home-server向けにCaddy/Scratch/Bridgeを持つisolated/lan-only対応の新profile revisionを設計し、
+  それをm720s1へ実際にセットアップ・動作確認するところから次回を始める。それに合わせてb3検収の
+  live-human evidence（pair/token reconnect、接続先別token、設定先と実接続先の表示）も取得する。
 
 ## 2026-07-30 homepage / WordPress FPM設計骨子のknowledge着地待ち
 
