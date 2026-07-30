@@ -9,10 +9,12 @@
   `2026-07-30-03`としてknowledge側へ着地確認済み（commit `065ff0dc7ef2f0c45035667a6446c5cfa6609a7f`）。
   DECISIONS新規行・wire-format-design§2追記・scratch-roadmap§2.1/§2.2追記を搬送票と照合し、
   決定内容・却下案・影響範囲とも一致を確認した。
-- 次はmc-remote-stack側の実装：`render.py`の`_compose()`をstable/beta固定2択から
-  channel/variationの一般loopへ、`_runtime_config()`へ`connection_targets`出力を追加、
-  `_bridge_service()`をマルチdomain allowlist対応へ拡張する。新規operator input
-  `role="connection-targets"`も追加する。
+- mc-remote-stack側の実装は完了・commit・push済み（`36b1113`）。対象はTOML/preset/lockパイプライン
+  （`_compose_v2`系）で、legacy-yamlパイプライン（`_compose()`/`render_project()`、`apply`不可）は
+  対象外と判明したため触っていない。新規`connection-targets@1` operator input（`operator_inputs.py`）、
+  `_locked_connection_targets()`とruntime_config／Bridge allowlistへの配線（`render.py`）、
+  `vps-server@4/profile.toml`へのoptional role追加、`lock.schema.json`のoneOf拡張、テスト追加。
+  未指定時は既存出力と完全互換（回帰テストで確認済み）。259 test PASS、ruff clean。
 - 捕捉cleanup（既存VPSの`Bridge stable`/`Bridge beta`がケータリング型以前の残骸か確認・除却）は
   knowledge側では追跡せず、この実装が固まった後のmc-remote-backstage専任セッションの作業として
   持ち出す。
