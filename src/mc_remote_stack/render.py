@@ -177,7 +177,7 @@ def _locked_public_routes(lock: dict[str, Any]) -> dict[str, Any]:
     matches = [item for item in operator_inputs if item["role"] == "public-routes"]
     if len(matches) != 1 or any(
         item["role"]
-        not in {"public-routes", "minecraft-motd", "minecraft-server"}
+        not in {"public-routes", "minecraft-motd", "minecraft-server", "connection-targets"}
         for item in operator_inputs
     ):
         _render_fail(
@@ -205,6 +205,38 @@ def _locked_public_routes(lock: dict[str, Any]) -> dict[str, Any]:
             "locked public routes do not contain the exact required keys",
         )
     return semantic
+
+
+def _locked_connection_targets(lock: dict[str, Any]) -> list[dict[str, str]] | None:
+    operator_inputs = lock["operator_inputs"]
+    if operator_inputs != lock["render_plan"]["operator_inputs"]:
+        _render_fail(
+            "render_plan_invalid",
+            "render_plan.operator_inputs",
+            "render plan operator inputs must exactly match the lock projection",
+        )
+    matches = [item for item in operator_inputs if item["role"] == "connection-targets"]
+    if len(matches) > 1:
+        _render_fail(
+            "render_plan_invalid",
+            "operator_inputs.connection-targets",
+            "compose@2 supports only one optional connection-targets operator input",
+        )
+    if not matches:
+        return None
+    operator_input = matches[0]
+    semantic = operator_input["semantic"]
+    if (
+        operator_input["adapter"] != "connection-targets@1"
+        or operator_input["path"] != "operator/connection-targets/targets.toml"
+        or operator_input["semantic_sha256"] != semantic_sha256(semantic)
+    ):
+        _render_fail(
+            "render_plan_invalid",
+            "operator_inputs.connection-targets",
+            "locked connection-targets adapter identity or semantic digest is invalid",
+        )
+    return semantic["targets"]
 
 
 def _locked_minecraft_server(lock: dict[str, Any]) -> dict[str, Any]:
@@ -477,10 +509,11 @@ def _compose_v2(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str]]:
         )
 
     routes = _locked_public_routes(lock)
+    connection_targets = _locked_connection_targets(lock)
     motd = _locked_minecraft_motd(
         lock,
         allowed_roles=frozenset(
-            {"public-routes", "minecraft-motd", "minecraft-server"}
+            {"public-routes", "minecraft-motd", "minecraft-server", "connection-targets"}
         ),
     )
     world_identity = lock["world"]["identity"]
@@ -506,12 +539,21 @@ def _compose_v2(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str]]:
     reverse_proxy bridge:8080
 }}
 """
-    runtime_config = {
+    runtime_config: dict[str, Any] = {
         "bridge_url": f"wss://{routes['bridge']}",
         "default_sandbox": routes["minecraft"],
-        "connection_enabled": True,
-        "release_identity": scratch_artifact["version"],
     }
+    if connection_targets is not None:
+        runtime_config["connection_targets"] = [
+            {"id": target["id"], "label": target["label"], "sandbox": target["sandbox"]}
+            for target in connection_targets
+        ]
+    runtime_config["connection_enabled"] = True
+    runtime_config["release_identity"] = scratch_artifact["version"]
+
+    sandbox_allowlist = {routes["minecraft"]}
+    if connection_targets is not None:
+        sandbox_allowlist.update(target["sandbox"] for target in connection_targets)
     property_values = [
         ("enable-rcon", "false"),
         ("enforce-secure-profile", "true"),
@@ -565,7 +607,7 @@ def _compose_v2(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str]]:
                     "BRIDGE_WS_HOST": "0.0.0.0",
                     "BRIDGE_WS_PORT": "8080",
                     "BRIDGE_ORIGIN_ALLOWLIST": f"https://{routes['scratch']}",
-                    "BRIDGE_SANDBOX_ALLOWLIST": routes["minecraft"],
+                    "BRIDGE_SANDBOX_ALLOWLIST": ",".join(sorted(sandbox_allowlist)),
                     "BRIDGE_DEFAULT_SANDBOX": routes["minecraft"],
                     "BRIDGE_SANDBOX_PORT": "25575",
                 },

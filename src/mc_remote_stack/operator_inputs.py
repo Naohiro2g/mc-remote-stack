@@ -17,18 +17,25 @@ PUBLIC_ROUTES_ADAPTER = "public-routes@1"
 PUBLIC_ROUTES_PATH = "operator/public-routes/routes.toml"
 MINECRAFT_SERVER_ADAPTER = "minecraft-server@1"
 MINECRAFT_SERVER_PATH = "operator/minecraft-server/server.toml"
+CONNECTION_TARGETS_ADAPTER = "connection-targets@1"
+CONNECTION_TARGETS_PATH = "operator/connection-targets/targets.toml"
 MAX_MOTD_SOURCE_BYTES = 4096
 MAX_MOTD_CHARACTERS = 256
+MAX_CONNECTION_TARGETS = 32
+MAX_LABEL_CHARACTERS = 64
 SUPPORTED_ADAPTERS = frozenset(
     {
         MINECRAFT_MOTD_ADAPTER,
         MINECRAFT_SERVER_ADAPTER,
         PUBLIC_ROUTES_ADAPTER,
+        CONNECTION_TARGETS_ADAPTER,
     }
 )
 PUBLIC_ROUTE_KEYS = frozenset(
     {"homepage", "homepage_aliases", "scratch", "bridge", "minecraft"}
 )
+CONNECTION_TARGET_KEYS = frozenset({"id", "label", "sandbox"})
+CONNECTION_TARGET_ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
 DNS_NAME = re.compile(
     r"^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+"
     r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
@@ -317,6 +324,90 @@ def _parse_minecraft_server(path: Path, source: bytes) -> dict[str, Any]:
     return {key: value[key] for key in sorted(MINECRAFT_SERVER_KEYS)}
 
 
+def _connection_target_id(path: Path, index: int, value: object) -> str:
+    if not isinstance(value, str) or not CONNECTION_TARGET_ID.fullmatch(value):
+        _fail(
+            "operator_input_parse_failed",
+            path,
+            f"targets[{index}].id must be a lowercase token",
+        )
+    return value
+
+
+def _connection_target_label(path: Path, index: int, value: object) -> str:
+    if not isinstance(value, str) or not value or len(value) > MAX_LABEL_CHARACTERS:
+        _fail(
+            "operator_input_parse_failed",
+            path,
+            f"targets[{index}].label must contain 1 through {MAX_LABEL_CHARACTERS} characters",
+        )
+    if any(ord(character) < 0x20 or ord(character) == 0x7F for character in value):
+        _fail(
+            "operator_input_parse_failed",
+            path,
+            f"targets[{index}].label must not contain control characters",
+        )
+    if "secret://" in value.casefold() or "${" in value:
+        _fail(
+            "operator_input_secret_forbidden",
+            path,
+            "connection-targets@1 is a public display field and has no secret injection point",
+        )
+    return value
+
+
+def _parse_connection_targets(path: Path, source: bytes) -> dict[str, Any]:
+    if source.startswith(b"\xef\xbb\xbf"):
+        _fail("operator_input_encoding_invalid", path, "UTF-8 BOM is forbidden")
+    try:
+        value = tomllib.loads(source.decode("utf-8"))
+    except UnicodeDecodeError as exc:
+        _fail("operator_input_encoding_invalid", path, str(exc))
+    except tomllib.TOMLDecodeError as exc:
+        _fail("operator_input_parse_failed", path, str(exc))
+    if set(value) != {"targets"}:
+        _fail(
+            "operator_input_parse_failed",
+            path,
+            "connection-targets@1 requires exactly the targets key",
+        )
+    targets = value["targets"]
+    if not isinstance(targets, list) or not targets or len(targets) > MAX_CONNECTION_TARGETS:
+        _fail(
+            "operator_input_parse_failed",
+            path,
+            f"targets must be an array containing 1 through {MAX_CONNECTION_TARGETS} entries",
+        )
+
+    semantic_targets: list[dict[str, str]] = []
+    for index, entry in enumerate(targets):
+        if not isinstance(entry, dict) or set(entry) != CONNECTION_TARGET_KEYS:
+            _fail(
+                "operator_input_parse_failed",
+                path,
+                f"targets[{index}] must contain exactly id, label, and sandbox",
+            )
+        semantic_targets.append(
+            {
+                "id": _connection_target_id(path, index, entry["id"]),
+                "label": _connection_target_label(path, index, entry["label"]),
+                "sandbox": _public_dns_name(path, f"targets[{index}].sandbox", entry["sandbox"]),
+            }
+        )
+
+    ids = [target["id"] for target in semantic_targets]
+    if len(set(ids)) != len(ids):
+        _fail("operator_input_parse_failed", path, "connection target id values must be unique")
+    sandboxes = [target["sandbox"] for target in semantic_targets]
+    if len(set(sandboxes)) != len(sandboxes):
+        _fail(
+            "operator_input_parse_failed",
+            path,
+            "connection target sandbox hostnames must be unique",
+        )
+    return {"targets": semantic_targets}
+
+
 def _parse_adapter(adapter: str, path: Path, relative_path: str) -> dict[str, Any]:
     if adapter == MINECRAFT_MOTD_ADAPTER:
         if relative_path != MINECRAFT_MOTD_PATH:
@@ -342,6 +433,14 @@ def _parse_adapter(adapter: str, path: Path, relative_path: str) -> dict[str, An
                 f"{adapter} requires exact path {MINECRAFT_SERVER_PATH}",
             )
         return _parse_minecraft_server(path, _read_source(path))
+    if adapter == CONNECTION_TARGETS_ADAPTER:
+        if relative_path != CONNECTION_TARGETS_PATH:
+            _fail(
+                "operator_input_path_invalid",
+                path,
+                f"{adapter} requires exact path {CONNECTION_TARGETS_PATH}",
+            )
+        return _parse_connection_targets(path, _read_source(path))
     _fail(
         "unsupported_operator_input_adapter",
         adapter,

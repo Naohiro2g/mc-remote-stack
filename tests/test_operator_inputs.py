@@ -5,6 +5,7 @@ import pytest
 from mc_remote_stack.cli import main
 from mc_remote_stack.operator_inputs import (
     OperatorInputError,
+    _parse_connection_targets,
     _parse_minecraft_server,
 )
 from mc_remote_stack.preset_registry import semantic_sha256
@@ -294,6 +295,85 @@ def test_minecraft_motd_adapter_fails_closed(
 
     assert exc_info.value.reason == reason
     assert not (project / "mc-remote.lock.toml").exists()
+
+
+def test_connection_targets_adapter_parses_ordered_semantic_list(tmp_path: Path) -> None:
+    source = b"""
+[[targets]]
+id = "stable"
+label = "Stable"
+sandbox = "sb.mc-remote.example"
+
+[[targets]]
+id = "beta"
+label = "Beta"
+sandbox = "beta.sb.mc-remote.example"
+""".lstrip()
+
+    semantic = _parse_connection_targets(tmp_path / "targets.toml", source)
+
+    assert semantic == {
+        "targets": [
+            {"id": "stable", "label": "Stable", "sandbox": "sb.mc-remote.example"},
+            {"id": "beta", "label": "Beta", "sandbox": "beta.sb.mc-remote.example"},
+        ]
+    }
+
+
+@pytest.mark.parametrize(
+    ("content", "reason"),
+    [
+        (b"targets = []\n", "operator_input_parse_failed"),
+        (
+            b'[[targets]]\nid = "stable"\nlabel = "Stable"\n'
+            b'sandbox = "sb.mc-remote.example"\nextra = "nope"\n',
+            "operator_input_parse_failed",
+        ),
+        (
+            b'[[targets]]\nid = "Stable"\nlabel = "Stable"\n'
+            b'sandbox = "sb.mc-remote.example"\n',
+            "operator_input_parse_failed",
+        ),
+        (
+            b'[[targets]]\nid = "stable"\nlabel = ""\n'
+            b'sandbox = "sb.mc-remote.example"\n',
+            "operator_input_parse_failed",
+        ),
+        (
+            b'[[targets]]\nid = "stable"\nlabel = "secret://token"\n'
+            b'sandbox = "sb.mc-remote.example"\n',
+            "operator_input_secret_forbidden",
+        ),
+        (
+            b'[[targets]]\nid = "stable"\nlabel = "Stable"\n'
+            b'sandbox = "192.0.2.10"\n',
+            "operator_input_parse_failed",
+        ),
+        (
+            b'[[targets]]\nid = "stable"\nlabel = "Stable"\n'
+            b'sandbox = "sb.mc-remote.example"\n'
+            b'[[targets]]\nid = "stable"\nlabel = "Stable again"\n'
+            b'sandbox = "other.mc-remote.example"\n',
+            "operator_input_parse_failed",
+        ),
+        (
+            b'[[targets]]\nid = "stable"\nlabel = "Stable"\n'
+            b'sandbox = "sb.mc-remote.example"\n'
+            b'[[targets]]\nid = "beta"\nlabel = "Beta"\n'
+            b'sandbox = "sb.mc-remote.example"\n',
+            "operator_input_parse_failed",
+        ),
+    ],
+)
+def test_connection_targets_adapter_fails_closed(
+    tmp_path: Path,
+    content: bytes,
+    reason: str,
+) -> None:
+    with pytest.raises(OperatorInputError) as exc_info:
+        _parse_connection_targets(tmp_path / "targets.toml", content)
+
+    assert exc_info.value.reason == reason
 
 
 def test_cli_validate_runs_operator_adapter_before_lock_exists(

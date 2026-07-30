@@ -67,6 +67,11 @@ id = "minecraft-server"
 adapter = "minecraft-server@1"
 required = true
 
+[[operator_input_roles]]
+id = "connection-targets"
+adapter = "connection-targets@1"
+required = false
+
 [[services]]
 id = "caddy"
 role = "caddy-edge"

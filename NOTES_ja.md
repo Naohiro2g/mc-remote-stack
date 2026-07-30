@@ -2,6 +2,34 @@
 
 確定前または別sliceへ送る作業だけを置く。private host名、IP、credential、account情報は書かない。
 
+## 2026-07-31 Bridge共有単位／connection_targets schema、knowledge着地確認OK [→DEC 2026-07-30-03]
+
+- Bridge共有はクラスタ単位（同一セッションでの行き来が要る場合だけ共有）、`connection_targets`は
+  `{id, label, sandbox}`で単一`bridge_url`共有、起動時URLは`id`選択限定——という設計を
+  `2026-07-30-03`としてknowledge側へ着地確認済み（commit `065ff0dc7ef2f0c45035667a6446c5cfa6609a7f`）。
+  DECISIONS新規行・wire-format-design§2追記・scratch-roadmap§2.1/§2.2追記を搬送票と照合し、
+  決定内容・却下案・影響範囲とも一致を確認した。
+- 次はmc-remote-stack側の実装：`render.py`の`_compose()`をstable/beta固定2択から
+  channel/variationの一般loopへ、`_runtime_config()`へ`connection_targets`出力を追加、
+  `_bridge_service()`をマルチdomain allowlist対応へ拡張する。新規operator input
+  `role="connection-targets"`も追加する。
+- 捕捉cleanup（既存VPSの`Bridge stable`/`Bridge beta`がケータリング型以前の残骸か確認・除却）は
+  knowledge側では追跡せず、この実装が固まった後のmc-remote-backstage専任セッションの作業として
+  持ち出す。
+
+## 2026-07-30 homepage / WordPress FPM設計骨子のknowledge着地待ち
+
+- [ ] `docs/homepage-deployment-design_ja.md` §8〜§10へ、WordPress FPM templateの設計骨子を
+  記録した。FPM variant、Caddy / FPMの同一document root、core read-only、`wp-content`
+  persistentかつFPMだけread-write、WordPress外static subtreeのGit管理、numeric UID/GID検証、
+  application rollbackとdata restoreの分離を確定範囲とする。
+- [ ] 一方、official imageのexact tag / entrypoint、同一core treeの共有実装、exact UID/GID、
+  secret projection、backup / restore、deployment分割はWordPress previewでの検証待ちである。
+  長寿命volumeへdocument root全体を置いてimage管理coreを隠す方式は採らない。
+- [ ] 確定搬送票は
+  `handoff-materials/2026-07-30-wordpress-fpm-homepage-boundary/materials/confirmed-handoff_ja.md`
+  に保存した。knowledge着地後に照合し、`[→DEC <ID>]`へ更新してhandoff materialをcleanupする。
+
 ## 2026-07-28 dev/alpha/実験環境の物理host分離とadmin access方針
 
 - `dev` / `alpha` channelを別物理hostへ分離する運用へ移行する。従来は単一ラップトップが
