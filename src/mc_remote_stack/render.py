@@ -282,7 +282,12 @@ def _oci_image(lock: dict[str, Any], role: str, *, adapter: str) -> tuple[dict[s
     return artifact, f"{artifact['locator']}:{artifact['version']}@{artifact['digest']}"
 
 
-def _compose_v1(lock: dict[str, Any]) -> tuple[dict[str, Any], str]:
+def _compose_v1(
+    lock: dict[str, Any],
+    *,
+    credential_storage: bool = False,
+) -> tuple[dict[str, Any], str]:
+    adapter = "compose@5" if credential_storage else "compose@1"
     runtime_component = _component_for_role(lock, "minecraft-runtime")
     paper_component = _component_for_role(lock, "paper-server")
     plugin_component = _component_for_role(lock, "mcremote-plugin")
@@ -294,20 +299,20 @@ def _compose_v1(lock: dict[str, Any]) -> tuple[dict[str, Any], str]:
         _render_fail(
             "unsupported_artifact_kind",
             f"artifacts.{runtime_artifact['id']}",
-            "compose@1 requires an OCI minecraft-runtime artifact",
+            f"{adapter} requires an OCI minecraft-runtime artifact",
         )
     if not OCI_TAG.fullmatch(runtime_artifact["version"]):
         _render_fail(
             "render_plan_invalid",
             f"artifacts.{runtime_artifact['id']}.version",
-            "compose@1 requires an explicit OCI tag-compatible version",
+            f"{adapter} requires an explicit OCI tag-compatible version",
         )
     minecraft_version = paper_component.get("minecraft_version")
     if not isinstance(minecraft_version, str) or not minecraft_version:
         _render_fail(
             "render_plan_invalid",
             "components.paper-server.minecraft_version",
-            "compose@1 requires an explicit Minecraft target version",
+            f"{adapter} requires an explicit Minecraft target version",
         )
 
     artifact_store = Path(lock["runtime"]["artifact_store"])
@@ -319,30 +324,38 @@ def _compose_v1(lock: dict[str, Any]) -> tuple[dict[str, Any], str]:
         _render_fail(
             "render_plan_invalid",
             "deployment.name",
-            "compose@1 deployment name must be a Compose-compatible token",
+            f"{adapter} deployment name must be a Compose-compatible token",
         )
     services = lock["render_plan"]["services"]
     if services != [{"id": "minecraft", "role": "minecraft"}]:
         _render_fail(
             "render_plan_invalid",
             "render_plan.services",
-            "compose@1 requires exactly the minecraft service declared by the selected profile",
+            f"{adapter} requires exactly the minecraft service declared by the selected profile",
         )
     service_id = services[0]["id"]
     volume_assignments = {assignment["role"]: assignment["identity"] for assignment in lock["runtime"]["volumes"]}
     volume_roles = lock["render_plan"]["volume_roles"]
-    if len(volume_roles) != 1 or volume_roles[0] != {"id": "minecraft-data", "kind": "world"}:
+    expected_volume_roles = [{"id": "minecraft-data", "kind": "world"}]
+    if credential_storage:
+        expected_volume_roles.extend(
+            [
+                {"id": "credential-store", "kind": "runtime-data"},
+                {"id": "credential-revocations", "kind": "security-state"},
+            ]
+        )
+    if volume_roles != expected_volume_roles:
         _render_fail(
             "render_plan_invalid",
             "render_plan.volume_roles",
-            "compose@1 requires exactly the minecraft-data world volume role",
+            f"{adapter} requires its exact declared volume roles",
         )
-    volume_identity = volume_assignments.get("minecraft-data")
-    if not volume_identity:
+    expected_volume_ids = {role["id"] for role in expected_volume_roles}
+    if set(volume_assignments) != expected_volume_ids:
         _render_fail(
             "render_plan_invalid",
             "runtime.volumes",
-            "compose@1 requires a minecraft-data volume assignment",
+            f"{adapter} requires exactly one assignment for every declared volume role",
         )
     world_identity = lock["world"]["identity"]
     network = lock["network"]
@@ -350,6 +363,51 @@ def _compose_v1(lock: dict[str, Any]) -> tuple[dict[str, Any], str]:
     motd = _locked_minecraft_motd(lock)
 
     image = f"{runtime_artifact['locator']}:{runtime_artifact['version']}@{runtime_artifact['digest']}"
+    minecraft_volumes = [
+        {
+            "type": "volume",
+            "source": "minecraft-data",
+            "target": "/data",
+        }
+    ]
+    if credential_storage:
+        minecraft_volumes.extend(
+            [
+                {
+                    "type": "volume",
+                    "source": "credential-store",
+                    "target": "/mcremote/credential-store",
+                },
+                {
+                    "type": "volume",
+                    "source": "credential-revocations",
+                    "target": "/mcremote/credential-revocations",
+                },
+            ]
+        )
+    minecraft_volumes.extend(
+        [
+            {
+                "type": "bind",
+                "source": f"./{service_id}",
+                "target": "/config",
+                "read_only": True,
+            },
+            {
+                "type": "bind",
+                "source": str(paper_path),
+                "target": f"/artifacts/{paper_filename}",
+                "read_only": True,
+            },
+            {
+                "type": "bind",
+                "source": str(plugin_path),
+                "target": f"/plugins/{plugin_filename}",
+                "read_only": True,
+            },
+        ]
+    )
+
     compose = {
         "name": deployment_name,
         "services": {
@@ -376,31 +434,7 @@ def _compose_v1(lock: dict[str, Any]) -> tuple[dict[str, Any], str]:
                     f"{network['bind_address']}:{network['java_port']}:25565/tcp",
                     f"{network['bind_address']}:{network['mcremote_port']}:25575/tcp",
                 ],
-                "volumes": [
-                    {
-                        "type": "volume",
-                        "source": "minecraft-data",
-                        "target": "/data",
-                    },
-                    {
-                        "type": "bind",
-                        "source": f"./{service_id}",
-                        "target": "/config",
-                        "read_only": True,
-                    },
-                    {
-                        "type": "bind",
-                        "source": str(paper_path),
-                        "target": f"/artifacts/{paper_filename}",
-                        "read_only": True,
-                    },
-                    {
-                        "type": "bind",
-                        "source": str(plugin_path),
-                        "target": f"/plugins/{plugin_filename}",
-                        "read_only": True,
-                    },
-                ],
+                "volumes": minecraft_volumes,
                 "labels": {
                     "io.mc-remote.deployment": deployment_name,
                     "io.mc-remote.environment": lock["environment"]["identity"],
@@ -412,10 +446,8 @@ def _compose_v1(lock: dict[str, Any]) -> tuple[dict[str, Any], str]:
             }
         },
         "volumes": {
-            "minecraft-data": {
-                "name": volume_identity,
-                "external": True,
-            }
+            role: {"name": identity, "external": True}
+            for role, identity in volume_assignments.items()
         },
     }
     property_values = [
@@ -431,10 +463,37 @@ def _compose_v1(lock: dict[str, Any]) -> tuple[dict[str, Any], str]:
             ("server-port", "25565"),
         ]
     )
-    properties = "# Generated by mcrctl compose@1. Do not edit.\n" + "".join(
+    properties = f"# Generated by mcrctl {adapter}. Do not edit.\n" + "".join(
         f"{key}={value}\n" for key, value in property_values
     )
     return compose, properties
+
+
+def _compose_v5(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str]]:
+    compose, properties = _compose_v1(lock, credential_storage=True)
+    minecraft_version = _component_for_role(lock, "paper-server")["minecraft_version"]
+    credential_config = f'''# Generated by mcrctl compose@5. Do not edit.
+api_port: 25575
+luckperm_permissions:
+  online: "mcr.online"
+  offline: "mcr.offline"
+  build.range: "mcr.build.range"
+default_build_range: 1000
+supported_mc_versions:
+  - "{minecraft_version}"
+auth:
+  enforcement: true
+  pair_code_ttl_seconds: 120
+  session_token_ttl_seconds: 7200
+  max_sessions_per_uuid: 16
+  credential_store_path: "/mcremote/credential-store/snapshot.json"
+  revocation_authority_path: "/mcremote/credential-revocations"
+  max_long_lived_credentials_per_uuid: 16
+'''
+    return compose, {
+        "minecraft/server.properties": properties,
+        "minecraft/plugins/McRemote/config.yml": credential_config,
+    }
 
 
 def _compose_v2(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str]]:
@@ -886,6 +945,43 @@ def _stage_compose_v4(lock: dict[str, Any], staging: Path) -> tuple[str, ...]:
     return rendered_paths
 
 
+def _stage_compose_v5(lock: dict[str, Any], staging: Path) -> tuple[str, ...]:
+    compose, rendered_files = _compose_v5(lock)
+    _write_synced(
+        staging / "compose.yaml",
+        yaml.safe_dump(compose, sort_keys=False, allow_unicode=True).encode("utf-8"),
+    )
+    for relative, content in rendered_files.items():
+        _write_synced(staging / PurePosixPath(relative), content.encode("utf-8"))
+    rendered_paths = ("compose.yaml", *rendered_files)
+    manifest = {
+        "schema_version": 1,
+        "adapter": "compose",
+        "adapter_revision": "5",
+        "lock_identity": lock["lock_identity"],
+        "render_plan_sha256": lock["render_plan"]["semantic_sha256"],
+        "files": [
+            {
+                "path": relative,
+                "sha256": _sha256_file(staging / PurePosixPath(relative)),
+            }
+            for relative in rendered_paths
+        ],
+    }
+    _write_synced(
+        staging / "render-manifest.json",
+        (json.dumps(manifest, ensure_ascii=False, indent=2) + "\n").encode("utf-8"),
+    )
+    for directory in (
+        staging / "minecraft" / "plugins" / "McRemote",
+        staging / "minecraft" / "plugins",
+        staging / "minecraft",
+        staging,
+    ):
+        _fsync_directory(directory)
+    return rendered_paths
+
+
 def _stage_current(lock: dict[str, Any], staging: Path) -> tuple[str, ...]:
     revision = lock["render_plan"]["adapter_revision"]
     if revision == "1":
@@ -896,6 +992,8 @@ def _stage_current(lock: dict[str, Any], staging: Path) -> tuple[str, ...]:
         return _stage_compose_v3(lock, staging)
     if revision == "4":
         return _stage_compose_v4(lock, staging)
+    if revision == "5":
+        return _stage_compose_v5(lock, staging)
     _render_fail("unsupported_renderer", "render_plan", f"unsupported renderer: compose@{revision}")
 
 
@@ -941,7 +1039,7 @@ def _load_managed_manifest(output: Path) -> dict[str, Any] | None:
         }
         or manifest.get("schema_version") != 1
         or manifest.get("adapter") != "compose"
-        or manifest.get("adapter_revision") not in {"1", "2", "3", "4"}
+        or manifest.get("adapter_revision") not in {"1", "2", "3", "4", "5"}
         or not isinstance(manifest.get("files"), list)
     ):
         _render_fail("render_output_tampered", manifest_path, "managed render manifest shape is invalid")
@@ -1054,7 +1152,7 @@ def _load_current_toml_render_lock(
     lock = load_lock(project_root, data_root=data_root)
     adapter = lock["render_plan"]["adapter"]
     adapter_revision = lock["render_plan"]["adapter_revision"]
-    if adapter != "compose" or adapter_revision not in {"1", "2", "3", "4"}:
+    if adapter != "compose" or adapter_revision not in {"1", "2", "3", "4", "5"}:
         _render_fail(
             "unsupported_renderer",
             "render_plan",

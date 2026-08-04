@@ -112,6 +112,20 @@ def _prepared_alpha_project(tmp_path: Path) -> tuple[Path, Path, Path, dict]:
     return project, data_root, output, load_lock(project, data_root=data_root)
 
 
+def _prepared_credential_project(tmp_path: Path) -> tuple[Path, Path, Path, dict]:
+    project, data_root, _ = _render_fixture(
+        tmp_path,
+        deployment_name="home-alpha",
+        identity="home-alpha",
+        channel="alpha",
+        preset_revision="2",
+        profile_revision="3",
+    )
+    output = project / "generated"
+    render_toml_project(project, output, data_root=data_root)
+    return project, data_root, output, load_lock(project, data_root=data_root)
+
+
 def _prepared_public_project(tmp_path: Path) -> tuple[Path, Path, Path, dict]:
     project, data_root, _ = _render_fixture(
         tmp_path,
@@ -143,8 +157,30 @@ def test_public_vps_bootstrap_contract_is_supported(tmp_path: Path) -> None:
             allow_unverified=True,
             runner=runner,
         )
-
     assert runner.calls[0][0] == ("docker", "context", "inspect", "default")
+
+
+def test_credential_profile_rejects_old_plugin_preset_before_docker(
+    tmp_path: Path,
+) -> None:
+    project, data_root, output, lock = _prepared_credential_project(tmp_path)
+    runner = FakeDocker({})
+
+    with pytest.raises(ApplyContractError) as exc_info:
+        apply_toml_project(
+            project,
+            output,
+            expected_lock_identity=lock["lock_identity"],
+            docker_context="default",
+            data_root=data_root,
+            bootstrap=True,
+            confirmed=True,
+            allow_unverified=True,
+            runner=runner,
+        )
+
+    assert exc_info.value.reason == "bootstrap_contract_unsupported"
+    assert runner.calls == []
 
 
 def _compose_base(output: Path) -> tuple[str, ...]:

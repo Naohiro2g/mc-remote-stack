@@ -425,7 +425,7 @@
                 "$ref": "#/$defs/token"
               },
               "kind": {
-                "enum": ["world", "runtime-data", "backup", "cache"]
+                "enum": ["world", "runtime-data", "security-state", "backup", "cache"]
               }
             }
           }

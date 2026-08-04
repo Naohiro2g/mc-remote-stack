@@ -16,7 +16,7 @@ from mc_remote_stack.restore import (
     plan_world_restore,
 )
 
-from .test_toml_apply import _prepared_project
+from .test_toml_apply import _prepared_credential_project, _prepared_project
 
 
 def _world_archive(path: Path, *, unsafe: bool = False) -> str:
@@ -25,7 +25,10 @@ def _world_archive(path: Path, *, unsafe: bool = False) -> str:
         archive.writestr("world/region/r.0.0.mca", b"region")
         archive.writestr("world_nether/level.dat", b"nether")
         archive.writestr("world_the_end/level.dat", b"end")
-        archive.writestr("plugins/McRemote/config.yml", b"credential-like data")
+        archive.writestr(
+            "plugins/McRemote/credential-store.fixture",
+            b"token-hash\nrevoke-tombstone\n",
+        )
         if unsafe:
             archive.writestr("../escape", b"unsafe")
     return hashlib.sha256(path.read_bytes()).hexdigest()
@@ -82,6 +85,29 @@ def test_world_restore_plan_is_bound_to_lock_archive_and_world_mapping(
         ("world_the_end", "home-beta-world_the_end"),
     )
     assert result.rollback_name.startswith(".mcrctl-world-restore-rollback-")
+
+
+def test_credential_profile_restore_targets_only_world_volume(
+    tmp_path: Path,
+) -> None:
+    project, data_root, output, lock = _prepared_credential_project(tmp_path)
+    archive = tmp_path / "backup.zip"
+    archive_sha256 = _world_archive(archive)
+
+    result = plan_world_restore(
+        project,
+        output,
+        archive,
+        source_world="world",
+        expected_archive_sha256=archive_sha256,
+        expected_lock_identity=lock["lock_identity"],
+        data_root=data_root,
+    )
+
+    assert result.volume == "home-alpha-minecraft-data"
+    assert result.volume != "home-alpha-credential-store"
+    assert result.volume != "home-alpha-credential-revocations"
+    assert "plugins" not in json.dumps(result.world_mapping)
 
 
 class RestoreDocker:
@@ -208,6 +234,18 @@ def test_world_restore_apply_stops_cutover_starts_and_doctors(
     assert any(" stop --timeout 120 minecraft" in command for command in commands)
     assert any("cutover" in command for command in commands)
     assert any(" up --detach --wait" in command for command in commands)
+
+    prepare_call = next(call for call in runner.calls if "prepare" in call)
+    prepare_phase = prepare_call.index("prepare")
+    assert prepare_call[prepare_phase + 2 :] == (
+        "world",
+        "world_nether",
+        "world_the_end",
+    )
+    assert not any(
+        argument.startswith("plugins")
+        for argument in prepare_call[prepare_phase + 2 :]
+    )
 
 
 def test_world_restore_apply_requires_explicit_confirmation(tmp_path: Path) -> None:

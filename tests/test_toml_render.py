@@ -145,6 +145,15 @@ def _render_fixture(
     (digest_store / PAPER_SHA256).write_bytes(PAPER_BYTES)
     (digest_store / PLUGIN_SHA256).write_bytes(PLUGIN_BYTES)
 
+    runtime_volumes = {"minecraft-data": f"{identity}-minecraft-data"}
+    if profile_name == "home-server" and profile_revision == "3":
+        runtime_volumes.update(
+            {
+                "credential-store": f"{identity}-credential-store",
+                "credential-revocations": f"{identity}-credential-revocations",
+            }
+        )
+
     project = init_toml_project(
         tmp_path / identity,
         deployment_name=deployment_name,
@@ -155,7 +164,7 @@ def _render_fixture(
         purpose="integration",
         preset=f"mcremote-paper@{preset_revision}",
         artifact_store=str(artifact_store),
-        runtime_volumes={"minecraft-data": f"{identity}-minecraft-data"},
+        runtime_volumes=runtime_volumes,
         world_identity=f"{identity}-world",
         bind_address=bind_address,
         java_port=25565,
@@ -264,6 +273,70 @@ def test_toml_compose_renderer_uses_only_locked_artifacts_and_instance_contract(
     assert "online-mode=true\n" in properties
     assert "server-port=25565\n" in properties
     assert "level-name=home-beta-world\n" in properties
+
+
+def test_credential_storage_renderer_mounts_security_state_outside_data(
+    tmp_path: Path,
+) -> None:
+    project, data_root, _ = _render_fixture(
+        tmp_path,
+        profile_revision="3",
+    )
+    output = project / "generated"
+
+    result = render_toml_project(project, output, data_root=data_root)
+
+    assert result.status == "created"
+    compose = yaml.safe_load((output / "compose.yaml").read_text(encoding="utf-8"))
+    minecraft = compose["services"]["minecraft"]
+    credential_mounts = [
+        mount
+        for mount in minecraft["volumes"]
+        if mount.get("source") in {"credential-store", "credential-revocations"}
+    ]
+    assert credential_mounts == [
+        {
+            "type": "volume",
+            "source": "credential-store",
+            "target": "/mcremote/credential-store",
+        },
+        {
+            "type": "volume",
+            "source": "credential-revocations",
+            "target": "/mcremote/credential-revocations",
+        },
+    ]
+    assert all(not mount["target"].startswith("/data") for mount in credential_mounts)
+    assert compose["volumes"] == {
+        "minecraft-data": {"name": "home-beta-minecraft-data", "external": True},
+        "credential-store": {
+            "name": "home-beta-credential-store",
+            "external": True,
+        },
+        "credential-revocations": {
+            "name": "home-beta-credential-revocations",
+            "external": True,
+        },
+    }
+    lock = load_lock(project, data_root=data_root)
+    assert lock["render_plan"]["volume_roles"][-1] == {
+        "id": "credential-revocations",
+        "kind": "security-state",
+    }
+
+    config = (output / "minecraft" / "plugins" / "McRemote" / "config.yml").read_text(
+        encoding="utf-8"
+    )
+    assert "auth:\n  enforcement: true\n" in config
+    assert 'credential_store_path: "/mcremote/credential-store/snapshot.json"\n' in config
+    assert 'revocation_authority_path: "/mcremote/credential-revocations"\n' in config
+    manifest = json.loads((output / "render-manifest.json").read_text(encoding="utf-8"))
+    assert manifest["adapter_revision"] == "5"
+    assert [entry["path"] for entry in manifest["files"]] == [
+        "compose.yaml",
+        "minecraft/server.properties",
+        "minecraft/plugins/McRemote/config.yml",
+    ]
 
 
 def test_toml_render_manifest_is_deterministic_and_second_render_is_noop(tmp_path: Path) -> None:

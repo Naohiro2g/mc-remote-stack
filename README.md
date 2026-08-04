@@ -310,6 +310,27 @@ operator completes validation. Apply also rejects a container started with addit
 Compose files because restarting it from the canonical render could silently remove
 services, mounts, or plugins supplied by an override.
 
+This is a write-set contract for the repository-managed recovery commands. `world
+restore` writes only the selected world roots in the managed Minecraft data volume;
+`artifact import-archive` writes only lock-named JAR bytes to the content-addressed
+artifact store. Neither command writes `plugins/McRemote/`. Manual or temporary plugin
+data recovery is a separate operation and is not covered by the world-restore contract.
+
+The current `@server` whole-server archive includes plugin data under `/data` and is
+security-sensitive runtime state. The transfer adapter sends it off-host only as
+age-encrypted ciphertext; keep plaintext retention, recipient access, and the age
+identity under explicit operator control. Archive inclusion does not make plugin data
+part of the world-restore contract.
+
+The staged `home-server@3` / `compose@5` profile for long-lived credentials mounts the
+credential snapshot and revocation authority in independent volumes outside `/data`.
+This excludes both from world restore and an archive limited to `/data`. The profile,
+renderer, mount-topology checks, and deterministic restore tests are implemented, but the exact
+b3 preset, machine-readable plugin health, bootstrap transaction, and cross-repository
+live rollback evidence are not. Doctor currently fails closed after checking the mounts
+because credential health is unsupported. Live apply and public-default gates therefore
+remain closed; do not operate this profile with the current b2 preset.
+
 Classify explicit runtime dependency downloads and update checks from a startup log
 without reproducing raw log lines or URL paths:
 

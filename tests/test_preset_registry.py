@@ -660,6 +660,23 @@ def test_bundled_home_profile_and_preset_are_exact_and_catalogued() -> None:
     verify_preset_catalog()
 
 
+def test_bundled_credential_profile_declares_separate_backend_roles() -> None:
+    profile = load_profile("home-server@3")
+
+    assert profile.data["renderer"] == {"name": "compose", "revision": "5"}
+    assert profile.data["volume_roles"] == [
+        {"id": "minecraft-data", "kind": "world"},
+        {"id": "credential-store", "kind": "runtime-data"},
+        {"id": "credential-revocations", "kind": "security-state"},
+    ]
+    assert "credential-rollback-separated" in profile.data["capabilities"][
+        "provided"
+    ]
+    assert "credential-authority-write-set-separated" in profile.data["policy"][
+        "required_security_controls"
+    ]
+
+
 def test_bundled_alpha_preset_is_immutable_unverified_and_catalogued() -> None:
     policy = load_catalog_policy()
     catalog = load_preset_catalog()

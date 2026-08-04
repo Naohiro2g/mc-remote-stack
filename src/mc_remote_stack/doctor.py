@@ -198,6 +198,63 @@ def _validate_volume(record: dict[str, Any], volume: str, lock: dict[str, Any]) 
         )
 
 
+def _validate_credential_mounts(record: dict[str, Any], lock: dict[str, Any]) -> None:
+    if lock["render_plan"]["adapter_revision"] != "5":
+        return
+    assignments = {
+        assignment["role"]: assignment["identity"]
+        for assignment in lock["runtime"]["volumes"]
+    }
+    expected = {
+        "/data": assignments.get("minecraft-data"),
+        "/mcremote/credential-store": assignments.get("credential-store"),
+        "/mcremote/credential-revocations": assignments.get(
+            "credential-revocations"
+        ),
+    }
+    mounts = record.get("Mounts")
+    if not isinstance(mounts, list) or any(value is None for value in expected.values()):
+        _fail(
+            "doctor_credential_mount_mismatch",
+            "runtime.mounts",
+            "credential profile requires exact world, snapshot, and authority volume mounts",
+        )
+    actual: dict[str, str] = {}
+    for mount in mounts:
+        if not isinstance(mount, dict) or mount.get("Type") != "volume":
+            continue
+        destination = mount.get("Destination")
+        name = mount.get("Name")
+        if (
+            not isinstance(destination, str)
+            or not isinstance(name, str)
+            or mount.get("RW") is not True
+            or destination in actual
+        ):
+            _fail(
+                "doctor_credential_mount_mismatch",
+                "runtime.mounts",
+                "managed volume mounts must be unique writable paths",
+            )
+        actual[destination] = name
+    if actual != expected:
+        _fail(
+            "doctor_credential_mount_mismatch",
+            "runtime.mounts",
+            "live world, credential snapshot, and revocation authority mounts do not match the lock",
+        )
+    for destination in (
+        "/mcremote/credential-store",
+        "/mcremote/credential-revocations",
+    ):
+        if destination == "/data" or destination.startswith("/data/"):
+            _fail(
+                "doctor_credential_mount_mismatch",
+                destination,
+                "credential state must remain outside the Minecraft data write set",
+            )
+
+
 def _validate_container(
     record: dict[str, Any],
     lock: dict[str, Any],
@@ -228,6 +285,8 @@ def _validate_container(
             lock["deployment"]["name"],
             "runtime container service is not declared by the current lock",
         )
+    if service == "minecraft":
+        _validate_credential_mounts(record, lock)
 
     state = record.get("State")
     if not isinstance(state, dict) or state.get("Running") is not True:
@@ -607,6 +666,14 @@ def doctor_toml_project(
             path=volume,
         )
         _validate_volume(volume_record, volume, lock)
+
+    if lock["render_plan"]["adapter_revision"] == "5":
+        _fail(
+            "doctor_credential_health_unsupported",
+            "credential.health",
+            "credential profile mount topology is valid, but the plugin does not "
+            "yet expose the required machine-readable domain health projection",
+        )
 
     network = lock["network"]
     hello = hello_probe(

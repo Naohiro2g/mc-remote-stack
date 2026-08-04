@@ -2,6 +2,64 @@
 
 確定前または別sliceへ送る作業だけを置く。private host名、IP、credential、account情報は書かない。
 
+## 2026-08-02 long-lived credential rollback resistance [→DEC 2026-08-02-01]
+
+- [x] knowledge commit `9dd99f3aecccf4035cdfd5549d1e70f9f25d3b2d`の`2026-08-02-01`、
+  `11-plugin/platform-design_ja.md` §9、`10-protocol/versioning-design_ja.md` §10.11.2への着地を
+  元搬送票・stack実装と照合した。stack側の設計投影は
+  [`docs/credential-rollback-resistance-design_ja.md`](docs/credential-rollback-resistance-design_ja.md)。
+- [x] 個別revokeと衝突するglobal epochではなく、snapshotと別rollback domainのcreate-only
+  revocation authorityを採る。snapshot rollback時もauthorityのtoken hash / credential ID
+  tombstoneを認証・list・limitへoverlayする。authority不明のhost全損は新domain＋全失効・再pair。
+- [x] revokeの線形化点はtombstone file `fsync`、finalへの非上書きpublish、authority directory
+  `fsync`の完了とする。それ以後のsnapshot projection更新失敗はrevoke成功を覆さず、health degraded
+  ＋reconcileとする。revoke commandで`credential_store_unavailable`を返すのはauthority durable
+  commit前の失敗に限る（起動・read時にstateを検証できない場合にも同reasonを使用）。
+- [x] 空snapshotでもdomainを検証できるsnapshot headerとauthority manifestを持つ。file backendは
+  server生成UUIDだけをfinal名に使い、同一directoryの`CREATE_NEW` temporary、非上書きpublish、
+  symlink拒否、既存finalの同一性検証、破損・ID/hash矛盾のfail-closeを契約にする。
+- [x] plugin側は`CredentialStore`に加えて`RevocationAuthority`境界、domain mismatch fail-close、
+  durable tombstone、既存session終了を実装した。参照commitは`ecf967f6163bc8182ff399f685a6c9dc3c6d204d`。
+  clean exportからのtest / buildはPASSし、b3 JAR SHA-256は
+  `76ed56ae6ad60ae51bd0768c445c63c9a6fc979939b127ae5bcf533f40b493be`。remote branch
+  `feature/long-lived-credential`はclose票commit `238fc27902555604bfe3cd5b0eec802b14eeb6e5`まで
+  push済み。Stack presetへ固定できるrelease artifact originは未作成。
+- [x] stack側は`home-server@3` / `compose@5`で二backend roleと保存resourceを表現する。既定構成は
+  `credential-store`と`credential-revocations`を`/data`外の別volumeへ置くことを推奨するが、物理
+  二volumeをplugin起動条件にしない。alpha統合試験でrevoke拒否を強制するためprofile 3だけ
+  `auth.enforcement=true`とする。Authorityのvolume kindは`security-state`として通常runtime dataから
+  区別し、現行`home-server@2` / `compose@1`へ破壊的追加しない。
+- [ ] stackはprofileに従うresource作成・mountと明示bootstrap / resetの承認・transactionだけを担い、
+  domainやplugin内部JSONを生成しない。pluginが形式の正本となる。二backend初期化の途中状態は通常
+  起動で自動修復せず、双方空または同一bootstrap transactionと検証できる場合だけ再試行する。
+- [ ] McRemote実装とstack profileを接続する前に、機械可読で非秘密なcredential health projectionと
+  互換versionを両repoで固定する。現commitの`/mcremote credential status`とstartup logは人間向けで
+  Stack doctor / bootstrap transactionの安定契約にはできない。projectionはplugin自身が検証した
+  `UNINITIALIZED` / `HEALTHY` / `DEGRADED` / `UNHEALTHY`、snapshot / authority存在、domain一致を返し、
+  domain ID、credential ID、token hash、UUIDは返さない。projection取得不能はStack側のunavailable
+  errorとし、stackはplugin内部JSONを読み書きしない。
+- [x] doctorはlockどおりの三volume identity、writable mount、`/data`外のexact pathをlive containerで
+  検査する。domain / store health判定は前項のprojection待ちであり、mount healthyだけでcredential
+  healthyとは報告しない。
+- [ ] bundled b3 presetを新revisionで追加し、`home-server@3`とのapply contractを開く。現行
+  `mcremote-paper@2`は旧b2 JARなので組み合わせを拒否する。
+- [ ] exact plugin artifactとstack profileを固定したcross-repo `live-auto`で、準備済みA / BのA revoke→
+  snapshotだけrollback→再起動を行い、A拒否・B成功・list / limit / current除外、authority継続、
+  backup非包含、doctor healthyを一つのtransactionとして検証する。plugin単体のcrash / I/O fault試験を
+  このlive testの代用にせず、逆にstackからfile backend内部faultを注入しない。
+- [ ] 公開gateを閉じる際は、`/mcremote pair`を含む実際の`mcrl_`発行とdevice別revoke / logoutを
+  `live-human`で一度確認し、token・pair code・UUIDをredactした正式evidenceをknowledgeへ搬送する。
+- [ ] plugin実装→stack profile / renderer→`2026-08-02-03`のlive rollback gateの順で閉じる。
+  authority自体をrollbackする脅威には外部単調状態が必要であり、offline
+  cateringのhost全損ではcredential継続を主張しない。VPSで継続性を主張する場合はrevoke成功前の
+  off-host同期durable commitを要求し、remote freshnessを証明できない復旧は全失効へ倒す。
+- [x] stack / McRemote双方の着地確認OK後、2026-08-03に一時handoff materialをcleanupした。
+- [ ] 2026-08-04 session close時点で、knowledge main
+  `16e888376114b73609c75b02ca028fc414545a04`の契約とは一致するが、
+  `11-plugin/platform-design_ja.md` §9.9と`2026-08-02-03`の実装状況は、まだplugin本体・二backend
+  profile未実装という古い記載である。両source repoのcommit / pushとcross-repo検証後に進捗を更新する。
+  `2026-08-02-08`の`mcrs_`再起動継続は別実装sliceとして残し、long-lived完了へ混ぜない。
+
 ## 2026-07-31 Bridge共有単位／connection_targets schema、knowledge着地確認OK [→DEC 2026-07-30-03]
 
 - Bridge共有はクラスタ単位（同一セッションでの行き来が要る場合だけ共有）、`connection_targets`は

@@ -313,6 +313,24 @@ rollback directoryへ保持する。追加Compose fileで起動したcontainer�
 canonical renderだけで再起動して、overrideが供給するservice、mount、pluginを暗黙に外すことを
 防ぐためである。
 
+これは本リポジトリが管理するrecovery commandのwrite set契約である。`world restore`がmanaged
+Minecraft data volumeへ書き込むのは選択したworld rootだけであり、`artifact import-archive`が
+書き込むのはcontent-addressed artifact store内のlock指定JAR bytesだけである。どちらも
+`plugins/McRemote/`へ書き込まない。手動または一時的なplugin data recoveryは別操作であり、
+world restore契約には含めない。
+
+現行の`@server` whole-server archiveは`/data`内のplugin dataを含むsecurity-sensitiveなruntime
+stateである。transfer adapterがoff-hostへ送るのはage暗号文だけとし、平文のretention、recipient
+access、age identityをoperatorが明示管理する。archiveに含まれることは、plugin dataがworld restore
+契約へ入ることを意味しない。
+
+long-lived credential向けの`home-server@3` / `compose@5`は、credential snapshotとrevocation
+authorityをそれぞれ`/data`外の独立volumeへmountする。これによりworld restoreと`/data`だけのarchive
+から両方を除外する。profile、render、mount topology検査、deterministic restore試験までは実装済みだが、
+exact b3 preset、pluginの機械可読health、bootstrap transaction、cross-repo live rollback evidenceは
+未完了である。現時点のdoctorはmount検査後にcredential health未対応としてfail closedする。このため
+live applyと公開既定化のgateは閉じたままであり、現行b2 presetと組み合わせて運用してはならない。
+
 起動logに明示されたruntime dependency downloadとupdate checkを、raw lineやURL pathを
 再出力せず分類するには、次を実行する。
 

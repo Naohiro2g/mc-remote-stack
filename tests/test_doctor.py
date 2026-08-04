@@ -14,6 +14,7 @@ from mc_remote_stack.doctor import (
 
 from .test_toml_apply import (
     FakeDocker,
+    _prepared_credential_project,
     _prepared_project,
     _prepared_public_project,
     _result,
@@ -42,11 +43,14 @@ def _managed_container(
     *,
     health: str = "healthy",
 ) -> dict:
-    return {
+    deployment = lock["deployment"]["name"]
+    environment = lock["environment"]["identity"]
+    world = lock["world"]["identity"]
+    record = {
         "Id": "container-current",
         "Config": {
             "Labels": {
-                "com.docker.compose.project": "home",
+                "com.docker.compose.project": deployment,
                 "com.docker.compose.service": "minecraft",
                 "com.docker.compose.project.config_files": str(
                     output.resolve() / "compose.yaml"
@@ -54,9 +58,9 @@ def _managed_container(
                 "com.docker.compose.project.working_dir": str(
                     output.resolve()
                 ),
-                "io.mc-remote.deployment": "home",
-                "io.mc-remote.environment": "home-beta",
-                "io.mc-remote.world": "home-beta-world",
+                "io.mc-remote.deployment": deployment,
+                "io.mc-remote.environment": environment,
+                "io.mc-remote.world": world,
                 "io.mc-remote.lock": lock["lock_identity"],
             }
         },
@@ -71,17 +75,43 @@ def _managed_container(
             }
         },
     }
+    if lock["render_plan"]["adapter_revision"] == "5":
+        identities = {
+            assignment["role"]: assignment["identity"]
+            for assignment in lock["runtime"]["volumes"]
+        }
+        record["Mounts"] = [
+            {
+                "Type": "volume",
+                "Name": identities["minecraft-data"],
+                "Destination": "/data",
+                "RW": True,
+            },
+            {
+                "Type": "volume",
+                "Name": identities["credential-store"],
+                "Destination": "/mcremote/credential-store",
+                "RW": True,
+            },
+            {
+                "Type": "volume",
+                "Name": identities["credential-revocations"],
+                "Destination": "/mcremote/credential-revocations",
+                "RW": True,
+            },
+        ]
+    return record
 
 
-def _managed_volume(lock: dict) -> dict:
+def _managed_volume(lock: dict, name: str = "home-beta-minecraft-data") -> dict:
     return {
-        "Name": "home-beta-minecraft-data",
+        "Name": name,
         "Driver": "local",
         "Labels": {
             "io.mc-remote.owner": "mcrctl",
-            "io.mc-remote.deployment": "home",
-            "io.mc-remote.environment": "home-beta",
-            "io.mc-remote.world": "home-beta-world",
+            "io.mc-remote.deployment": lock["deployment"]["name"],
+            "io.mc-remote.environment": lock["environment"]["identity"],
+            "io.mc-remote.world": lock["world"]["identity"],
             "io.mc-remote.created-by-lock": lock["lock_identity"],
         },
     }
@@ -89,7 +119,8 @@ def _managed_volume(lock: dict) -> dict:
 
 def _doctor_responses(output: Path, lock: dict, *, health: str = "healthy") -> dict:
     base = _compose_base(output)
-    return {
+    deployment = lock["deployment"]["name"]
+    responses = {
         ("docker", "context", "inspect", "default"): [
             _result(
                 ("docker",),
@@ -111,7 +142,7 @@ def _doctor_responses(output: Path, lock: dict, *, health: str = "healthy") -> d
             "--all",
             "--quiet",
             "--filter",
-            "label=com.docker.compose.project=home",
+            f"label=com.docker.compose.project={deployment}",
         ): [_result(("docker",), stdout="container-current\n")],
         _docker("inspect", "container-current"): [
             _result(
@@ -122,13 +153,16 @@ def _doctor_responses(output: Path, lock: dict, *, health: str = "healthy") -> d
                 + "\n",
             )
         ],
-        _docker("volume", "inspect", "home-beta-minecraft-data"): [
+    }
+    for assignment in lock["runtime"]["volumes"]:
+        identity = assignment["identity"]
+        responses[_docker("volume", "inspect", identity)] = [
             _result(
                 ("docker",),
-                stdout=json.dumps([_managed_volume(lock)]) + "\n",
+                stdout=json.dumps([_managed_volume(lock, identity)]) + "\n",
             )
-        ],
-    }
+        ]
+    return responses
 
 
 def test_doctor_checks_current_render_runtime_and_protocol_without_mutation(
@@ -184,6 +218,62 @@ def test_doctor_checks_current_render_runtime_and_protocol_without_mutation(
     ]
     mutation_words = {"pull", "up", "down", "create", "rm", "start", "stop", "restart"}
     assert all(not mutation_words.intersection(command) for command, _ in runner.calls)
+
+
+def test_doctor_checks_mounts_then_requires_credential_health_projection(
+    tmp_path: Path,
+) -> None:
+    project, data_root, output, lock = _prepared_credential_project(tmp_path)
+    runner = FakeDocker(_doctor_responses(output, lock))
+
+    with pytest.raises(DoctorContractError) as exc_info:
+        doctor_toml_project(
+            project,
+            output,
+            docker_context="default",
+            data_root=data_root,
+            runner=runner,
+            hello_probe=lambda *_args: pytest.fail("hello probe must not run"),
+        )
+
+    assert exc_info.value.reason == "doctor_credential_health_unsupported"
+    inspected = {
+        command[-1]
+        for command, _timeout in runner.calls
+        if command[-3:-1] == ("volume", "inspect")
+    }
+    assert inspected == {
+        "home-alpha-minecraft-data",
+        "home-alpha-credential-store",
+        "home-alpha-credential-revocations",
+    }
+
+
+def test_doctor_rejects_credential_authority_mounted_under_data(tmp_path: Path) -> None:
+    project, data_root, output, lock = _prepared_credential_project(tmp_path)
+    responses = _doctor_responses(output, lock)
+    container = _managed_container(lock, output)
+    authority = next(
+        mount
+        for mount in container["Mounts"]
+        if mount["Name"] == "home-alpha-credential-revocations"
+    )
+    authority["Destination"] = "/data/plugins/McRemote/credential-revocations"
+    responses[_docker("inspect", "container-current")] = [
+        _result(("docker",), stdout=json.dumps([container]) + "\n")
+    ]
+
+    with pytest.raises(DoctorContractError) as exc_info:
+        doctor_toml_project(
+            project,
+            output,
+            docker_context="default",
+            data_root=data_root,
+            runner=FakeDocker(responses),
+            hello_probe=lambda *_args: pytest.fail("hello probe must not run"),
+        )
+
+    assert exc_info.value.reason == "doctor_credential_mount_mismatch"
 
 
 def test_doctor_reports_additional_compose_files_without_hiding_health(
