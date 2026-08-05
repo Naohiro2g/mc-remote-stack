@@ -7,13 +7,17 @@
 - [x] official public beta環境の修復は完了した（運用者確認）。これはb2環境の復旧完了であり、
   b3 release gateの合格やb3 artifactの確定を意味しない。
 - [ ] 次回はknowledgeの最新dev agent runtime protocolを取得後、同commitの
-  `00-hub/release-gate-notes_ja.md`とb3定義を読み、b3 release gate確認から再開する。
+  `00-hub/release-gate-notes_ja.md`、`10-protocol/versioning-design_ja.md` §10.11.2、b3定義を読み、
+  b3 release gate確認から再開する。
 - [ ] McRemote effective build range修正の21件PASSとbuild成功は、knowledge main
-  `3033e800dc3fb1e1b2739ef8203fedef28478ad3`の`00-hub/NOTES_ja.md`にローカル進捗として
+  `97921f0626b00e0719801b7695769df1fea243e3`の`00-hub/NOTES_ja.md`にローカル進捗として
   捕捉済み。ただし未コミットかつ既存catalog hardening変更を含む混在JARなので、release gateの
   commit／artifact証跡には使わない。
 - [ ] 残る順序は、McRemoteで変更を分離したcommit・push・immutable artifactを作成し、Stackが
   そのartifactを新preset revisionへexact-pinし、sanitized live-humanで再検証すること。
+- [x] credential checkpoint契約はknowledge `2026-08-06-02`へ着地確認OK。これはlong-lived
+  credential gateの別sliceであり、契約着地や未実装checkpointをb3 scope／release gateへ混ぜない。
+  checkpoint実装の未完了は直下の決定参照節で別途追跡する。
 
 ## 2026-08-06 credential health checkpoint [→DEC 2026-08-06-02]
 
