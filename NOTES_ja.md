@@ -2,6 +2,19 @@
 
 確定前または別sliceへ送る作業だけを置く。private host名、IP、credential、account情報は書かない。
 
+## 2026-08-06 session close — b3 release gate再開点
+
+- [x] official public beta環境の修復は完了した（運用者確認）。これはb2環境の復旧完了であり、
+  b3 release gateの合格やb3 artifactの確定を意味しない。
+- [ ] 次回はknowledgeの最新dev agent runtime protocolを取得後、同commitの
+  `00-hub/release-gate-notes_ja.md`とb3定義を読み、b3 release gate確認から再開する。
+- [ ] McRemote effective build range修正の21件PASSとbuild成功は、knowledge main
+  `3033e800dc3fb1e1b2739ef8203fedef28478ad3`の`00-hub/NOTES_ja.md`にローカル進捗として
+  捕捉済み。ただし未コミットかつ既存catalog hardening変更を含む混在JARなので、release gateの
+  commit／artifact証跡には使わない。
+- [ ] 残る順序は、McRemoteで変更を分離したcommit・push・immutable artifactを作成し、Stackが
+  そのartifactを新preset revisionへexact-pinし、sanitized live-humanで再検証すること。
+
 ## 2026-08-06 McRemote effective build range解決の修正設計 [→DEC 2026-08-06-01]
 
 - [x] official public betaのlive-human確認で、LuckPerms user effective metaにユーザー直設定500と
