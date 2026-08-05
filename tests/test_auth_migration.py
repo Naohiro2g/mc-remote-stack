@@ -48,6 +48,9 @@ class RecordingHost:
     def copy_volumes(self, plan) -> None:
         self.calls.append("copy-volumes")
 
+    def install_target_auth_config(self, plan) -> None:
+        self.calls.append("install-target-auth-config")
+
     def start_target(self, plan) -> None:
         self.calls.append("start-target")
         if self.fail_start_once:
@@ -533,7 +536,7 @@ def test_apply_failure_stays_stopped_and_same_transaction_resumes(
 
     assert exc_info.value.reason == "migration_target_start_failed"
     state = load_auth_migration_state(project)
-    assert state["phase"] == "volumes-copied"
+    assert state["phase"] == "target-auth-config-installed"
     assert state["last_error"] == {
         "reason": "migration_target_start_failed",
         "path": "docker.compose",
@@ -545,17 +548,19 @@ def test_apply_failure_stays_stopped_and_same_transaction_resumes(
         "create-target-volumes",
         "stop-source",
         "copy-volumes",
+        "install-target-auth-config",
         "start-target",
     ]
     assert host.calls.count("stop-source") == 1
     assert "start-source" not in host.calls
-    assert progress[:7] == [
+    assert progress[:8] == [
         "pull-target-images",
         "create-target-volumes",
         "stop-source-runtime",
         "publish-desired-state",
         "install-auth-config",
         "copy-volumes",
+        "install-target-auth-config",
         "start-target-and-wait timeout=300",
     ]
 
@@ -569,6 +574,7 @@ def test_apply_failure_stays_stopped_and_same_transaction_resumes(
     )
     assert host.calls.count("stop-source") == 1
     assert host.calls.count("copy-volumes") == 1
+    assert host.calls.count("install-target-auth-config") == 1
     assert host.calls.count("start-target") == 2
     assert host.calls[-1] == "verify-target"
     assert load_auth_migration_state(project)["phase"] == "complete"

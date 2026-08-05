@@ -56,6 +56,7 @@ PHASES = (
     "desired-published",
     "auth-config-installed",
     "volumes-copied",
+    "target-auth-config-installed",
     "complete",
 )
 PROFILE_TRANSITIONS = {
@@ -115,6 +116,8 @@ class AuthMigrationHost(Protocol):
     def stop_source(self, plan: AuthMigrationPlan, source_output: Path) -> None: ...
 
     def copy_volumes(self, plan: AuthMigrationPlan) -> None: ...
+
+    def install_target_auth_config(self, plan: AuthMigrationPlan) -> None: ...
 
     def start_target(self, plan: AuthMigrationPlan) -> None: ...
 
@@ -1104,6 +1107,73 @@ class _DockerMigrationHost:
         except ApplyContractError as exc:
             raise _translate_contract(exc, reason=exc.reason, path=exc.path) from exc
 
+    def install_target_auth_config(self, plan: AuthMigrationPlan) -> None:
+        source = self.active_output / "minecraft" / "plugins" / "McRemote" / "config.yml"
+        if source.is_symlink() or not source.is_file():
+            _fail(
+                "migration_auth_config_invalid",
+                source,
+                "target render does not contain the generated McRemote config",
+            )
+        targets = [
+            target
+            for role, _source, target in plan.volume_migrations
+            if role == "minecraft-data"
+        ]
+        if len(targets) != 1:
+            _fail(
+                "migration_auth_config_invalid",
+                "migration.target_volumes",
+                "target transaction requires exactly one minecraft-data volume",
+            )
+        image = self._copy_image()
+        try:
+            _run(
+                self.runner,
+                _compose_stack(
+                    self.active_output,
+                    self.docker_prefix,
+                    self.project_root,
+                    self.preserved_compose_files,
+                )
+                + ["stop", "--timeout", "120", "minecraft"],
+                timeout=180,
+                reason="migration_target_auth_config_stop_failed",
+                path="docker.compose.minecraft",
+            )
+            _run(
+                self.runner,
+                self.docker_prefix
+                + [
+                    "run",
+                    "--rm",
+                    "--network",
+                    "none",
+                    "--user",
+                    "0:0",
+                    "--entrypoint",
+                    "/bin/sh",
+                    "--mount",
+                    f"type=volume,src={targets[0]},dst=/target",
+                    "--mount",
+                    f"type=bind,src={source.resolve()},dst=/source/config.yml,readonly",
+                    image,
+                    "-eu",
+                    "-c",
+                    "mkdir -p /target/plugins/McRemote && "
+                    "cp /source/config.yml /target/plugins/McRemote/.config.yml.mcrctl && "
+                    "chown 1000:1000 /target/plugins/McRemote/.config.yml.mcrctl && "
+                    "chmod 0644 /target/plugins/McRemote/.config.yml.mcrctl && "
+                    "mv -f /target/plugins/McRemote/.config.yml.mcrctl "
+                    "/target/plugins/McRemote/config.yml && sync",
+                ],
+                timeout=180,
+                reason="migration_target_auth_config_install_failed",
+                path="minecraft-data/plugins/McRemote/config.yml",
+            )
+        except ApplyContractError as exc:
+            raise _translate_contract(exc, reason=exc.reason, path=exc.path) from exc
+
     def start_target(self, plan: AuthMigrationPlan) -> None:
         try:
             _run(
@@ -1764,6 +1834,10 @@ def _apply_auth_enforcement_migration_locked(
             actual_host.copy_volumes(plan)
             advance("volumes-copied")
         if state["phase"] == "volumes-copied":
+            progress("install-target-auth-config")
+            actual_host.install_target_auth_config(plan)
+            advance("target-auth-config-installed")
+        if state["phase"] == "target-auth-config-installed":
             progress(f"start-target-and-wait timeout={wait_timeout}")
             actual_host.start_target(plan)
             progress("verify-target-auth-enforced")
