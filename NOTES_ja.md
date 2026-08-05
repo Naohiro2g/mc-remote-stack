@@ -2,7 +2,7 @@
 
 確定前または別sliceへ送る作業だけを置く。private host名、IP、credential、account情報は書かない。
 
-## 2026-08-06 McRemote effective build range解決の修正設計
+## 2026-08-06 McRemote effective build range解決の修正設計 [→DEC 2026-08-06-01]
 
 - [x] official public betaのlive-human確認で、LuckPerms user effective metaにユーザー直設定500と
   primary group由来100があるとき、McRemote b2 helloが`permissions.buildRange: 100`を返すことを
@@ -10,15 +10,17 @@
 - [x] b2 release commit `4b75007330c58eddd4b06d67415d05958f661c7c`の
   `LuckPermsPermissionManager#getPlayerRange`が`User`をloadした後、primary groupの
   `Group#getCachedData()`だけを読むため、user direct metaを無視すると特定した。
-- [ ] McRemoteは既存QueryOptionsのまま`User`のeffective meta解決へ委譲し、primary group、user、
+- [x] 正式参照
+  `Naohiro2g/mc-remote-knowledge` / commit `1bf4d09ee755760d028675eb4a4baa1ec4a0a0cd` /
+  `00-hub/DECISIONS_ja.md` / `2026-08-06-01`を会話内で受領した確定搬送票と照合した。McRemoteは
+  既存QueryOptionsのまま`User`のeffective meta解決へ委譲し、primary group、user、
   継承group、context、weightの順序を独自実装しない。wire field、protocol 21.0.0、auth、pairing、
-  欠落・parse失敗時0、LuckPerms不在時fallbackは変更しない。
-- [ ] 確定搬送票は
-  `handoff-materials/2026-08-06-mcremote-effective-build-range/materials/confirmed-handoff_ja.md`
-  に保存した。実装担当は`Naohiro2g/McRemote`であり、Stackはplugin sourceを代理編集しない。
-  最初にknowledge SSOTへ設計着地し、McRemoteが着地内容を照合してからtest-first修正とimmutable
-  artifact作成へ進む。その後、Stackの新preset revisionへのexact-pinとsanitized live再検証を行う。
-  着地確認OK後に本handoffをcleanupする。
+  欠落・parse失敗時0、LuckPerms不在時fallbackを変更せず、負値、context再設計、fallback既定値を
+  本修正へ混ぜない。決定、維持事項、却下案、McRemote／Stackの担当分担は一致しており、
+  knowledge remote `main`への着地確認OK。
+- [ ] 実装担当`Naohiro2g/McRemote`は上記knowledge commitを照合後、test-first修正とimmutable
+  artifact作成へ進む。Stackはplugin sourceを代理編集せず、artifactを受領後に新preset revisionへ
+  exact-pinし、sanitized live-humanでeffective meta＝hello buildRange＝実build guardを再検証する。
 
 ## 2026-08-05 b2 auth enforcement deployment correction
 
