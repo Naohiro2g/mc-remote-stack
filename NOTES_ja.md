@@ -15,6 +15,29 @@
 - [ ] 残る順序は、McRemoteで変更を分離したcommit・push・immutable artifactを作成し、Stackが
   そのartifactを新preset revisionへexact-pinし、sanitized live-humanで再検証すること。
 
+## 2026-08-06 credential health projection consumer回答案（knowledge未着地）
+
+- [ ] heartbeat、定期更新、常駐pollingは追加しない。Stack doctorは明示実行時だけ、locked
+  Minecraft containerのMcRemoteへランダムな`checkpoint_id`付き再検証を要求する。McRemoteは
+  credential正本を変更せず検証し、固定projectionをatomic更新する。Stackは同じ`checkpoint_id`の
+  応答だけを受理する。起動時／health遷移時の受動projectionだけをrestore gateの根拠にはしない。
+- [ ] 最小transport案は、Stack CLI内部からcontainer-local console helper
+  `mc-send-to-console`でcheckpoint commandを投入し、
+  `/data/plugins/McRemote/credential-health.json`をsize制限付きで読む方式。RCON、wire、内部
+  snapshot／authority JSON解析は使わない。短時間のbounded retryは一回のdoctor実行内だけに限る。
+- [ ] schema v1案は`schema=mcremote.credential-health`、`schema_version=1`、`emitted_at`、
+  `checkpoint_id`、`health`、`reasons`、`credential_snapshot`、`revocation_authority`、
+  `domain_consistency`、`reconcile_pending`だけとし、上限16 KiB、UTF-8、regular-file／non-symlink、
+  unknown version／enum／矛盾した組合せをfail closedにする。古さは30秒窓でなく同一doctor runの
+  `checkpoint_id`一致を主判定とし、container `StartedAt`と`emitted_at`を補助検査にする。
+- [ ] bootstrap／resetはdoctorや通常起動から自動実行しない。新しい明示CLI transaction
+  `mcrctl credential bootstrap|reset plan/apply`がoperator確認後、locked UID／containerへplugin所有の
+  console commandを投入する。Stackはvolumeの空／mount境界とtransactionを管理するだけで、domain ID、
+  manifest、snapshot、tombstoneを生成・修復しない。同じtransaction IDの再試行だけを冪等化する。
+- [ ] McRemote／人間レビュー後、knowledgeへ横断契約として着地してから両repoをtest-first実装する。
+  passive fileだけで現在性を保証できない場合もheartbeatへ戻さず、次候補は同期的なcontainer-local
+  management endpointとする。
+
 ## 2026-08-06 McRemote effective build range解決の修正設計 [→DEC 2026-08-06-01]
 
 - [x] official public betaのlive-human確認で、LuckPerms user effective metaにユーザー直設定500と
