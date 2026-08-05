@@ -91,7 +91,7 @@ VPSでなければ十分に検証できないのは限定的です。
 
 短時間の別Minecraft instanceも、完全に別port・volume・worldであれば技術的には可能です。ただし事前にmemoryとportを確認し、現在のbetaと同時起動する価値がある場合だけにします。
 
-一方、現在のVPSで二つ目の完全な`vps-server@4`をそのまま起動するのは適しません。Caddyが80/443を使用するため衝突します。追加Compose overrideで無理に回避すると、再びcanonicalでない検証になります。
+一方、現在のVPSで二つ目の完全な`vps-server@5`をそのまま起動するのは適しません。Caddyが80/443を使用するため衝突します。追加Compose overrideで無理に回避すると、再びcanonicalでない検証になります。
 
 同一VPSで正式なpublic stagingを並行稼働させるなら、先に以下を設計する必要があります。
 
@@ -105,8 +105,8 @@ VPSでなければ十分に検証できないのは限定的です。
 
 ## 推奨する進め方
 
-1. ローカルでplugin compositionとupgrade transactionを実装
-2. ケータリングPCで破壊的bootstrap／upgrade／rollback／restoreを検証
+1. ローカルでplugin compositionとauth-enforcement transactionを実装
+2. ケータリングPCで破壊的bootstrap／migration failureからのrepair / resume／restoreを検証
 3. ホームサーバーの別lab projectで長期運転
 4. VPSでは現行betaを維持したままmigration planを準備
 5. 十分に固まった段階で、人間checkpoint付きで現行VPSをcanonical構成へ移行

@@ -15,6 +15,7 @@ from .apply import DOCKER_CONTEXT, compose_render_status
 from .render import RenderContractError, verify_toml_render_output
 
 MAX_HELLO_BYTES = 64 * 1024
+MCREMOTE_B2_SHA256 = "ad2674fa93645cc3c4c0d2b6aa5b37f11a8f9519162f61ac00b8be7122b023c7"
 
 
 class CommandRunner(Protocol):
@@ -147,6 +148,29 @@ def _component_value(lock: dict[str, Any], role: str, key: str) -> str:
             f"doctor requires exactly one {role} component with {key}",
         )
     return matches[0]
+
+
+def _auth_enforcement_required(lock: dict[str, Any]) -> bool:
+    controls = lock["render_plan"].get("required_security_controls", [])
+    if "mcremote-auth-enforced" in controls:
+        return True
+    components = [
+        component
+        for component in lock["components"]
+        if component.get("role") == "mcremote-plugin"
+    ]
+    if len(components) != 1:
+        return False
+    artifact_id = components[0].get("artifact")
+    artifacts = [
+        artifact
+        for artifact in lock["artifacts"]
+        if artifact.get("id") == artifact_id
+    ]
+    return len(artifacts) == 1 and (
+        artifacts[0].get("version") == "2100.0.0b2"
+        and artifacts[0].get("sha256") == MCREMOTE_B2_SHA256
+    )
 
 
 def _service_ids(lock: dict[str, Any]) -> list[str]:
@@ -330,7 +354,7 @@ def _validate_container(
                 }
             ],
         }
-        if lock["render_plan"]["adapter_revision"] in {"2", "3", "4"}:
+        if lock["render_plan"]["adapter_revision"] in {"2", "3", "4", "7"}:
             expected_ports["19132/udp"] = [
                 {
                     "HostIp": address,
@@ -684,6 +708,12 @@ def doctor_toml_project(
         lock["world"]["identity"],
         timeout,
     )
+    if _auth_enforcement_required(lock) and hello.status != "auth-required":
+        _fail(
+            "doctor_auth_not_enforced",
+            "protocol.hello",
+            "the locked McRemote release requires authentication, but token-free hello succeeded",
+        )
     return TomlDoctorResult(
         deployment=lock["deployment"]["name"],
         environment=lock["environment"]["identity"],

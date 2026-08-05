@@ -677,6 +677,19 @@ def test_bundled_credential_profile_declares_separate_backend_roles() -> None:
     ]
 
 
+def test_bundled_current_profiles_require_mcremote_auth_enforcement() -> None:
+    home = load_profile("home-server@4")
+    public = load_profile("vps-server@5")
+
+    assert home.data["renderer"] == {"name": "compose", "revision": "6"}
+    assert public.data["renderer"] == {"name": "compose", "revision": "7"}
+    for profile in (home, public):
+        assert "mcremote-auth-enforced" in profile.data["capabilities"]["provided"]
+        assert "mcremote-auth-enforced" in profile.data["policy"][
+            "required_security_controls"
+        ]
+
+
 def test_bundled_alpha_preset_is_immutable_unverified_and_catalogued() -> None:
     policy = load_catalog_policy()
     catalog = load_preset_catalog()

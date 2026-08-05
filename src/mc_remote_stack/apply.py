@@ -17,28 +17,21 @@ from .render import RenderContractError, verify_toml_render_output
 BOOTSTRAP_CONTRACTS = frozenset(
     {
         (
-            "home-server@2",
+            "home-server@4",
             "mcremote-paper@1",
             "beta",
             "isolated",
             "integration",
         ),
         (
-            "home-server@2",
+            "home-server@4",
             "mcremote-paper@2",
             "alpha",
             "isolated",
             "integration",
         ),
         (
-            "vps-server@1",
-            "mcremote-paper@1",
-            "beta",
-            "public",
-            "integration",
-        ),
-        (
-            "vps-server@4",
+            "vps-server@5",
             "public-web-paper@1",
             "beta",
             "public",
@@ -428,7 +421,7 @@ def _check_ports(
 ) -> None:
     address = lock["network"]["bind_address"]
     ports = [lock["network"]["java_port"], lock["network"]["mcremote_port"]]
-    if lock["render_plan"]["adapter_revision"] in {"2", "3", "4"}:
+    if lock["render_plan"]["adapter_revision"] in {"2", "3", "4", "7"}:
         ports = [80, 443, *ports]
     for port in ports:
         published = _run(

@@ -1,0 +1,103 @@
+schema_version = 1
+
+[profile]
+name = "vps-server"
+revision = "5"
+description = "Public VPS topology with explicit settings and enforced McRemote authentication"
+
+[capabilities]
+provided = [
+  "compose",
+  "paper",
+  "persistent-world",
+  "public-web",
+  "scratch-runtime",
+  "websocket-bridge",
+  "mcremote-auth-enforced",
+]
+required_component_roles = [
+  "caddy-edge",
+  "scratch-runtime",
+  "websocket-bridge",
+  "minecraft-runtime",
+  "paper-server",
+  "mcremote-plugin",
+]
+
+[environment]
+allowed_channels = ["beta"]
+allowed_exposures = ["public"]
+allowed_purposes = ["integration"]
+
+[policy]
+required_security_controls = [
+  "online-mode",
+  "rcon-disabled",
+  "explicit-public-bind",
+  "host-firewall-reviewed",
+  "edge-backend-port-isolation",
+  "origin-allowlist",
+  "ipv4-only-publication",
+  "explicit-minecraft-egress",
+  "typed-minecraft-server-settings",
+  "mcremote-auth-enforced",
+]
+instance_fields = [
+  "deployment.name",
+  "environment.identity",
+  "runtime.artifact_store",
+  "runtime.volumes",
+  "world.identity",
+  "network.bind_address",
+  "network.java_port",
+  "network.mcremote_port",
+  "agreements.minecraft_eula",
+]
+override_allowlist = ["capacity.memory"]
+
+[renderer]
+name = "compose"
+revision = "7"
+
+[[operator_input_roles]]
+id = "public-routes"
+adapter = "public-routes@1"
+required = true
+
+[[operator_input_roles]]
+id = "minecraft-server"
+adapter = "minecraft-server@1"
+required = true
+
+[[operator_input_roles]]
+id = "connection-targets"
+adapter = "connection-targets@1"
+required = false
+
+[[services]]
+id = "caddy"
+role = "caddy-edge"
+
+[[services]]
+id = "scratch"
+role = "scratch-runtime"
+
+[[services]]
+id = "bridge"
+role = "websocket-bridge"
+
+[[services]]
+id = "minecraft"
+role = "minecraft"
+
+[[volume_roles]]
+id = "minecraft-data"
+kind = "world"
+
+[[volume_roles]]
+id = "caddy-data"
+kind = "runtime-data"
+
+[[volume_roles]]
+id = "caddy-config"
+kind = "runtime-data"

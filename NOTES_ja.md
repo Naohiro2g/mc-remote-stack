@@ -2,6 +2,31 @@
 
 確定前または別sliceへ送る作業だけを置く。private host名、IP、credential、account情報は書かない。
 
+## 2026-08-05 b2 auth enforcement deployment correction
+
+- [x] McRemote b2 artifactの同梱`config.yml`が開発用`auth.enforcement=false`のまま公開されている一方、
+  knowledge main `2fe1b503c86912ef8416d2e659e22381b273f194`のversioning §10.11.1項5は
+  「トグルONがb2完了ゲート、リリース既定はenforced」と定めていることを照合した。
+- [x] 公開VPSの旧`vps-server@4` / `compose@4`とhome private alphaの旧`home-server@2` /
+  `compose@1`はいずれもMcRemote configを生成せず、実機doctorは双方とも
+  `auth=not-required`だった。home alphaはruntime自体はhealthy / currentだが、trusted checkoutが
+  alpha preset追加前のcommitへ戻っており、通常doctorは`unknown_preset_revision`で停止した。
+- [x] append-onlyな修正として`home-server@4` / `compose@6`と`vps-server@5` / `compose@7`を追加し、
+  `mcremote-auth-enforced`をprofile capability / required security controlへ固定した。両rendererは
+  b2向け`plugins/McRemote/config.yml`を生成し、`auth.enforcement=true`を設定する。
+- [x] 旧alpha / 旧public bootstrap contractを閉じ、新profileだけを新規apply対象にする。doctorは
+  新security controlに加え、既存lock内のexact b2 artifact SHAも認識し、token無しhello成功を
+  `doctor_auth_not_enforced`でfail closedにする。
+- [x] `mcrctl migration auth-enforcement plan/apply`を実装した。planは旧lock / runtime /
+  managed volumeと新`home-server@4` / `vps-server@5`候補をread-only検査する。VPSの追加Composeは
+  exact path / SHA-256 / composition identityへ固定した場合だけ保存できる。applyは新volumeへcopyし、
+  phaseをatomic JSONへ記録する。失敗時に旧runtimeへ自動復帰せず、同じexact transactionの再applyで
+  target成功へ収束させる。旧volumeは削除しない。
+- [ ] 既存home alphaで隔離live migrationを実証する。official public betaのrecovery overrideは
+  現行service欠落を避ける限定的なdeployed-state保存としてcutoverできるが、preset / lock / renderへの
+  正規化は別途必要である。両hostとも人間のmaintenance承認前に適用せず、限定保存をcanonical migration
+  完了と同一視しない。
+
 ## 2026-08-02 long-lived credential rollback resistance [→DEC 2026-08-02-01]
 
 - [x] knowledge commit `9dd99f3aecccf4035cdfd5549d1e70f9f25d3b2d`の`2026-08-02-01`、

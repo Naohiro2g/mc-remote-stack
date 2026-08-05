@@ -26,10 +26,11 @@
 
 | contract | profile | preset | channel | exposure | purpose |
 | --- | --- | --- | --- | --- | --- |
-| private beta | `home-server@2` | `mcremote-paper@1` | `beta` | `isolated` | `integration` |
-| private alpha | `home-server@2` | `mcremote-paper@2` | `alpha` | `isolated` | `integration` |
+| private beta | `home-server@4` | `mcremote-paper@1` | `beta` | `isolated` | `integration` |
+| private alpha | `home-server@4` | `mcremote-paper@2` | `alpha` | `isolated` | `integration` |
 
-どちらもrendererは`compose@1`、serviceは`minecraft`、runtime volume roleは`minecraft-data`とする。
+どちらもrendererは`compose@6`、serviceは`minecraft`、runtime volume roleは`minecraft-data`とする。
+rendererはMcRemote b2設定を生成し、`auth.enforcement=true`をrequired security controlとしてlockする。
 
 environment identityはorderの明示値を使い、`home-beta`という文字列からaxisを推測しない。
 この制限は最初のlive integration面を狭く保つbootstrap guardであり、profile一般の恒久制約ではない。
@@ -72,7 +73,7 @@ Docker daemonへ接続する前に、次をすべて検証する。
 4. CLIの`expected-lock-identity`がcurrent lockと一致する。
 5. generated treeがmanaged manifestを持ち、file digestが一致する。
 6. manifestのlock identity / render-plan digestがcurrent lockと一致する。
-7. current lockとartifact storeからcanonical `compose@1` bytesを再生成し、generated treeとbyte一致する。
+7. current lockとartifact storeからcanonical `compose@6` bytesを再生成し、generated treeとbyte一致する。
 8. HTTPS file artifactをcontent-addressed storeから再hashし、lock digestと一致させる。
 9. §1のbootstrap contract、EULA、unverified / EOL gateを満たす。
 
@@ -166,7 +167,7 @@ logは通常のCLI出力へ転記しない。秘密を含む調査logが必要�
 
 1. target hostと個人管理者SSH sessionをprivate inventoryで確認する。
 2. target hostでこのrepoの検証済みcommitをcheckoutし、`uv sync --extra dev`、test、Ruffを通す。
-3. `home-beta` projectを`home-server@2` / `mcremote-paper@1` /
+3. `home-beta` projectを`home-server@4` / `mcremote-paper@1` /
    `beta` / `isolated` / `integration`でinitする。
 4. EULA、resolve、exact artifact fetchを完了する。初回evidence取得時だけ理由付きunverified
    acknowledgementを使用した。
@@ -174,13 +175,13 @@ logは通常のCLI出力へ転記しない。秘密を含む調査logが必要�
 6. managed renderを生成する。
 7. §2のapplyを実行する。
 8. `status=created`または同じlockの`unchanged`を確認する。
-9. `mcrctl doctor --project <project>`でcanonical render、managed runtime、port、token無しhelloを
-   `live-auto`確認する。
+9. `mcrctl doctor --project <project>`でcanonical render、managed runtime、port、token無しhelloが
+   `auth_required`になることを`live-auto`確認する。
 10. pairingや実player操作は`live-human`として分ける。
 
 apply成功だけではprotocol compatibilityのverified主張にならない。初回live smokeのsanitized
-evidenceを別管理し、現在はexact subject `home-server@2` + `mcremote-paper@1`を束縛する
-compatibility record `home-server-2-mcremote-paper-1-live-auto`が追加済みである。
+evidenceを別管理する。既存`home-server@2`のcompatibility recordを新しい`home-server@4`へ流用せず、
+認証強制込みのexact subjectを再検証するまではunverifiedを維持する。
 
 ### 8.1 read-only doctor境界
 
@@ -195,7 +196,8 @@ lock identityの再入力、`--yes`、unverifiedのone-shot許可を要求せず
   `WARN render=additional-compose-files`とし、canonical runtimeとは主張しない。
 - lockの`mcremote-plugin.protocol`、`paper-server.minecraft_version`、world identityを使って、
   TCPへLF終端のtoken無しJSON-RPC `hello`を1回だけ送る。
-- hello成功時はpublic contract fieldだけを検証し、`auth_required`はresponsiveとして区別する。
+- `auth_required`だけを認証強制済みのresponsive endpointとして受理する。token無しhello成功は
+  `doctor_auth_not_enforced`でFAILする。
 - container logやhelloの生responseを通常出力へ載せず、session / player / tokenを表示しない。
 
 doctor PASSは現在のruntimeがlockに一致して最小helloへ応答する証拠であり、pairing、実player操作、

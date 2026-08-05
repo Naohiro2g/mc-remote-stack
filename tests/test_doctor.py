@@ -8,13 +8,16 @@ from mc_remote_stack.doctor import (
     DoctorContractError,
     ProtocolHelloResult,
     TomlDoctorResult,
+    _auth_enforcement_required,
     doctor_toml_project,
     probe_protocol_hello,
 )
 
 from .test_toml_apply import (
     FakeDocker,
+    _prepared_alpha_project,
     _prepared_credential_project,
+    _prepared_current_alpha_project,
     _prepared_project,
     _prepared_public_project,
     _result,
@@ -182,9 +185,9 @@ def test_doctor_checks_current_render_runtime_and_protocol_without_mutation(
     ) -> ProtocolHelloResult:
         hello_calls.append((address, port, protocol, minecraft_version, world, timeout))
         return ProtocolHelloResult(
-            status="ok",
-            protocol="21.0.0",
-            minecraft_version="1.21.11",
+            status="auth-required",
+            protocol=None,
+            minecraft_version=None,
         )
 
     result = doctor_toml_project(
@@ -208,9 +211,9 @@ def test_doctor_checks_current_render_runtime_and_protocol_without_mutation(
         bind_address="127.0.0.1",
         java_port=25565,
         mcremote_port=25575,
-        protocol_status="ok",
-        protocol="21.0.0",
-        minecraft_version="1.21.11",
+        protocol_status="auth-required",
+        protocol=None,
+        minecraft_version=None,
         compatibility_status="unverified",
     )
     assert hello_calls == [
@@ -247,6 +250,43 @@ def test_doctor_checks_mounts_then_requires_credential_health_projection(
         "home-alpha-credential-store",
         "home-alpha-credential-revocations",
     }
+
+
+def test_doctor_rejects_tokenless_hello_when_auth_enforcement_is_required(
+    tmp_path: Path,
+) -> None:
+    project, data_root, output, lock = _prepared_current_alpha_project(tmp_path)
+    runner = FakeDocker(_doctor_responses(output, lock))
+
+    with pytest.raises(DoctorContractError) as exc_info:
+        doctor_toml_project(
+            project,
+            output,
+            docker_context="default",
+            data_root=data_root,
+            runner=runner,
+            hello_probe=lambda *_args: ProtocolHelloResult(
+                status="ok",
+                protocol="21.0.0",
+                minecraft_version="1.21.11",
+            ),
+        )
+
+    assert exc_info.value.reason == "doctor_auth_not_enforced"
+
+
+def test_published_b2_artifact_requires_auth_even_in_a_legacy_lock(
+    tmp_path: Path,
+) -> None:
+    _project, _data_root, _output, lock = _prepared_alpha_project(tmp_path)
+    plugin = next(
+        artifact for artifact in lock["artifacts"] if artifact["id"] == "mcremote-jar"
+    )
+    plugin["sha256"] = (
+        "ad2674fa93645cc3c4c0d2b6aa5b37f11a8f9519162f61ac00b8be7122b023c7"
+    )
+
+    assert _auth_enforcement_required(lock) is True
 
 
 def test_doctor_rejects_credential_authority_mounted_under_data(tmp_path: Path) -> None:
@@ -299,9 +339,9 @@ def test_doctor_reports_additional_compose_files_without_hiding_health(
         data_root=data_root,
         runner=runner,
         hello_probe=lambda *_args: ProtocolHelloResult(
-            status="ok",
-            protocol="21.0.0",
-            minecraft_version="1.21.11",
+            status="auth-required",
+            protocol=None,
+            minecraft_version=None,
         ),
     )
 

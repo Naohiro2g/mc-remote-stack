@@ -9,6 +9,7 @@ from mc_remote_stack.apply import (
     ApplyContractError,
     TomlApplyResult,
     _safe_command_failure_detail,
+    _validate_bootstrap_contract,
     apply_toml_project,
 )
 from mc_remote_stack.cli import main
@@ -99,6 +100,13 @@ def _prepared_project(tmp_path: Path) -> tuple[Path, Path, Path, dict]:
     return project, data_root, output, load_lock(project, data_root=data_root)
 
 
+def _prepared_legacy_beta_project(tmp_path: Path) -> tuple[Path, Path, Path, dict]:
+    project, data_root, _ = _render_fixture(tmp_path, profile_revision="2")
+    output = project / "generated"
+    render_toml_project(project, output, data_root=data_root)
+    return project, data_root, output, load_lock(project, data_root=data_root)
+
+
 def _prepared_alpha_project(tmp_path: Path) -> tuple[Path, Path, Path, dict]:
     project, data_root, _ = _render_fixture(
         tmp_path,
@@ -106,6 +114,21 @@ def _prepared_alpha_project(tmp_path: Path) -> tuple[Path, Path, Path, dict]:
         identity="home-alpha",
         channel="alpha",
         preset_revision="2",
+        profile_revision="2",
+    )
+    output = project / "generated"
+    render_toml_project(project, output, data_root=data_root)
+    return project, data_root, output, load_lock(project, data_root=data_root)
+
+
+def _prepared_current_alpha_project(tmp_path: Path) -> tuple[Path, Path, Path, dict]:
+    project, data_root, _ = _render_fixture(
+        tmp_path,
+        deployment_name="home-alpha",
+        identity="home-alpha",
+        channel="alpha",
+        preset_revision="2",
+        profile_revision="4",
     )
     output = project / "generated"
     render_toml_project(project, output, data_root=data_root)
@@ -141,11 +164,11 @@ def _prepared_public_project(tmp_path: Path) -> tuple[Path, Path, Path, dict]:
     return project, data_root, output, load_lock(project, data_root=data_root)
 
 
-def test_public_vps_bootstrap_contract_is_supported(tmp_path: Path) -> None:
+def test_legacy_public_vps_bootstrap_contract_is_rejected(tmp_path: Path) -> None:
     project, data_root, output, lock = _prepared_public_project(tmp_path)
     runner = FakeDocker({})
 
-    with pytest.raises(AssertionError, match="docker.*context.*inspect"):
+    with pytest.raises(ApplyContractError) as exc_info:
         apply_toml_project(
             project,
             output,
@@ -157,7 +180,57 @@ def test_public_vps_bootstrap_contract_is_supported(tmp_path: Path) -> None:
             allow_unverified=True,
             runner=runner,
         )
-    assert runner.calls[0][0] == ("docker", "context", "inspect", "default")
+
+    assert exc_info.value.reason == "bootstrap_contract_unsupported"
+    assert runner.calls == []
+
+
+def test_legacy_home_beta_bootstrap_contract_is_rejected(tmp_path: Path) -> None:
+    project, data_root, output, lock = _prepared_legacy_beta_project(tmp_path)
+    runner = FakeDocker({})
+
+    with pytest.raises(ApplyContractError) as exc_info:
+        apply_toml_project(
+            project,
+            output,
+            expected_lock_identity=lock["lock_identity"],
+            docker_context="default",
+            data_root=data_root,
+            bootstrap=True,
+            confirmed=True,
+            allow_unverified=True,
+            runner=runner,
+        )
+
+    assert exc_info.value.reason == "bootstrap_contract_unsupported"
+    assert runner.calls == []
+
+
+def test_current_public_vps_bootstrap_contract_is_supported(tmp_path: Path) -> None:
+    _project, _data_root, _output, lock = _prepared_public_project(tmp_path)
+    lock["input"]["profile"]["ref"] = "vps-server@5"
+    lock["input"]["preset"]["ref"] = "public-web-paper@1"
+
+    _validate_bootstrap_contract(
+        lock,
+        allow_unverified=True,
+        allow_eol=False,
+    )
+
+
+def test_previous_public_vps_contract_is_rejected(tmp_path: Path) -> None:
+    _project, _data_root, _output, lock = _prepared_public_project(tmp_path)
+    lock["input"]["profile"]["ref"] = "vps-server@4"
+    lock["input"]["preset"]["ref"] = "public-web-paper@1"
+
+    with pytest.raises(ApplyContractError) as exc_info:
+        _validate_bootstrap_contract(
+            lock,
+            allow_unverified=True,
+            allow_eol=False,
+        )
+
+    assert exc_info.value.reason == "bootstrap_contract_unsupported"
 
 
 def test_credential_profile_rejects_old_plugin_preset_before_docker(
@@ -596,31 +669,18 @@ def test_apply_rejects_remote_docker_context_before_daemon_contact(
     assert runner.calls == [(context_command, 30)]
 
 
-def test_alpha_bootstrap_contract_reaches_docker_preflight(
+def test_legacy_alpha_bootstrap_contract_is_rejected_before_docker(
     tmp_path: Path,
 ) -> None:
     project, data_root, output, lock = _prepared_alpha_project(tmp_path)
-    context_command = ("docker", "context", "inspect", "remote")
-    runner = FakeDocker(
-        {
-            context_command: [
-                _result(
-                    context_command,
-                    stdout=json.dumps(
-                        [{"Endpoints": {"docker": {"Host": "ssh://private-host"}}}]
-                    )
-                    + "\n",
-                )
-            ]
-        }
-    )
+    runner = FakeDocker({})
 
     with pytest.raises(ApplyContractError) as exc_info:
         apply_toml_project(
             project,
             output,
             expected_lock_identity=lock["lock_identity"],
-            docker_context="remote",
+            docker_context="default",
             data_root=data_root,
             bootstrap=True,
             confirmed=True,
@@ -628,8 +688,28 @@ def test_alpha_bootstrap_contract_reaches_docker_preflight(
             runner=runner,
         )
 
-    assert exc_info.value.reason == "docker_context_not_local"
-    assert runner.calls == [(context_command, 30)]
+    assert exc_info.value.reason == "bootstrap_contract_unsupported"
+    assert runner.calls == []
+
+
+def test_current_alpha_bootstrap_contract_reaches_docker_preflight(
+    tmp_path: Path,
+) -> None:
+    project, data_root, output, lock = _prepared_current_alpha_project(tmp_path)
+    runner = FakeDocker({})
+
+    with pytest.raises(AssertionError, match="docker.*context.*inspect"):
+        apply_toml_project(
+            project,
+            output,
+            expected_lock_identity=lock["lock_identity"],
+            docker_context="default",
+            data_root=data_root,
+            bootstrap=True,
+            confirmed=True,
+            allow_unverified=True,
+            runner=runner,
+        )
 
 
 def test_apply_rejects_published_port_collision_before_pull(
