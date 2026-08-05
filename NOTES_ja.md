@@ -22,10 +22,16 @@
   exact path / SHA-256 / composition identityへ固定した場合だけ保存できる。applyは新volumeへcopyし、
   phaseをatomic JSONへ記録する。失敗時に旧runtimeへ自動復帰せず、同じexact transactionの再applyで
   target成功へ収束させる。旧volumeは削除しない。
-- [ ] 既存home alphaで隔離live migrationを実証する。official public betaのrecovery overrideは
-  現行service欠落を避ける限定的なdeployed-state保存としてcutoverできるが、preset / lock / renderへの
-  正規化は別途必要である。両hostとも人間のmaintenance承認前に適用せず、限定保存をcanonical migration
-  完了と同一視しない。
+- [x] official public betaを旧lock
+  `sha256:979a677b3fb9c83a1ed5e1704c60f3054bcc8ae3e758a8877df9134b502f4d56`から`vps-server@5`の
+  target lock`sha256:521d12ba568ac404c3fb91464a258d215263695d63f994aa93e71971f9f53377`へ
+  live migrationした。review済みrecovery Composeを保存し、新しい
+  3 volumeへcopyした後、target volume内のMcRemote configをenforced設定へ固定して再起動した。
+  transactionは`phase=complete`となり、doctorでtoken無しhelloの`auth_required`までPASSした。
+  compatibilityはone-shot acknowledgement付き`unverified`のままで、旧volumeは保持している。
+- [ ] 既存home alphaで隔離live migrationを実証する。official public betaの追加plugin / homepageを
+  preset / lock / renderへ正規化する作業も別途必要である。今回の限定的なdeployed-state保存を
+  canonical migration完了と同一視しない。
 
 ## 2026-08-02 long-lived credential rollback resistance [→DEC 2026-08-02-01]
 
