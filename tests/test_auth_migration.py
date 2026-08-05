@@ -8,6 +8,7 @@ import pytest
 from mc_remote_stack.auth_migration import (
     AuthMigrationContractError,
     AuthMigrationResult,
+    _preserved_compose_service_scope,
     _validate_preserved_container_record,
     apply_auth_enforcement_migration,
     load_auth_migration_state,
@@ -59,6 +60,18 @@ class RecordingHost:
         self.calls.append("verify-target")
 
 
+def test_preserved_compose_scope_reads_override_tag_without_constructing_values(
+    tmp_path: Path,
+) -> None:
+    compose = tmp_path / "compose.plugins.yaml"
+    compose.write_text(
+        "services:\n  minecraft:\n    volumes: !override []\n",
+        encoding="utf-8",
+    )
+
+    assert _preserved_compose_service_scope(compose) == frozenset({"minecraft"})
+
+
 def test_preserved_container_diagnostic_separates_compose_file_mismatch() -> None:
     record = {
         "Config": {
@@ -97,11 +110,55 @@ def test_preserved_container_diagnostic_separates_compose_file_mismatch() -> Non
                 Path("/project/recovery/compose.homepage.yaml"),
             ),
             expected_working_directory=Path("/project"),
+            preserved_file_services=(frozenset({"minecraft"}), frozenset({"caddy"})),
         )
 
     assert exc_info.value.reason == "migration_source_compose_files_mismatch"
     assert "recorded 2" in str(exc_info.value)
     assert "expected 3" in str(exc_info.value)
+
+
+def test_preserved_container_accepts_service_specific_reviewed_subset() -> None:
+    record = {
+        "Config": {
+            "Labels": {
+                "com.docker.compose.project": "official-public-beta",
+                "com.docker.compose.service": "minecraft",
+                "com.docker.compose.project.config_files": (
+                    "/project/generated/compose.yaml,"
+                    "/project/recovery/compose.plugins.yaml"
+                ),
+                "com.docker.compose.project.working_dir": "/project",
+                "io.mc-remote.deployment": "official-public-beta",
+                "io.mc-remote.environment": "official-public-beta",
+                "io.mc-remote.world": "official-public-beta-world",
+                "io.mc-remote.lock": "sha256:" + "1" * 64,
+            }
+        },
+        "State": {"Running": True},
+    }
+
+    service = _validate_preserved_container_record(
+        record,
+        container_id="container-id",
+        expected_labels={
+            "com.docker.compose.project": "official-public-beta",
+            "io.mc-remote.deployment": "official-public-beta",
+            "io.mc-remote.environment": "official-public-beta",
+            "io.mc-remote.world": "official-public-beta-world",
+            "io.mc-remote.lock": "sha256:" + "1" * 64,
+        },
+        expected_services={"minecraft", "caddy"},
+        expected_files=(
+            Path("/project/generated/compose.yaml"),
+            Path("/project/recovery/compose.plugins.yaml"),
+            Path("/project/recovery/compose.homepage.yaml"),
+        ),
+        expected_working_directory=Path("/project"),
+        preserved_file_services=(frozenset({"minecraft"}), frozenset({"caddy"})),
+    )
+
+    assert service == "minecraft"
 
 
 def _prepared_migration_project(tmp_path: Path) -> tuple[Path, Path, Path, dict]:

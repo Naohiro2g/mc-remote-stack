@@ -14,6 +14,9 @@ from importlib.resources.abc import Traversable
 from pathlib import Path
 from typing import Any, Protocol
 
+import yaml
+from yaml.nodes import MappingNode, ScalarNode
+
 from .apply import (
     DOCKER_CONTEXT,
     ApplyContractError,
@@ -374,6 +377,60 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _preserved_compose_service_scope(path: Path) -> frozenset[str]:
+    try:
+        root = yaml.compose(path.read_text(encoding="utf-8"), Loader=yaml.SafeLoader)
+    except (OSError, UnicodeDecodeError, yaml.YAMLError) as exc:
+        _fail(
+            "migration_preserved_composition_invalid",
+            path,
+            f"cannot inspect preserved Compose service scope: {exc}",
+        )
+    if not isinstance(root, MappingNode):
+        _fail(
+            "migration_preserved_composition_invalid",
+            path,
+            "preserved Compose file must be one mapping",
+        )
+    top_level: dict[str, yaml.Node] = {}
+    for key_node, value_node in root.value:
+        if not isinstance(key_node, ScalarNode) or key_node.value in top_level:
+            _fail(
+                "migration_preserved_composition_invalid",
+                path,
+                "preserved Compose top-level keys must be unique scalar values",
+            )
+        top_level[key_node.value] = value_node
+    if set(top_level) != {"services"} or not isinstance(
+        top_level["services"], MappingNode
+    ):
+        _fail(
+            "migration_preserved_composition_invalid",
+            path,
+            "service-specific preservation requires exactly one top-level services mapping",
+        )
+    services = []
+    for service_node, _definition_node in top_level["services"].value:
+        if (
+            not isinstance(service_node, ScalarNode)
+            or not service_node.value
+            or service_node.value in services
+        ):
+            _fail(
+                "migration_preserved_composition_invalid",
+                path,
+                "preserved Compose service names must be unique non-empty scalar values",
+            )
+        services.append(service_node.value)
+    if not services:
+        _fail(
+            "migration_preserved_composition_invalid",
+            path,
+            "preserved Compose file must affect at least one service",
+        )
+    return frozenset(services)
+
+
 def _validate_preserved_composition(
     project_root: Path,
     preserved_compose_files: tuple[Path, ...],
@@ -420,6 +477,7 @@ def _validate_preserved_composition(
                 path,
                 f"preserved Compose file exceeds {MAX_PRESERVED_COMPOSE_BYTES} bytes",
             )
+        _preserved_compose_service_scope(path)
         digests.append(_sha256_file(path))
     assert auth_config_root is not None
     resolved_root = auth_config_root.resolve()
@@ -563,6 +621,7 @@ def _validate_preserved_container_record(
     expected_services: set[str],
     expected_files: tuple[Path, ...],
     expected_working_directory: Path,
+    preserved_file_services: tuple[frozenset[str], ...],
 ) -> str:
     config = record.get("Config")
     labels = config.get("Labels") if isinstance(config, dict) else None
@@ -593,13 +652,35 @@ def _validate_preserved_container_record(
         else []
     )
     expected_file_strings = [str(path.resolve()) for path in expected_files]
-    if actual_files != expected_file_strings:
+    reviewed_preserved = expected_file_strings[1:]
+    if len(preserved_file_services) != len(reviewed_preserved):
+        _fail(
+            "migration_preserved_composition_invalid",
+            container_id,
+            "reviewed Compose service scopes do not match the preserved file sequence",
+        )
+    actual_preserved = actual_files[1:] if actual_files else []
+    reviewed_index = -1
+    ordered_subset = bool(actual_files) and actual_files[0] == expected_file_strings[0]
+    for actual_file in actual_preserved:
+        try:
+            reviewed_index = reviewed_preserved.index(actual_file, reviewed_index + 1)
+        except ValueError:
+            ordered_subset = False
+            break
+    required_files = {
+        reviewed_preserved[index]
+        for index, services in enumerate(preserved_file_services)
+        if service in services
+    }
+    if not ordered_subset or not required_files.issubset(actual_preserved):
         _fail(
             "migration_source_compose_files_mismatch",
             container_id,
             "runtime Compose provenance recorded "
             f"{len(actual_files)} files but the reviewed stack expected "
-            f"{len(expected_file_strings)} in the same order",
+            f"{len(expected_file_strings)} in the same order; every file affecting "
+            f"service {service} is required",
         )
     if labels.get("com.docker.compose.project.working_dir") != str(
         expected_working_directory.resolve()
@@ -641,6 +722,9 @@ class _DockerMigrationHost:
         self.target_output = target_output
         self.active_output = active_output
         self.preserved_compose_files = preserved_compose_files
+        self.preserved_compose_service_scopes = tuple(
+            _preserved_compose_service_scope(path) for path in preserved_compose_files
+        )
         self.project_root = project_root
         self.docker_context = docker_context
         self.data_root = data_root
@@ -806,6 +890,7 @@ class _DockerMigrationHost:
             expected_services=expected_services,
             expected_files=tuple(expected_files),
             expected_working_directory=self.project_root,
+            preserved_file_services=self.preserved_compose_service_scopes,
         )
 
     def inspect_targets_absent(self, plan: AuthMigrationPlan) -> None:
