@@ -8,6 +8,7 @@ import pytest
 from mc_remote_stack.auth_migration import (
     AuthMigrationContractError,
     AuthMigrationResult,
+    _compose_stack,
     _preserved_compose_service_scope,
     _validate_preserved_container_record,
     apply_auth_enforcement_migration,
@@ -72,6 +73,18 @@ def test_preserved_compose_scope_reads_override_tag_without_constructing_values(
     assert _preserved_compose_service_scope(compose) == frozenset({"minecraft"})
 
 
+def test_preserved_compose_stack_keeps_generated_project_directory() -> None:
+    command = _compose_stack(
+        Path("/project/generated"),
+        ["docker"],
+        Path("/project"),
+        (Path("/project/recovery/compose.plugins.yaml"),),
+    )
+
+    project_directory_index = command.index("--project-directory") + 1
+    assert command[project_directory_index] == "/project/generated"
+
+
 def test_preserved_container_diagnostic_separates_compose_file_mismatch() -> None:
     record = {
         "Config": {
@@ -109,7 +122,7 @@ def test_preserved_container_diagnostic_separates_compose_file_mismatch() -> Non
                 Path("/project/recovery/compose.plugins.yaml"),
                 Path("/project/recovery/compose.homepage.yaml"),
             ),
-            expected_working_directory=Path("/project"),
+            expected_working_directories={"minecraft": {Path("/project")}},
             preserved_file_services=(frozenset({"minecraft"}), frozenset({"caddy"})),
         )
 
@@ -154,7 +167,9 @@ def test_preserved_container_accepts_service_specific_reviewed_subset() -> None:
             Path("/project/recovery/compose.plugins.yaml"),
             Path("/project/recovery/compose.homepage.yaml"),
         ),
-        expected_working_directory=Path("/project"),
+        expected_working_directories={
+            "minecraft": {Path("/project"), Path("/project/generated")}
+        },
         preserved_file_services=(frozenset({"minecraft"}), frozenset({"caddy"})),
     )
 

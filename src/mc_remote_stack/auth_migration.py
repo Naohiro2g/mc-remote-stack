@@ -598,13 +598,16 @@ def _compose_stack(
     docker_prefix: list[str],
     project_root: Path,
     preserved_compose_files: tuple[Path, ...],
+    *,
+    project_directory: Path | None = None,
 ) -> list[str]:
+    del project_root
     command = docker_prefix + [
         "compose",
         "--ansi",
         "never",
         "--project-directory",
-        str(project_root.resolve() if preserved_compose_files else output.resolve()),
+        str((project_directory or output).resolve()),
         "--file",
         str((output / "compose.yaml").resolve()),
     ]
@@ -620,7 +623,7 @@ def _validate_preserved_container_record(
     expected_labels: dict[str, str],
     expected_services: set[str],
     expected_files: tuple[Path, ...],
-    expected_working_directory: Path,
+    expected_working_directories: dict[str, set[Path]],
     preserved_file_services: tuple[frozenset[str], ...],
 ) -> str:
     config = record.get("Config")
@@ -682,8 +685,11 @@ def _validate_preserved_container_record(
             f"{len(expected_file_strings)} in the same order; every file affecting "
             f"service {service} is required",
         )
-    if labels.get("com.docker.compose.project.working_dir") != str(
-        expected_working_directory.resolve()
+    allowed_working_directories = {
+        str(path.resolve()) for path in expected_working_directories.get(service, set())
+    }
+    if labels.get("com.docker.compose.project.working_dir") not in (
+        allowed_working_directories
     ):
         _fail(
             "migration_source_working_directory_mismatch",
@@ -778,23 +784,71 @@ class _DockerMigrationHost:
         if len(_nonempty_lines(daemon)) != 1 or len(_nonempty_lines(compose)) != 1:
             _fail("docker_unavailable", "docker", "Docker or Compose version is unavailable")
 
-    def inspect_source(self, plan: AuthMigrationPlan) -> None:
-        try:
-            self._preflight_docker()
-            compose_base = _compose_stack(
+    def _compose_services_for_directory(
+        self,
+        project_directory: Path,
+        expected_services: set[str],
+    ) -> dict[str, Any]:
+        result = _run(
+            self.runner,
+            _compose_stack(
                 self.source_output,
                 self.docker_prefix,
                 self.project_root,
                 self.preserved_compose_files,
+                project_directory=project_directory,
             )
-            _run(
-                self.runner,
-                compose_base + ["config", "--quiet"],
-                timeout=60,
-                reason="migration_source_compose_invalid",
-                path=self.source_output / "compose.yaml",
+            + ["config", "--format", "json"],
+            timeout=60,
+            reason="migration_source_compose_invalid",
+            path=self.source_output / "compose.yaml",
+        )
+        try:
+            rendered = json.loads(result.stdout)
+        except json.JSONDecodeError:
+            _fail(
+                "migration_source_compose_invalid",
+                self.source_output / "compose.yaml",
+                "Docker Compose config output is not valid JSON",
             )
+        services = rendered.get("services") if isinstance(rendered, dict) else None
+        if not isinstance(services, dict) or set(services) != expected_services:
+            _fail(
+                "migration_source_compose_invalid",
+                self.source_output / "compose.yaml",
+                "Docker Compose config services do not match the source lock",
+            )
+        return services
+
+    def _source_working_directories(
+        self,
+        expected_services: set[str],
+    ) -> dict[str, set[Path]]:
+        generated_directory = self.source_output.resolve()
+        canonical = self._compose_services_for_directory(
+            generated_directory,
+            expected_services,
+        )
+        allowed = {
+            service: {generated_directory} for service in expected_services
+        }
+        historical_directory = self.project_root.resolve()
+        if historical_directory == generated_directory:
+            return allowed
+        historical = self._compose_services_for_directory(
+            historical_directory,
+            expected_services,
+        )
+        for service in expected_services:
+            if canonical[service] == historical[service]:
+                allowed[service].add(historical_directory)
+        return allowed
+
+    def inspect_source(self, plan: AuthMigrationPlan) -> None:
+        try:
+            self._preflight_docker()
             services = set(_service_ids(self.source_lock))
+            expected_working_directories = self._source_working_directories(services)
             containers = _project_container_ids(
                 self.runner,
                 self.docker_prefix,
@@ -808,7 +862,11 @@ class _DockerMigrationHost:
                 )
             if self.preserved_compose_files:
                 actual = {
-                    self._inspect_preserved_container(container, services)
+                    self._inspect_preserved_container(
+                        container,
+                        services,
+                        expected_working_directories,
+                    )
                     for container in containers
                 }
             else:
@@ -860,6 +918,7 @@ class _DockerMigrationHost:
         self,
         container_id: str,
         expected_services: set[str],
+        expected_working_directories: dict[str, set[Path]],
     ) -> str:
         record = _single_inspect_record(
             _run(
@@ -889,7 +948,7 @@ class _DockerMigrationHost:
             expected_labels=expected_labels,
             expected_services=expected_services,
             expected_files=tuple(expected_files),
-            expected_working_directory=self.project_root,
+            expected_working_directories=expected_working_directories,
             preserved_file_services=self.preserved_compose_service_scopes,
         )
 
