@@ -15,35 +15,23 @@
 - [ ] 残る順序は、McRemoteで変更を分離したcommit・push・immutable artifactを作成し、Stackが
   そのartifactを新preset revisionへexact-pinし、sanitized live-humanで再検証すること。
 
-## 2026-08-06 credential health projection consumer回答案（knowledge未着地）
+## 2026-08-06 credential health checkpoint [→DEC 2026-08-06-02]
 
-- [x] McRemote側レビューを受領した。heartbeat、定期更新、常駐pollingに加え、起動時／health遷移時の
-  自発更新も行わない。Stack doctorが明示実行時だけ、locked Minecraft containerのconsole-only
-  `credential checkpoint <checkpoint_id>`を呼ぶ。McRemoteはその時点のsnapshot、authority、domainを
-  backend変更なしで完全再検証し、固定projectionをatomic出力する。`checkpoint_id`は常に非nullで、
-  Stackは同じdoctor runのnonceだけを受理する。doctorはdeployment単位で直列化する。
-- [ ] 最小transport案は、Stack CLI内部からcontainer-local console helper`mc-send-to-console`で
-  checkpoint commandを投入し、
-  `/data/plugins/McRemote/credential-health.json`をsize制限付きで読む方式。RCON、wire、内部
-  snapshot／authority JSON解析は使わない。短時間のbounded retryは一回のdoctor実行内だけに限る。
-- [ ] schema v1案は`schema=mcremote.credential-health`、`schema_version=1`、`emitted_at`、
-  `checkpoint_id`、`health`、`reasons`、`credential_snapshot`、`revocation_authority`、
-  `domain_consistency`、`reconcile_pending`だけとし、上限16 KiB、UTF-8、regular-file／non-symlink、
-  unknown version／enum／矛盾した組合せをfail closedにする。古さは30秒窓でなく同一doctor runの
-  `checkpoint_id`完全一致で判定し、`emitted_at`は時刻形式と明白な未来値だけをsanity checkする。
-- [ ] `mc-send-to-console`には`CREATE_CONSOLE_IN_PIPE=true`が必要であり、itzg公式documentと現rendererを
-  照合済み。一方`home-server@3`／`compose@5`は実行`UID`／`GID`をlock／renderしていない。
-  checkpoint実装前にexact UIDをlockへ固定してcontainer実体と照合するか、同等の再現可能な実証契約を
-  追加する。operatorへ直接Docker commandを要求せず、`mcrctl doctor`内部だけで使用する。
-- [ ] bootstrap／reset transactionはcheckpoint契約から分離して未確定のまま扱う。現McRemoteは
-  bootstrap marker内で独自transaction IDを生成し、resetは外部IDによる冪等再試行に未対応である。
-  外部transaction IDを前提にせず、resetのplugin側`CONFIRM-RESET-ALL-CREDENTIALS`相当の明示確認を
-  維持する。doctor／通常起動／restoreから自動bootstrap／resetせず、Stackはplugin内部JSONを生成・
-  修復しない。
-- [ ] checkpoint契約をMcRemote／人間レビュー済み案としてknowledgeへ横断着地してから、両repoを
-  test-first実装する。bootstrap／resetは別設計・別着地とする。
-  passive fileだけで現在性を保証できない場合もheartbeatへ戻さず、次候補は同期的なcontainer-local
-  management endpointとする。
+- [x] 正式参照`Naohiro2g/mc-remote-knowledge` / commit
+  `97921f0626b00e0719801b7695769df1fea243e3` / `00-hub/DECISIONS_ja.md` /
+  `2026-08-06-02`と、`11-plugin/platform-design_ja.md` §9.9への着地を搬送票と照合した。
+  決定、理由、却下案、McRemote／Stackの担当分担は一致しており、着地確認OK。
+- [x] projectionはconsole-onlyの明示checkpoint応答としてだけ生成する。heartbeat、定期／自発更新、
+  RCON、wire、Stackによる内部JSON解析・生成・修復は使わない。McRemoteはbackendを変更せず完全再検証し、
+  `/data/plugins/McRemote/credential-health.json`へ同一doctor runの非null nonceをatomic publishする。
+- [ ] McRemote／Stackは同じschema-v1 fixtureでnested object shapeとenum語彙をtest-first固定する。
+  fixtureと双方のwriter／parser testが揃うまで、Stack doctorはcheckpointを利用可能と主張しない。
+- [ ] Stackはdeployment単位のdoctor直列化、nonce、bounded read／retry、16 KiB・UTF-8・regular-file／
+  non-symlink・schema／field整合のfail-closed検証を実装する。`CREATE_CONSOLE_IN_PIPE=true`とruntime
+  UID／GIDをpreset／lock／renderとcontainer実体で再現可能に照合する。
+- [ ] bootstrap／reset transactionは別設計の未確定事項として残し、外部transaction IDをcheckpointへ
+  混ぜない。契約着地だけではlong-lived credential gateを開かず、両repo実装、immutable artifact／
+  preset、sanitized live、live restore後のauthority継続まで正式証跡を揃える。
 
 ## 2026-08-06 McRemote effective build range解決の修正設計 [→DEC 2026-08-06-01]
 
