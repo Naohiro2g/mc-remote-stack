@@ -9,6 +9,7 @@ from mc_remote_stack.auth_migration import (
     AuthMigrationContractError,
     AuthMigrationResult,
     _compose_stack,
+    _minecraft_copy_image,
     _preserved_compose_service_scope,
     _validate_preserved_container_record,
     apply_auth_enforcement_migration,
@@ -83,6 +84,17 @@ def test_preserved_compose_stack_keeps_generated_project_directory() -> None:
 
     project_directory_index = command.index("--project-directory") + 1
     assert command[project_directory_index] == "/project/generated"
+
+
+def test_volume_copy_uses_locked_oci_runtime_reference(tmp_path: Path) -> None:
+    _project, _data_root, _output, source_lock = _prepared_migration_project(tmp_path)
+    artifact = next(
+        item for item in source_lock["artifacts"] if item["id"] == "minecraft-image"
+    )
+
+    assert _minecraft_copy_image(source_lock) == (
+        f"{artifact['locator']}:{artifact['version']}@{artifact['digest']}"
+    )
 
 
 def test_preserved_container_diagnostic_separates_compose_file_mismatch() -> None:

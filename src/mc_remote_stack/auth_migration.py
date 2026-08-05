@@ -705,6 +705,31 @@ def _validate_preserved_container_record(
     return service
 
 
+def _minecraft_copy_image(lock: dict[str, Any]) -> str:
+    components = [
+        item for item in lock["components"] if item.get("role") == "minecraft-runtime"
+    ]
+    if len(components) != 1:
+        _fail(
+            "migration_copy_contract_invalid",
+            "components.minecraft-runtime",
+            "target lock must contain exactly one Minecraft runtime component",
+        )
+    artifacts = [
+        item
+        for item in lock["artifacts"]
+        if item.get("id") == components[0].get("artifact")
+    ]
+    if len(artifacts) != 1 or artifacts[0].get("kind") != "oci":
+        _fail(
+            "migration_copy_contract_invalid",
+            "artifacts.minecraft-runtime",
+            "target runtime artifact must be one exact OCI image",
+        )
+    artifact = artifacts[0]
+    return f"{artifact['locator']}:{artifact['version']}@{artifact['digest']}"
+
+
 class _DockerMigrationHost:
     def __init__(
         self,
@@ -1047,30 +1072,7 @@ class _DockerMigrationHost:
             raise _translate_contract(exc, reason=exc.reason, path=exc.path) from exc
 
     def _copy_image(self) -> str:
-        components = [
-            item
-            for item in self.target_lock["components"]
-            if item.get("role") == "minecraft-runtime"
-        ]
-        if len(components) != 1:
-            _fail(
-                "migration_copy_contract_invalid",
-                "components.minecraft-runtime",
-                "target lock must contain exactly one Minecraft runtime component",
-            )
-        artifacts = [
-            item
-            for item in self.target_lock["artifacts"]
-            if item.get("id") == components[0].get("artifact")
-        ]
-        if len(artifacts) != 1 or artifacts[0].get("kind") != "oci-image":
-            _fail(
-                "migration_copy_contract_invalid",
-                "artifacts.minecraft-runtime",
-                "target runtime artifact must be one exact OCI image",
-            )
-        artifact = artifacts[0]
-        return f"{artifact['locator']}:{artifact['version']}@{artifact['digest']}"
+        return _minecraft_copy_image(self.target_lock)
 
     def copy_volumes(self, plan: AuthMigrationPlan) -> None:
         image = self._copy_image()
