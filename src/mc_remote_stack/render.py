@@ -1251,19 +1251,35 @@ def _load_current_toml_render_lock(
     project_root: Path,
     *,
     data_root: Traversable,
+    allow_historical_lock: bool = False,
 ) -> dict[str, Any]:
     project_root = project_root.resolve()
     loaded_order = load_order(project_root)
-    inspection = inspect_lock(project_root, data_root=data_root)
-    if inspection.status == "missing":
-        _render_fail("lock_missing", loaded_order.paths.lock, "resolve the project before render")
-    if inspection.status == "stale":
-        _render_fail(
-            "stale_lock",
-            loaded_order.paths.lock,
-            "order or exact bundled input changed; run mcrctl resolve explicitly",
-        )
-    lock = load_lock(project_root, data_root=data_root)
+    if allow_historical_lock:
+        lock = load_lock(project_root, data_root=data_root)
+        if lock["input"]["order"]["semantic_sha256"] != semantic_sha256(
+            loaded_order.order
+        ):
+            _render_fail(
+                "stale_lock",
+                loaded_order.paths.lock,
+                "historical migration source order changed after its lock was resolved",
+            )
+    else:
+        inspection = inspect_lock(project_root, data_root=data_root)
+        if inspection.status == "missing":
+            _render_fail(
+                "lock_missing",
+                loaded_order.paths.lock,
+                "resolve the project before render",
+            )
+        if inspection.status == "stale":
+            _render_fail(
+                "stale_lock",
+                loaded_order.paths.lock,
+                "order or exact bundled input changed; run mcrctl resolve explicitly",
+            )
+        lock = load_lock(project_root, data_root=data_root)
     adapter = lock["render_plan"]["adapter"]
     adapter_revision = lock["render_plan"]["adapter_revision"]
     if adapter != "compose" or adapter_revision not in {"1", "2", "3", "4", "5", "6", "7"}:
@@ -1280,11 +1296,16 @@ def verify_toml_render_output(
     output: Path,
     *,
     data_root: Traversable,
+    allow_historical_lock: bool = False,
 ) -> TomlRenderVerification:
-    """Verify that managed output is the exact current Compose projection."""
+    """Verify exact managed output, optionally from an unchanged historical order."""
 
     project_root = project_root.resolve()
-    lock = _load_current_toml_render_lock(project_root, data_root=data_root)
+    lock = _load_current_toml_render_lock(
+        project_root,
+        data_root=data_root,
+        allow_historical_lock=allow_historical_lock,
+    )
     output = output.absolute()
     if output.is_symlink():
         _render_fail("render_output_unmanaged", output, "render output must not be a symlink")

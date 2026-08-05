@@ -481,6 +481,52 @@ def _make_plan(
     )
 
 
+def _validate_auth_only_candidate(
+    source_lock: dict[str, Any],
+    target_lock: dict[str, Any],
+) -> None:
+    exact_fields = (
+        "environment",
+        "world",
+        "network",
+        "agreements",
+        "selection",
+        "preset_lifecycle",
+        "acknowledgements",
+        "operator_inputs",
+        "components",
+        "artifacts",
+        "secret_references",
+        "scope",
+    )
+    source_runtime = {
+        key: value for key, value in source_lock["runtime"].items() if key != "volumes"
+    }
+    target_runtime = {
+        key: value for key, value in target_lock["runtime"].items() if key != "volumes"
+    }
+    source_render = source_lock["render_plan"]
+    target_render = target_lock["render_plan"]
+    source_controls = set(source_render["required_security_controls"])
+    target_controls = set(target_render["required_security_controls"])
+    if (
+        any(source_lock[field] != target_lock[field] for field in exact_fields)
+        or source_lock["input"]["preset"] != target_lock["input"]["preset"]
+        or source_lock["deployment"]["name"] != target_lock["deployment"]["name"]
+        or source_runtime != target_runtime
+        or source_render["adapter"] != target_render["adapter"]
+        or source_render["services"] != target_render["services"]
+        or source_render["volume_roles"] != target_render["volume_roles"]
+        or source_render["operator_inputs"] != target_render["operator_inputs"]
+        or target_controls != source_controls | {"mcremote-auth-enforced"}
+    ):
+        _fail(
+            "migration_transition_not_auth_only",
+            "migration.target_lock",
+            "candidate changes source inputs or runtime state beyond the reviewed auth profile and target volumes",
+        )
+
+
 def _translate_contract(exc: Exception, *, reason: str, path: object) -> AuthMigrationContractError:
     if isinstance(exc, AuthMigrationContractError):
         return exc
@@ -938,7 +984,12 @@ def plan_auth_enforcement_migration(
             f"existing transaction is at phase {state['phase']}; run apply with its exact identities",
         )
     try:
-        source_verification = verify_toml_render_output(project_root, output, data_root=data_root)
+        source_verification = verify_toml_render_output(
+            project_root,
+            output,
+            data_root=data_root,
+            allow_historical_lock=True,
+        )
         source_lock = source_verification.lock
         target_profile, migrations = _validate_transition(source_lock, target_volumes)
         (
@@ -964,6 +1015,7 @@ def plan_auth_enforcement_migration(
                 allow_eol=allow_eol,
                 resolved_at=source_lock["resolved_at"],
             )
+            _validate_auth_only_candidate(source_lock, target_lock)
             plan = _make_plan(
                 project_root,
                 output,
@@ -1297,6 +1349,7 @@ def _load_transaction_locks(
         source_project,
         source_output,
         data_root=data_root,
+        allow_historical_lock=True,
     ).lock
     candidate_root = root / "candidate"
     loaded_target = verify_toml_render_output(
@@ -1304,6 +1357,7 @@ def _load_transaction_locks(
         candidate_root / "generated",
         data_root=data_root,
     ).lock
+    _validate_auth_only_candidate(loaded_source, loaded_target)
     if (
         loaded_source["lock_identity"] != plan.source_lock_identity
         or loaded_target["lock_identity"] != plan.target_lock_identity

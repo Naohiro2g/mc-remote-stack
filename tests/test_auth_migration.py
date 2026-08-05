@@ -13,6 +13,7 @@ from mc_remote_stack.auth_migration import (
     plan_auth_enforcement_migration,
 )
 from mc_remote_stack.cli import main
+from mc_remote_stack.preset_registry import build_preset_catalog
 from mc_remote_stack.render import render_toml_project
 from mc_remote_stack.resolver import load_lock
 
@@ -120,6 +121,101 @@ def test_plan_builds_auth_enforced_candidate_without_mutating_source(
     )
     assert plan.target_lock_identity != plan.source_lock_identity
     assert host.calls == ["inspect-source", "inspect-targets-absent"]
+
+
+def test_migration_accepts_exact_historical_source_after_profile_bundle_drift(
+    tmp_path: Path,
+) -> None:
+    project, data_root, output, source_lock = _prepared_migration_project(tmp_path)
+    source_profile = data_root / "profiles" / "home-server" / "2" / "profile.toml"
+    source_profile.write_text(
+        source_profile.read_text(encoding="utf-8").replace(
+            'description = "Single-host Compose topology with an optional typed Minecraft MOTD input"',
+            'description = "Home private profile with later metadata"',
+        ),
+        encoding="utf-8",
+    )
+    volumes = {"minecraft-data": "home-alpha-auth-minecraft-data"}
+
+    plan = plan_auth_enforcement_migration(
+        project,
+        output,
+        docker_context="default",
+        target_volumes=volumes,
+        data_root=data_root,
+        allow_unverified=True,
+        host=RecordingHost(),
+    )
+    result = apply_auth_enforcement_migration(
+        project,
+        output,
+        docker_context="default",
+        target_volumes=volumes,
+        expected_source_lock_identity=source_lock["lock_identity"],
+        expected_target_lock_identity=plan.target_lock_identity,
+        data_root=data_root,
+        allow_unverified=True,
+        confirmed=True,
+        host=RecordingHost(),
+    )
+
+    assert plan.source_lock_identity == source_lock["lock_identity"]
+    assert result.phase == "complete"
+
+
+def test_migration_rejects_historical_source_when_exact_preset_drifted(
+    tmp_path: Path,
+) -> None:
+    project, data_root, output, _source_lock = _prepared_migration_project(tmp_path)
+    preset = data_root / "preset_registry" / "mcremote-paper" / "2" / "preset.toml"
+    preset.write_text(
+        preset.read_text(encoding="utf-8").replace(
+            'description = "Deterministic compose renderer fixture"',
+            'description = "Later preset metadata"',
+        ),
+        encoding="utf-8",
+    )
+    (data_root / "preset_catalog.toml").write_bytes(
+        build_preset_catalog(data_root=data_root)
+    )
+
+    with pytest.raises(AuthMigrationContractError) as exc_info:
+        plan_auth_enforcement_migration(
+            project,
+            output,
+            docker_context="default",
+            target_volumes={"minecraft-data": "home-alpha-auth-minecraft-data"},
+            data_root=data_root,
+            allow_unverified=True,
+            host=RecordingHost(),
+        )
+
+    assert exc_info.value.reason == "migration_transition_not_auth_only"
+
+
+def test_migration_rejects_changed_order_for_historical_source(tmp_path: Path) -> None:
+    project, data_root, output, _source_lock = _prepared_migration_project(tmp_path)
+    order = project / "mc-remote.toml"
+    order.write_text(
+        order.read_text(encoding="utf-8").replace(
+            'identity = "home-alpha-world"',
+            'identity = "changed-world"',
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(AuthMigrationContractError) as exc_info:
+        plan_auth_enforcement_migration(
+            project,
+            output,
+            docker_context="default",
+            target_volumes={"minecraft-data": "home-alpha-auth-minecraft-data"},
+            data_root=data_root,
+            allow_unverified=True,
+            host=RecordingHost(),
+        )
+
+    assert exc_info.value.reason == "stale_lock"
 
 
 def test_plan_records_reviewed_compose_files_without_reading_private_config(
