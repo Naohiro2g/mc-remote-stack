@@ -17,24 +17,31 @@
 
 ## 2026-08-06 credential health projection consumer回答案（knowledge未着地）
 
-- [ ] heartbeat、定期更新、常駐pollingは追加しない。Stack doctorは明示実行時だけ、locked
-  Minecraft containerのMcRemoteへランダムな`checkpoint_id`付き再検証を要求する。McRemoteは
-  credential正本を変更せず検証し、固定projectionをatomic更新する。Stackは同じ`checkpoint_id`の
-  応答だけを受理する。起動時／health遷移時の受動projectionだけをrestore gateの根拠にはしない。
-- [ ] 最小transport案は、Stack CLI内部からcontainer-local console helper
-  `mc-send-to-console`でcheckpoint commandを投入し、
+- [x] McRemote側レビューを受領した。heartbeat、定期更新、常駐pollingに加え、起動時／health遷移時の
+  自発更新も行わない。Stack doctorが明示実行時だけ、locked Minecraft containerのconsole-only
+  `credential checkpoint <checkpoint_id>`を呼ぶ。McRemoteはその時点のsnapshot、authority、domainを
+  backend変更なしで完全再検証し、固定projectionをatomic出力する。`checkpoint_id`は常に非nullで、
+  Stackは同じdoctor runのnonceだけを受理する。doctorはdeployment単位で直列化する。
+- [ ] 最小transport案は、Stack CLI内部からcontainer-local console helper`mc-send-to-console`で
+  checkpoint commandを投入し、
   `/data/plugins/McRemote/credential-health.json`をsize制限付きで読む方式。RCON、wire、内部
   snapshot／authority JSON解析は使わない。短時間のbounded retryは一回のdoctor実行内だけに限る。
 - [ ] schema v1案は`schema=mcremote.credential-health`、`schema_version=1`、`emitted_at`、
   `checkpoint_id`、`health`、`reasons`、`credential_snapshot`、`revocation_authority`、
   `domain_consistency`、`reconcile_pending`だけとし、上限16 KiB、UTF-8、regular-file／non-symlink、
   unknown version／enum／矛盾した組合せをfail closedにする。古さは30秒窓でなく同一doctor runの
-  `checkpoint_id`一致を主判定とし、container `StartedAt`と`emitted_at`を補助検査にする。
-- [ ] bootstrap／resetはdoctorや通常起動から自動実行しない。新しい明示CLI transaction
-  `mcrctl credential bootstrap|reset plan/apply`がoperator確認後、locked UID／containerへplugin所有の
-  console commandを投入する。Stackはvolumeの空／mount境界とtransactionを管理するだけで、domain ID、
-  manifest、snapshot、tombstoneを生成・修復しない。同じtransaction IDの再試行だけを冪等化する。
-- [ ] McRemote／人間レビュー後、knowledgeへ横断契約として着地してから両repoをtest-first実装する。
+  `checkpoint_id`完全一致で判定し、`emitted_at`は時刻形式と明白な未来値だけをsanity checkする。
+- [ ] `mc-send-to-console`には`CREATE_CONSOLE_IN_PIPE=true`が必要であり、itzg公式documentと現rendererを
+  照合済み。一方`home-server@3`／`compose@5`は実行`UID`／`GID`をlock／renderしていない。
+  checkpoint実装前にexact UIDをlockへ固定してcontainer実体と照合するか、同等の再現可能な実証契約を
+  追加する。operatorへ直接Docker commandを要求せず、`mcrctl doctor`内部だけで使用する。
+- [ ] bootstrap／reset transactionはcheckpoint契約から分離して未確定のまま扱う。現McRemoteは
+  bootstrap marker内で独自transaction IDを生成し、resetは外部IDによる冪等再試行に未対応である。
+  外部transaction IDを前提にせず、resetのplugin側`CONFIRM-RESET-ALL-CREDENTIALS`相当の明示確認を
+  維持する。doctor／通常起動／restoreから自動bootstrap／resetせず、Stackはplugin内部JSONを生成・
+  修復しない。
+- [ ] checkpoint契約をMcRemote／人間レビュー済み案としてknowledgeへ横断着地してから、両repoを
+  test-first実装する。bootstrap／resetは別設計・別着地とする。
   passive fileだけで現在性を保証できない場合もheartbeatへ戻さず、次候補は同期的なcontainer-local
   management endpointとする。
 
