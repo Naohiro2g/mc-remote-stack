@@ -8,6 +8,7 @@ import pytest
 from mc_remote_stack.auth_migration import (
     AuthMigrationContractError,
     AuthMigrationResult,
+    _validate_preserved_container_record,
     apply_auth_enforcement_migration,
     load_auth_migration_state,
     plan_auth_enforcement_migration,
@@ -56,6 +57,51 @@ class RecordingHost:
 
     def verify_target(self, plan) -> None:
         self.calls.append("verify-target")
+
+
+def test_preserved_container_diagnostic_separates_compose_file_mismatch() -> None:
+    record = {
+        "Config": {
+            "Labels": {
+                "com.docker.compose.project": "official-public-beta",
+                "com.docker.compose.service": "minecraft",
+                "com.docker.compose.project.config_files": (
+                    "/project/generated/compose.yaml,"
+                    "/project/recovery/compose.homepage.yaml"
+                ),
+                "com.docker.compose.project.working_dir": "/project",
+                "io.mc-remote.deployment": "official-public-beta",
+                "io.mc-remote.environment": "official-public-beta",
+                "io.mc-remote.world": "official-public-beta-world",
+                "io.mc-remote.lock": "sha256:" + "1" * 64,
+            }
+        },
+        "State": {"Running": True},
+    }
+
+    with pytest.raises(AuthMigrationContractError) as exc_info:
+        _validate_preserved_container_record(
+            record,
+            container_id="container-id",
+            expected_labels={
+                "com.docker.compose.project": "official-public-beta",
+                "io.mc-remote.deployment": "official-public-beta",
+                "io.mc-remote.environment": "official-public-beta",
+                "io.mc-remote.world": "official-public-beta-world",
+                "io.mc-remote.lock": "sha256:" + "1" * 64,
+            },
+            expected_services={"minecraft", "caddy"},
+            expected_files=(
+                Path("/project/generated/compose.yaml"),
+                Path("/project/recovery/compose.plugins.yaml"),
+                Path("/project/recovery/compose.homepage.yaml"),
+            ),
+            expected_working_directory=Path("/project"),
+        )
+
+    assert exc_info.value.reason == "migration_source_compose_files_mismatch"
+    assert "recorded 2" in str(exc_info.value)
+    assert "expected 3" in str(exc_info.value)
 
 
 def _prepared_migration_project(tmp_path: Path) -> tuple[Path, Path, Path, dict]:

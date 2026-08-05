@@ -555,6 +555,69 @@ def _compose_stack(
     return command
 
 
+def _validate_preserved_container_record(
+    record: dict[str, Any],
+    *,
+    container_id: str,
+    expected_labels: dict[str, str],
+    expected_services: set[str],
+    expected_files: tuple[Path, ...],
+    expected_working_directory: Path,
+) -> str:
+    config = record.get("Config")
+    labels = config.get("Labels") if isinstance(config, dict) else None
+    state = record.get("State")
+    if not isinstance(labels, dict) or not isinstance(state, dict):
+        _fail(
+            "migration_source_provenance_unavailable",
+            container_id,
+            "preserved runtime labels or state are unavailable",
+        )
+    if any(labels.get(key) != value for key, value in expected_labels.items()):
+        _fail(
+            "migration_source_lock_labels_mismatch",
+            container_id,
+            "runtime deployment, environment, world, or lock labels differ from the source lock",
+        )
+    service = labels.get("com.docker.compose.service")
+    if service not in expected_services:
+        _fail(
+            "migration_source_service_mismatch",
+            container_id,
+            "runtime service is not declared by the source lock",
+        )
+    config_files = labels.get("com.docker.compose.project.config_files")
+    actual_files = (
+        [item.strip() for item in config_files.split(",")]
+        if isinstance(config_files, str)
+        else []
+    )
+    expected_file_strings = [str(path.resolve()) for path in expected_files]
+    if actual_files != expected_file_strings:
+        _fail(
+            "migration_source_compose_files_mismatch",
+            container_id,
+            "runtime Compose provenance recorded "
+            f"{len(actual_files)} files but the reviewed stack expected "
+            f"{len(expected_file_strings)} in the same order",
+        )
+    if labels.get("com.docker.compose.project.working_dir") != str(
+        expected_working_directory.resolve()
+    ):
+        _fail(
+            "migration_source_working_directory_mismatch",
+            container_id,
+            "runtime Compose working directory differs from the reviewed deployment project",
+        )
+    if state.get("Running") is not True:
+        _fail(
+            "migration_source_not_running",
+            container_id,
+            "source runtime container is not running",
+        )
+    return service
+
+
 class _DockerMigrationHost:
     def __init__(
         self,
@@ -689,7 +752,9 @@ class _DockerMigrationHost:
                     volume,
                     self.source_lock,
                 )
-        except (ApplyContractError, AuthMigrationContractError) as exc:
+        except AuthMigrationContractError:
+            raise
+        except ApplyContractError as exc:
             translated = _translate_contract(
                 exc,
                 reason="migration_source_runtime_invalid",
@@ -723,15 +788,6 @@ class _DockerMigrationHost:
             reason="migration_source_runtime_invalid",
             path=container_id,
         )
-        config = record.get("Config")
-        labels = config.get("Labels") if isinstance(config, dict) else None
-        state = record.get("State")
-        if not isinstance(labels, dict) or not isinstance(state, dict):
-            _fail(
-                "migration_source_runtime_invalid",
-                container_id,
-                "preserved runtime labels or state are unavailable",
-            )
         expected_labels = {
             "com.docker.compose.project": self.source_lock["deployment"]["name"],
             "io.mc-remote.deployment": self.source_lock["deployment"]["name"],
@@ -739,31 +795,18 @@ class _DockerMigrationHost:
             "io.mc-remote.world": self.source_lock["world"]["identity"],
             "io.mc-remote.lock": self.source_lock["lock_identity"],
         }
-        service = labels.get("com.docker.compose.service")
-        config_files = labels.get("com.docker.compose.project.config_files")
         expected_files = [
-            str((self.source_output / "compose.yaml").resolve()),
-            *(str(path.resolve()) for path in self.preserved_compose_files),
+            self.source_output / "compose.yaml",
+            *self.preserved_compose_files,
         ]
-        actual_files = (
-            [item.strip() for item in config_files.split(",")]
-            if isinstance(config_files, str)
-            else []
+        return _validate_preserved_container_record(
+            record,
+            container_id=container_id,
+            expected_labels=expected_labels,
+            expected_services=expected_services,
+            expected_files=tuple(expected_files),
+            expected_working_directory=self.project_root,
         )
-        if (
-            any(labels.get(key) != value for key, value in expected_labels.items())
-            or service not in expected_services
-            or actual_files != expected_files
-            or labels.get("com.docker.compose.project.working_dir")
-            != str(self.project_root.resolve())
-            or state.get("Running") is not True
-        ):
-            _fail(
-                "migration_source_runtime_invalid",
-                container_id,
-                "runtime does not match the exact reviewed preserved Compose stack",
-            )
-        return service
 
     def inspect_targets_absent(self, plan: AuthMigrationPlan) -> None:
         try:
