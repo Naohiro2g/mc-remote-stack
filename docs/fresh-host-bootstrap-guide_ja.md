@@ -16,7 +16,7 @@ SSH支援、対象host上agentを試す場合のsecurity gate、人間が握るc
 
 現行の vertical slice は deployment project の `init`、`validate`、`repo check`、`plan`、
 EULA gate、`resolve`、`artifact fetch`、`render`に加え、isolated `home-beta`と
-Caddy / Scratch / Bridge / Minecraft / McRemoteを含む`vps-server@4` public betaの
+Caddy / Scratch / Bridge / Minecraft / McRemoteを含む`vps-server@5` public betaの
 初回bootstrap applyまでを
 実装している。public VPSの手順は
 [`public VPS bootstrap guide`](public-vps-bootstrap-guide_ja.md)を正とする。既存world import、
@@ -121,7 +121,7 @@ MC_REMOTE_PROJECT="$HOME/mc-remote-deployments/home-beta"
 uv run mcrctl init "$MC_REMOTE_PROJECT" \
   --format toml \
   --deployment-name home \
-  --profile home-server@2 \
+  --profile home-server@4 \
   --environment-identity home-beta \
   --channel beta \
   --exposure isolated \
@@ -165,11 +165,11 @@ fi
 共有groupで複数管理者に書込みを与える運用は、この個人管理者baselineへ暗黙追加しない。
 artifact storeの公開artifact bytesは`0755/0644`、local secret storeは`0700/0600`の別境界とする。
 
-exact subject `home-server@2` + `mcremote-paper@1`にはbundled compatibility recordがあるため、
-通常のbootstrapでunverified acknowledgementは不要である。生成前にplanをreviewする。
+exact subject `home-server@4` + `mcremote-paper@1`は、認証強制込みのlive evidenceが着地するまで
+unverifiedである。理由付きacknowledgementをorderへ記録し、生成前にplanをreviewする。
 
 ```bash
-uv run mcrctl resolve --project "$MC_REMOTE_PROJECT"
+uv run mcrctl resolve --project "$MC_REMOTE_PROJECT" --allow-unverified
 uv run mcrctl plan --project "$MC_REMOTE_PROJECT"
 uv run mcrctl artifact fetch --project "$MC_REMOTE_PROJECT"
 uv run mcrctl render \
@@ -194,7 +194,8 @@ uv run mcrctl apply \
   --expected-lock-identity "$REVIEWED_LOCK_IDENTITY" \
   --docker-context default \
   --bootstrap \
-  --yes
+  --yes \
+  --allow-unverified
 ```
 
 applyはcurrent lockとcanonical renderを再検証し、未知container / volume、port衝突を拒否する。
@@ -223,9 +224,9 @@ doctorは次をread-onlyで確認する。
 - managed volumeのidentity / ownership labelがcurrent lockと一致
 - exactly oneのmanaged containerがcurrent lockと一致し、runningかつhealthy
 - Java / McRemote portがlockどおりにpublishされ、isolated profileではloopback限定
-- lock済みprotocol / Minecraft / world identityに対するtoken無しJSON-RPC hello
+- lock済みendpointがtoken無しJSON-RPC helloを`auth_required`で拒否すること
 
-認証強制時の`auth_required`は「protocol endpointは応答、完全なhelloは認証が必要」と区別する。
+token無しhelloが成功した場合は`doctor_auth_not_enforced`でFAILする。
 doctorはcontainer log、生response、session / player / tokenを出力しない。低レベル状態だけを人間が
 学習・切り分けしたい場合は次も使えるが、lock / protocolとの一致までは主張しない。
 
@@ -237,12 +238,12 @@ docker compose ps
 ## 8. 現在の停止点
 
 doctorのhello PASSまででcontainer-level bootstrapと最小`live-auto`は確認できる。次が閉じる前に、
-exact `home-server@2` + `mcremote-paper@1`のcompatibilityはverifiedだが、この限定claimを
+exact `home-server@4` + `mcremote-paper@1`は認証強制込みの再検証が必要であり、このbootstrapを
 一般production、公開network、認証全体、upgrade可能と読み替えない。
 
 - hello以外のprotocol command smoke
 - backup / restore の実機検証
-- upgrade / rollback のdeployed-state transaction
+- auth-enforcement以外の汎用upgrade / rollback deployed-state transaction
 - provider firewall と host firewall の責任分界
 - 複数projectのhost-level collision transaction
 

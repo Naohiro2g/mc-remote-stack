@@ -16,7 +16,10 @@ def test_import_recovery_archive_extracts_only_locked_jars_by_hash(tmp_path: Pat
     with zipfile.ZipFile(archive, "w") as zipped:
         zipped.writestr("paper-26.1.2-72.jar", paper)
         zipped.writestr("plugins/AdvancedPortals.jar", plugin)
-        zipped.writestr("plugins/DiscordSRV/config.yml", "BotToken: must-not-be-extracted\n")
+        zipped.writestr(
+            "plugins/McRemote/credential-store.fixture",
+            "token-hash\nrevoke-tombstone\n",
+        )
     archive_sha256 = hashlib.sha256(archive.read_bytes()).hexdigest()
 
     lock = load_mapping(project.lock)
@@ -42,7 +45,9 @@ def test_import_recovery_archive_extracts_only_locked_jars_by_hash(tmp_path: Pat
     assert {artifact.name for artifact in imported} == {"Paper", "AdvancedPortals"}
     assert (store / hashlib.sha256(paper).hexdigest()).read_bytes() == paper
     assert (store / hashlib.sha256(plugin).hexdigest()).read_bytes() == plugin
-    assert not any(path.name == "config.yml" for path in store.rglob("*"))
+    assert not any(
+        path.name == "credential-store.fixture" for path in store.rglob("*")
+    )
 
 
 def test_import_recovery_archive_stops_on_archive_identity_mismatch(tmp_path: Path) -> None:

@@ -9,6 +9,7 @@ from mc_remote_stack.toml_project import (
     init_toml_project,
     load_order,
     update_order_scalar,
+    update_order_volume_identity,
 )
 
 
@@ -101,6 +102,7 @@ def test_init_creates_one_environment_order_without_placeholder_lock(tmp_path: P
     assert project.readme.exists()
     assert project.gitignore.exists()
     assert "/generated/" in project.gitignore.read_text(encoding="utf-8")
+    assert "/.mcrctl/" in project.gitignore.read_text(encoding="utf-8")
     assert "mc-remote.lock.toml" not in project.gitignore.read_text(encoding="utf-8")
 
     order = tomllib.loads(project.order.read_text(encoding="utf-8"))
@@ -631,6 +633,34 @@ eol_reason = ""
     assert 'identity = "home-beta" # do not derive the channel from this' in text
     assert 'unverified_reason = "reviewed with local compatibility evidence"' in text
     assert "allow_unverified = true # reviewed separately" in text
+
+
+def test_targeted_volume_edit_preserves_role_and_unrelated_layout(tmp_path: Path) -> None:
+    root = tmp_path / "home-beta"
+    order = _write_order(root, "# operator note\n" + _valid_order())
+
+    changed = update_order_volume_identity(
+        root,
+        "minecraft-data",
+        "home-beta-auth-minecraft-data",
+    )
+
+    assert changed is True
+    assert order.read_text(encoding="utf-8").startswith("# operator note\n")
+    assert load_order(root).order["runtime"]["volumes"] == [
+        {
+            "role": "minecraft-data",
+            "identity": "home-beta-auth-minecraft-data",
+        }
+    ]
+
+
+def test_targeted_volume_edit_rejects_unknown_role(tmp_path: Path) -> None:
+    root = tmp_path / "home-beta"
+    _write_order(root)
+
+    with pytest.raises(ValueError, match="unknown runtime volume role"):
+        update_order_volume_identity(root, "credential-store", "credential-store-v2")
 
 
 def test_noop_scalar_edit_does_not_change_bytes_or_mtime(tmp_path: Path) -> None:

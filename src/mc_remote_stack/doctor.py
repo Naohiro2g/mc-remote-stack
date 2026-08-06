@@ -11,10 +11,11 @@ from ipaddress import ip_address
 from pathlib import Path
 from typing import Any, Protocol
 
-from .apply import DOCKER_CONTEXT
+from .apply import DOCKER_CONTEXT, compose_render_status
 from .render import RenderContractError, verify_toml_render_output
 
 MAX_HELLO_BYTES = 64 * 1024
+MCREMOTE_B2_SHA256 = "ad2674fa93645cc3c4c0d2b6aa5b37f11a8f9519162f61ac00b8be7122b023c7"
 
 
 class CommandRunner(Protocol):
@@ -57,6 +58,7 @@ class TomlDoctorResult:
     lock_identity: str
     docker_context: str
     runtime_status: str
+    render_status: str
     network_scope: str
     bind_address: str
     java_port: int
@@ -148,6 +150,29 @@ def _component_value(lock: dict[str, Any], role: str, key: str) -> str:
     return matches[0]
 
 
+def _auth_enforcement_required(lock: dict[str, Any]) -> bool:
+    controls = lock["render_plan"].get("required_security_controls", [])
+    if "mcremote-auth-enforced" in controls:
+        return True
+    components = [
+        component
+        for component in lock["components"]
+        if component.get("role") == "mcremote-plugin"
+    ]
+    if len(components) != 1:
+        return False
+    artifact_id = components[0].get("artifact")
+    artifacts = [
+        artifact
+        for artifact in lock["artifacts"]
+        if artifact.get("id") == artifact_id
+    ]
+    return len(artifacts) == 1 and (
+        artifacts[0].get("version") == "2100.0.0b2"
+        and artifacts[0].get("sha256") == MCREMOTE_B2_SHA256
+    )
+
+
 def _service_ids(lock: dict[str, Any]) -> list[str]:
     services = [service["id"] for service in lock["render_plan"]["services"]]
     if not services or len(services) != len(set(services)):
@@ -197,9 +222,69 @@ def _validate_volume(record: dict[str, Any], volume: str, lock: dict[str, Any]) 
         )
 
 
+def _validate_credential_mounts(record: dict[str, Any], lock: dict[str, Any]) -> None:
+    if lock["render_plan"]["adapter_revision"] != "5":
+        return
+    assignments = {
+        assignment["role"]: assignment["identity"]
+        for assignment in lock["runtime"]["volumes"]
+    }
+    expected = {
+        "/data": assignments.get("minecraft-data"),
+        "/mcremote/credential-store": assignments.get("credential-store"),
+        "/mcremote/credential-revocations": assignments.get(
+            "credential-revocations"
+        ),
+    }
+    mounts = record.get("Mounts")
+    if not isinstance(mounts, list) or any(value is None for value in expected.values()):
+        _fail(
+            "doctor_credential_mount_mismatch",
+            "runtime.mounts",
+            "credential profile requires exact world, snapshot, and authority volume mounts",
+        )
+    actual: dict[str, str] = {}
+    for mount in mounts:
+        if not isinstance(mount, dict) or mount.get("Type") != "volume":
+            continue
+        destination = mount.get("Destination")
+        name = mount.get("Name")
+        if (
+            not isinstance(destination, str)
+            or not isinstance(name, str)
+            or mount.get("RW") is not True
+            or destination in actual
+        ):
+            _fail(
+                "doctor_credential_mount_mismatch",
+                "runtime.mounts",
+                "managed volume mounts must be unique writable paths",
+            )
+        actual[destination] = name
+    if actual != expected:
+        _fail(
+            "doctor_credential_mount_mismatch",
+            "runtime.mounts",
+            "live world, credential snapshot, and revocation authority mounts do not match the lock",
+        )
+    for destination in (
+        "/mcremote/credential-store",
+        "/mcremote/credential-revocations",
+    ):
+        if destination == "/data" or destination.startswith("/data/"):
+            _fail(
+                "doctor_credential_mount_mismatch",
+                destination,
+                "credential state must remain outside the Minecraft data write set",
+            )
+
+
 def _validate_container(
-    record: dict[str, Any], lock: dict[str, Any], expected_services: set[str]
-) -> str:
+    record: dict[str, Any],
+    lock: dict[str, Any],
+    expected_services: set[str],
+    output: Path,
+) -> tuple[str, str]:
     config = record.get("Config")
     labels = config.get("Labels") if isinstance(config, dict) else None
     expected_labels = {
@@ -224,6 +309,8 @@ def _validate_container(
             lock["deployment"]["name"],
             "runtime container service is not declared by the current lock",
         )
+    if service == "minecraft":
+        _validate_credential_mounts(record, lock)
 
     state = record.get("State")
     if not isinstance(state, dict) or state.get("Running") is not True:
@@ -267,7 +354,7 @@ def _validate_container(
                 }
             ],
         }
-        if lock["render_plan"]["adapter_revision"] in {"2", "3", "4"}:
+        if lock["render_plan"]["adapter_revision"] in {"2", "3", "4", "7"}:
             expected_ports["19132/udp"] = [
                 {
                     "HostIp": address,
@@ -286,7 +373,7 @@ def _validate_container(
             lock["deployment"]["name"],
             "live published ports do not match the current lock",
         )
-    return service
+    return service, compose_render_status(labels, output)
 
 
 def _validate_hello_result(
@@ -556,6 +643,7 @@ def doctor_toml_project(
             "doctor requires exactly the current lock's Compose service count",
         )
     actual_services = set()
+    render_statuses = set()
     for container_id in containers:
         container = _single_inspect_record(
             _run(
@@ -568,13 +656,26 @@ def doctor_toml_project(
             reason="doctor_runtime_inspect_failed",
             path=lock["deployment"]["name"],
         )
-        actual_services.add(_validate_container(container, lock, set(services)))
+        service, render_status = _validate_container(
+            container,
+            lock,
+            set(services),
+            output,
+        )
+        actual_services.add(service)
+        render_statuses.add(render_status)
     if actual_services != set(services):
         _fail(
             "doctor_runtime_unmanaged",
             lock["deployment"]["name"],
             "runtime does not contain every service declared by the current lock",
         )
+    if render_statuses == {"current"}:
+        runtime_render_status = "current"
+    elif render_statuses <= {"current", "additional-compose-files"}:
+        runtime_render_status = "additional-compose-files"
+    else:
+        runtime_render_status = "noncanonical"
 
     for volume in volumes:
         volume_record = _single_inspect_record(
@@ -590,6 +691,14 @@ def doctor_toml_project(
         )
         _validate_volume(volume_record, volume, lock)
 
+    if lock["render_plan"]["adapter_revision"] == "5":
+        _fail(
+            "doctor_credential_health_unsupported",
+            "credential.health",
+            "credential profile mount topology is valid, but the plugin does not "
+            "yet expose the required machine-readable domain health projection",
+        )
+
     network = lock["network"]
     hello = hello_probe(
         network["bind_address"],
@@ -599,12 +708,19 @@ def doctor_toml_project(
         lock["world"]["identity"],
         timeout,
     )
+    if _auth_enforcement_required(lock) and hello.status != "auth-required":
+        _fail(
+            "doctor_auth_not_enforced",
+            "protocol.hello",
+            "the locked McRemote release requires authentication, but token-free hello succeeded",
+        )
     return TomlDoctorResult(
         deployment=lock["deployment"]["name"],
         environment=lock["environment"]["identity"],
         lock_identity=lock["lock_identity"],
         docker_context=docker_context,
         runtime_status="healthy",
+        render_status=runtime_render_status,
         network_scope=(
             "loopback"
             if ip_address(network["bind_address"]).is_loopback

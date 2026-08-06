@@ -61,6 +61,7 @@ def test_inspect_archive_reads_only_lock_safe_plugin_identity(tmp_path: Path) ->
     plugin = _plugin_jar(
         "plugin.yml",
         "name: McRemote\nversion: 1.21.8-1.4.0\napi-version: '1.21'\nmain: com.example.McRemote\n"
+        "libraries:\n  - org.example:runtime-lib:1.2.3\n"
         "commands:\n  mcremote:\n    description: do not copy arbitrary descriptor fields\n",
     )
     with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
@@ -75,6 +76,7 @@ def test_inspect_archive_reads_only_lock_safe_plugin_identity(tmp_path: Path) ->
         "version": "1.21.8-1.4.0",
         "api_version": "1.21",
         "main": "com.example.McRemote",
+        "runtime_libraries": ["org.example:runtime-lib:1.2.3"],
     }
     assert "commands" not in json.dumps(result)
 

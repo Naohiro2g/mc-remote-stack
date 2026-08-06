@@ -24,7 +24,7 @@ def test_public_vps_runbook_uses_the_real_toml_init_cli() -> None:
 
     assert "mcrctl init-toml" not in guide
     assert "mcrctl init \"$MC_REMOTE_PROJECT\" \\\n  --format toml" in guide
-    assert "--profile vps-server@4" in guide
+    assert "--profile vps-server@5" in guide
     assert "--preset public-web-paper@1" in guide
     assert "--volume caddy-data=official-public-beta-caddy-data" in guide
     assert 'adapter = "public-routes@1"' in guide
@@ -44,9 +44,16 @@ def test_public_vps_runbook_keeps_human_apply_checkpoint() -> None:
     assert "--allow-unverified" in guide
 
 
-def test_public_vps_cutover_stops_profile_selected_minecraft() -> None:
+def test_public_vps_runbook_uses_resumable_auth_migration_transaction() -> None:
     guide = (REPO_ROOT / "docs" / "public-vps-bootstrap-guide_ja.md").read_text(
         encoding="utf-8"
     )
 
-    assert "--profile beta \\\n  down --timeout 120 --remove-orphans" in guide
+    assert "Docker / Composeをrunbookから直接操作してこの境界を迂回しない" in guide
+    assert "mcrctl\" migration auth-enforcement plan" in guide
+    assert "mcrctl\" migration auth-enforcement apply" in guide
+    assert '--preserve-compose-file "$MC_REMOTE_PROJECT/recovery/compose.recovery-plugins.yaml"' in guide
+    assert '--preserve-compose-file "$MC_REMOTE_PROJECT/recovery/compose.homepage.yaml"' in guide
+    assert '--auth-config-root "$AUTH_CONFIG_ROOT"' in guide
+    assert "review済みの追加Composeだけをexact SHA-256で保存" in guide
+    assert "旧runtimeへ自動復帰しない" in guide

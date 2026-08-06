@@ -43,7 +43,7 @@ preset catalog / preset registry、order、lock、content-addressed artifact、p
 | --- | --- | --- | --- | --- |
 | 1 | home private beta | `isolated` | ケータリング型の最初のlive bootstrap | clean / existing Ubuntuの両経路でexact resolve、render、apply、doctorが通る |
 | 2 | home private alpha | `isolated`から開始 | alpha orderと独立data境界の検証 | betaと別project / volume / worldでresolve、render、apply、doctorが通る |
-| 3 | VPS public beta | `public` | provider制約下の新方式と現行公開betaからの移行 | rollback可能な移行後、公開endpointとruntime smokeが通る |
+| 3 | VPS public beta | `public` | provider制約下の新方式と現行公開betaからの移行 | repair / resume可能な移行後、公開endpointとruntime smokeが通る |
 
 home private betaは検証用であり、最終的に維持する3環境の一つではない。VPS公開betaへの移行後も
 home private alphaとplain devを独立して維持する。
@@ -54,8 +54,10 @@ home private alphaとplain devを独立して維持する。
   - 既存Ubuntu hostからのbootstrapを確認済み
   - clean Ubuntu Server hostからのbootstrapを確認済み
   - exact artifact、canonical render、bootstrap apply、healthy doctor、tokenなしprotocol helloを確認済み
-- home private alpha: isolated構成のbootstrap apply / no-op apply / doctorを検証済み
-- VPS public betaのケータリング型移行: 未検証
+- home private alpha: 旧`home-server@2`ではbootstrap済みだが、認証OFFを検出したため現行gateは未完了。
+  `home-server@4`での再検証とmigrationが必要
+- VPS public betaのケータリング型移行: auth-enforcement transactionは実装済み、recovery overrideの
+  canonical化とlive適用は未検証
 - plain dev: 本ロードマップの実装対象外
 - ケータリングPC / ケータリングキットのノートPC検証: 並行作業
 - 詳細runbook: 並行作業
@@ -66,12 +68,12 @@ home private alphaとplain devを独立して維持する。
 
 | axis | value |
 | --- | --- |
-| profile | `home-server@2` |
+| profile | `home-server@4` |
 | preset | `mcremote-paper@2` |
 | channel | `alpha` |
 | exposure | `isolated` |
 | purpose | `integration` |
-| renderer | `compose@1` |
+| renderer | `compose@6` |
 
 `mcremote-paper@2`は、b3内容を先取りせず、最初はb2で確認済みのexact artifactを固定して
 alpha order / deployment機構そのものを検証する。b3開発開始後、実験対象componentを採用する場合は
@@ -94,7 +96,7 @@ knowledge ownerへhandoffし、正式evidence着地後に別compatibility record
 - home非公開alphaが独立project / volume / worldで稼働している
 - plain devが利用可能である
 - 各環境の役割、停止許容、data寿命、秘密境界が区別されている
-- 公開beta移行のrollbackまたは復旧手順が実地確認されている
+- 公開beta移行の停止phaseからのrepair / resume手順が実地確認されている
 
 ケータリングPC / ケータリングキットの追加検証、対象host上agentの限定実験、
 runbookの網羅化は並行継続でき、

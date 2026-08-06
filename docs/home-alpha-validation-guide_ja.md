@@ -10,12 +10,12 @@ deployment経路の検証である。
 
 | axis | value |
 | --- | --- |
-| profile | `home-server@2` |
+| profile | `home-server@4` |
 | preset | `mcremote-paper@2` |
 | channel | `alpha` |
 | exposure | `isolated` |
 | purpose | `integration` |
-| renderer | `compose@1` |
+| renderer | `compose@6` |
 
 `mcremote-paper@2`は最初の検証時点ではb2のexact artifactを再利用する。live alpha evidence取得前は
 `unverified`であり、理由付きorder acknowledgementとresolve / applyそれぞれのone-shot flagを要求する。
@@ -45,7 +45,7 @@ MC_REMOTE_PROJECT="$HOME/mc-remote-deployments/home-alpha"
 uv run mcrctl init "$MC_REMOTE_PROJECT" \
   --format toml \
   --deployment-name home-alpha \
-  --profile home-server@2 \
+  --profile home-server@4 \
   --environment-identity home-alpha \
   --channel alpha \
   --exposure isolated \
@@ -100,6 +100,8 @@ unverified警告によりplanは内容を表示してstatus 1を返す。これ�
 - exact artifact identity
 - betaと異なるdeployment / volume / world
 - loopback bindとbetaと異なるport
+- required security controlが`mcremote-auth-enforced`
+- generated treeに`minecraft/plugins/McRemote/config.yml`があり、`auth.enforcement=true`
 
 ## 4. bootstrap apply
 
@@ -128,8 +130,35 @@ uv run mcrctl doctor --project "$MC_REMOTE_PROJECT"
 ```
 
 最低限、current lock / canonical render、managed volume、healthy container、loopback限定port、
-protocol / Minecraft version、tokenなしhelloを確認する。beta project / volume / world bytesが
-変わっていないことも別途確認する。
+protocol endpointがtokenなしhelloを`auth_required`で拒否することを確認する。成功した場合は
+`doctor_auth_not_enforced`でFAILする。beta project / volume / world bytesが変わっていないことも
+別途確認する。
+
+既存`home-server@2` lockは自動更新しない。新profileへの移行は新lockとcanonical renderを先に
+reviewし、既存worldを保持する専用transactionで行う。旧checkoutのままdoctorを実行したり、
+生成外の設定だけを手編集してmigration完了と扱わない。
+
+既存alphaのread-only planは次で生成する。target volumeは旧volumeと異なる明示identityにする。
+
+```bash
+TARGET_ALPHA_VOLUME="home-alpha-auth-minecraft-data"
+
+uv run mcrctl migration auth-enforcement plan \
+  --project "$MC_REMOTE_PROJECT" \
+  --output "$MC_REMOTE_PROJECT/generated" \
+  --docker-context default \
+  --target-volume "minecraft-data=$TARGET_ALPHA_VOLUME" \
+  --allow-unverified
+```
+
+表示されたsource / target lockをreviewした後、`apply`へ両identity、同じtarget volume、`--yes`を渡す。
+applyはimage取得と新volume作成を済ませてから旧alphaだけを停止し、新desired stateをpublishして
+volumeをcopyする。
+その後`home-server@4`を起動し、token無しhelloが`auth_required`になるまでdoctorする。
+
+失敗時に旧runtimeは自動再起動しない。`.mcrctl/migrations/auth-enforcement/state.json`へ残ったphaseを
+確認し、原因を修理して同じapply commandを再実行する。旧volumeは成功後も自動削除しない。CLIの
+隔離試験は実装済みだが、このhome alpha hostへのlive適用はまだ実施していない。
 
 正式compatibility根拠に使う場合、private host、IP、OS user、absolute path、token、pair code、
 player UUIDを除いたsanitized transcriptとrecord draftを作り、knowledge ownerへhandoffする。

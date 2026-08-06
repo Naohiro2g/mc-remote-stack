@@ -8,12 +8,16 @@ from mc_remote_stack.doctor import (
     DoctorContractError,
     ProtocolHelloResult,
     TomlDoctorResult,
+    _auth_enforcement_required,
     doctor_toml_project,
     probe_protocol_hello,
 )
 
 from .test_toml_apply import (
     FakeDocker,
+    _prepared_alpha_project,
+    _prepared_credential_project,
+    _prepared_current_alpha_project,
     _prepared_project,
     _prepared_public_project,
     _result,
@@ -36,16 +40,30 @@ def _compose_base(output: Path) -> tuple[str, ...]:
     )
 
 
-def _managed_container(lock: dict, *, health: str = "healthy") -> dict:
-    return {
+def _managed_container(
+    lock: dict,
+    output: Path,
+    *,
+    health: str = "healthy",
+) -> dict:
+    deployment = lock["deployment"]["name"]
+    environment = lock["environment"]["identity"]
+    world = lock["world"]["identity"]
+    record = {
         "Id": "container-current",
         "Config": {
             "Labels": {
-                "com.docker.compose.project": "home",
+                "com.docker.compose.project": deployment,
                 "com.docker.compose.service": "minecraft",
-                "io.mc-remote.deployment": "home",
-                "io.mc-remote.environment": "home-beta",
-                "io.mc-remote.world": "home-beta-world",
+                "com.docker.compose.project.config_files": str(
+                    output.resolve() / "compose.yaml"
+                ),
+                "com.docker.compose.project.working_dir": str(
+                    output.resolve()
+                ),
+                "io.mc-remote.deployment": deployment,
+                "io.mc-remote.environment": environment,
+                "io.mc-remote.world": world,
                 "io.mc-remote.lock": lock["lock_identity"],
             }
         },
@@ -60,17 +78,43 @@ def _managed_container(lock: dict, *, health: str = "healthy") -> dict:
             }
         },
     }
+    if lock["render_plan"]["adapter_revision"] == "5":
+        identities = {
+            assignment["role"]: assignment["identity"]
+            for assignment in lock["runtime"]["volumes"]
+        }
+        record["Mounts"] = [
+            {
+                "Type": "volume",
+                "Name": identities["minecraft-data"],
+                "Destination": "/data",
+                "RW": True,
+            },
+            {
+                "Type": "volume",
+                "Name": identities["credential-store"],
+                "Destination": "/mcremote/credential-store",
+                "RW": True,
+            },
+            {
+                "Type": "volume",
+                "Name": identities["credential-revocations"],
+                "Destination": "/mcremote/credential-revocations",
+                "RW": True,
+            },
+        ]
+    return record
 
 
-def _managed_volume(lock: dict) -> dict:
+def _managed_volume(lock: dict, name: str = "home-beta-minecraft-data") -> dict:
     return {
-        "Name": "home-beta-minecraft-data",
+        "Name": name,
         "Driver": "local",
         "Labels": {
             "io.mc-remote.owner": "mcrctl",
-            "io.mc-remote.deployment": "home",
-            "io.mc-remote.environment": "home-beta",
-            "io.mc-remote.world": "home-beta-world",
+            "io.mc-remote.deployment": lock["deployment"]["name"],
+            "io.mc-remote.environment": lock["environment"]["identity"],
+            "io.mc-remote.world": lock["world"]["identity"],
             "io.mc-remote.created-by-lock": lock["lock_identity"],
         },
     }
@@ -78,7 +122,8 @@ def _managed_volume(lock: dict) -> dict:
 
 def _doctor_responses(output: Path, lock: dict, *, health: str = "healthy") -> dict:
     base = _compose_base(output)
-    return {
+    deployment = lock["deployment"]["name"]
+    responses = {
         ("docker", "context", "inspect", "default"): [
             _result(
                 ("docker",),
@@ -100,21 +145,27 @@ def _doctor_responses(output: Path, lock: dict, *, health: str = "healthy") -> d
             "--all",
             "--quiet",
             "--filter",
-            "label=com.docker.compose.project=home",
+            f"label=com.docker.compose.project={deployment}",
         ): [_result(("docker",), stdout="container-current\n")],
         _docker("inspect", "container-current"): [
             _result(
                 ("docker",),
-                stdout=json.dumps([_managed_container(lock, health=health)]) + "\n",
-            )
-        ],
-        _docker("volume", "inspect", "home-beta-minecraft-data"): [
-            _result(
-                ("docker",),
-                stdout=json.dumps([_managed_volume(lock)]) + "\n",
+                stdout=json.dumps(
+                    [_managed_container(lock, output, health=health)]
+                )
+                + "\n",
             )
         ],
     }
+    for assignment in lock["runtime"]["volumes"]:
+        identity = assignment["identity"]
+        responses[_docker("volume", "inspect", identity)] = [
+            _result(
+                ("docker",),
+                stdout=json.dumps([_managed_volume(lock, identity)]) + "\n",
+            )
+        ]
+    return responses
 
 
 def test_doctor_checks_current_render_runtime_and_protocol_without_mutation(
@@ -134,9 +185,9 @@ def test_doctor_checks_current_render_runtime_and_protocol_without_mutation(
     ) -> ProtocolHelloResult:
         hello_calls.append((address, port, protocol, minecraft_version, world, timeout))
         return ProtocolHelloResult(
-            status="ok",
-            protocol="21.0.0",
-            minecraft_version="1.21.11",
+            status="auth-required",
+            protocol=None,
+            minecraft_version=None,
         )
 
     result = doctor_toml_project(
@@ -155,13 +206,14 @@ def test_doctor_checks_current_render_runtime_and_protocol_without_mutation(
         lock_identity=lock["lock_identity"],
         docker_context="default",
         runtime_status="healthy",
+        render_status="current",
         network_scope="loopback",
         bind_address="127.0.0.1",
         java_port=25565,
         mcremote_port=25575,
-        protocol_status="ok",
-        protocol="21.0.0",
-        minecraft_version="1.21.11",
+        protocol_status="auth-required",
+        protocol=None,
+        minecraft_version=None,
         compatibility_status="unverified",
     )
     assert hello_calls == [
@@ -169,6 +221,132 @@ def test_doctor_checks_current_render_runtime_and_protocol_without_mutation(
     ]
     mutation_words = {"pull", "up", "down", "create", "rm", "start", "stop", "restart"}
     assert all(not mutation_words.intersection(command) for command, _ in runner.calls)
+
+
+def test_doctor_checks_mounts_then_requires_credential_health_projection(
+    tmp_path: Path,
+) -> None:
+    project, data_root, output, lock = _prepared_credential_project(tmp_path)
+    runner = FakeDocker(_doctor_responses(output, lock))
+
+    with pytest.raises(DoctorContractError) as exc_info:
+        doctor_toml_project(
+            project,
+            output,
+            docker_context="default",
+            data_root=data_root,
+            runner=runner,
+            hello_probe=lambda *_args: pytest.fail("hello probe must not run"),
+        )
+
+    assert exc_info.value.reason == "doctor_credential_health_unsupported"
+    inspected = {
+        command[-1]
+        for command, _timeout in runner.calls
+        if command[-3:-1] == ("volume", "inspect")
+    }
+    assert inspected == {
+        "home-alpha-minecraft-data",
+        "home-alpha-credential-store",
+        "home-alpha-credential-revocations",
+    }
+
+
+def test_doctor_rejects_tokenless_hello_when_auth_enforcement_is_required(
+    tmp_path: Path,
+) -> None:
+    project, data_root, output, lock = _prepared_current_alpha_project(tmp_path)
+    runner = FakeDocker(_doctor_responses(output, lock))
+
+    with pytest.raises(DoctorContractError) as exc_info:
+        doctor_toml_project(
+            project,
+            output,
+            docker_context="default",
+            data_root=data_root,
+            runner=runner,
+            hello_probe=lambda *_args: ProtocolHelloResult(
+                status="ok",
+                protocol="21.0.0",
+                minecraft_version="1.21.11",
+            ),
+        )
+
+    assert exc_info.value.reason == "doctor_auth_not_enforced"
+
+
+def test_published_b2_artifact_requires_auth_even_in_a_legacy_lock(
+    tmp_path: Path,
+) -> None:
+    _project, _data_root, _output, lock = _prepared_alpha_project(tmp_path)
+    plugin = next(
+        artifact for artifact in lock["artifacts"] if artifact["id"] == "mcremote-jar"
+    )
+    plugin["sha256"] = (
+        "ad2674fa93645cc3c4c0d2b6aa5b37f11a8f9519162f61ac00b8be7122b023c7"
+    )
+
+    assert _auth_enforcement_required(lock) is True
+
+
+def test_doctor_rejects_credential_authority_mounted_under_data(tmp_path: Path) -> None:
+    project, data_root, output, lock = _prepared_credential_project(tmp_path)
+    responses = _doctor_responses(output, lock)
+    container = _managed_container(lock, output)
+    authority = next(
+        mount
+        for mount in container["Mounts"]
+        if mount["Name"] == "home-alpha-credential-revocations"
+    )
+    authority["Destination"] = "/data/plugins/McRemote/credential-revocations"
+    responses[_docker("inspect", "container-current")] = [
+        _result(("docker",), stdout=json.dumps([container]) + "\n")
+    ]
+
+    with pytest.raises(DoctorContractError) as exc_info:
+        doctor_toml_project(
+            project,
+            output,
+            docker_context="default",
+            data_root=data_root,
+            runner=FakeDocker(responses),
+            hello_probe=lambda *_args: pytest.fail("hello probe must not run"),
+        )
+
+    assert exc_info.value.reason == "doctor_credential_mount_mismatch"
+
+
+def test_doctor_reports_additional_compose_files_without_hiding_health(
+    tmp_path: Path,
+) -> None:
+    project, data_root, output, lock = _prepared_project(tmp_path)
+    responses = _doctor_responses(output, lock)
+    container = _managed_container(lock, output)
+    labels = container["Config"]["Labels"]
+    labels["com.docker.compose.project.config_files"] = (
+        f"{output.resolve() / 'compose.yaml'},"
+        f"{tmp_path / 'recovery.override.yaml'}"
+    )
+    responses[_docker("inspect", "container-current")] = [
+        _result(("docker",), stdout=json.dumps([container]) + "\n")
+    ]
+    runner = FakeDocker(responses)
+
+    result = doctor_toml_project(
+        project,
+        output,
+        docker_context="default",
+        data_root=data_root,
+        runner=runner,
+        hello_probe=lambda *_args: ProtocolHelloResult(
+            status="auth-required",
+            protocol=None,
+            minecraft_version=None,
+        ),
+    )
+
+    assert result.runtime_status == "healthy"
+    assert result.render_status == "additional-compose-files"
 
 
 def test_doctor_reports_public_vps_network_scope(tmp_path: Path) -> None:
@@ -179,6 +357,10 @@ def test_doctor_reports_public_vps_network_scope(tmp_path: Path) -> None:
     labels = {
         "com.docker.compose.project": deployment,
         "com.docker.compose.service": "minecraft",
+        "com.docker.compose.project.config_files": str(
+            output.resolve() / "compose.yaml"
+        ),
+        "com.docker.compose.project.working_dir": str(output.resolve()),
         "io.mc-remote.deployment": deployment,
         "io.mc-remote.environment": deployment,
         "io.mc-remote.world": "official-public-beta-world",
@@ -305,7 +487,7 @@ def test_doctor_rejects_unhealthy_runtime_before_protocol_probe(tmp_path: Path) 
 def test_doctor_rejects_live_port_drift_before_protocol_probe(tmp_path: Path) -> None:
     project, data_root, output, lock = _prepared_project(tmp_path)
     responses = _doctor_responses(output, lock)
-    container = _managed_container(lock)
+    container = _managed_container(lock, output)
     container["NetworkSettings"]["Ports"]["25575/tcp"][0]["HostIp"] = "0.0.0.0"
     responses[_docker("inspect", "container-current")] = [
         _result(("docker",), stdout=json.dumps([container]) + "\n")
@@ -531,6 +713,7 @@ def test_cli_doctor_uses_simple_local_defaults_and_does_not_echo_secrets(
             lock_identity=f"sha256:{'1' * 64}",
             docker_context="default",
             runtime_status="healthy",
+            render_status="current",
             network_scope="loopback",
             bind_address="127.0.0.1",
             java_port=25565,
@@ -550,9 +733,46 @@ def test_cli_doctor_uses_simple_local_defaults_and_does_not_echo_secrets(
     assert received["docker_context"] == "default"
     output = capsys.readouterr().out
     assert "OK doctor runtime=healthy deployment=home environment=home-beta" in output
+    assert "OK doctor lock=" in output
+    assert "render=current" in output
     assert "OK doctor network=loopback bind=127.0.0.1 java-port=25565 mcremote-port=25575" in output
     assert "OK doctor protocol=21.0.0 mc-version=1.21.11 auth=not-required" in output
     assert "WARN doctor compatibility=unverified" in output
     assert "token" not in output
     assert "session" not in output
     assert "player" not in output
+
+
+def test_cli_doctor_warns_when_runtime_uses_additional_compose_files(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    project = tmp_path / "home-beta"
+    project.mkdir()
+    (project / "mc-remote.toml").write_text("schema_version = 1\n")
+    monkeypatch.setattr(
+        "mc_remote_stack.cli.doctor_toml_project",
+        lambda *_args, **_kwargs: TomlDoctorResult(
+            deployment="home",
+            environment="home-beta",
+            lock_identity=f"sha256:{'1' * 64}",
+            docker_context="default",
+            runtime_status="healthy",
+            render_status="additional-compose-files",
+            network_scope="loopback",
+            bind_address="127.0.0.1",
+            java_port=25565,
+            mcremote_port=25575,
+            protocol_status="ok",
+            protocol="21.0.0",
+            minecraft_version="1.21.11",
+            compatibility_status="unverified",
+        ),
+    )
+
+    assert main(["doctor", "--project", str(project)]) == 0
+
+    output = capsys.readouterr().out
+    assert "WARN doctor lock=" in output
+    assert "render=additional-compose-files" in output

@@ -17,28 +17,21 @@ from .render import RenderContractError, verify_toml_render_output
 BOOTSTRAP_CONTRACTS = frozenset(
     {
         (
-            "home-server@2",
+            "home-server@4",
             "mcremote-paper@1",
             "beta",
             "isolated",
             "integration",
         ),
         (
-            "home-server@2",
+            "home-server@4",
             "mcremote-paper@2",
             "alpha",
             "isolated",
             "integration",
         ),
         (
-            "vps-server@1",
-            "mcremote-paper@1",
-            "beta",
-            "public",
-            "integration",
-        ),
-        (
-            "vps-server@4",
+            "vps-server@5",
             "public-web-paper@1",
             "beta",
             "public",
@@ -47,6 +40,15 @@ BOOTSTRAP_CONTRACTS = frozenset(
     }
 )
 DOCKER_CONTEXT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$")
+ANSI_ESCAPE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+URL_USERINFO = re.compile(
+    r"(?i)\b([a-z][a-z0-9+.-]*://)[^/\s:@]+:[^@\s/]+@"
+)
+SENSITIVE_ASSIGNMENT = re.compile(
+    r"(?i)([\"']?(?:password|passwd|token|secret|credential|authorization)"
+    r"[\"']?\s*[=:]\s*)"
+    r"(?:\"[^\"]*\"|'[^']*'|.*)"
+)
 
 
 class CommandRunner(Protocol):
@@ -122,8 +124,44 @@ def _run(
     except OSError as exc:
         _fail(reason, path, f"cannot execute Docker command: {exc}")
     if result.returncode != 0:
-        _fail(reason, path, f"Docker command failed with exit status {result.returncode}")
+        message = (
+            f"Docker command failed with exit status {result.returncode}"
+        )
+        detail = _safe_command_failure_detail(result)
+        if detail is not None:
+            message = f"{message}; detail={detail}"
+        _fail(reason, path, message)
     return result
+
+
+def _safe_command_failure_detail(
+    result: subprocess.CompletedProcess[str],
+) -> str | None:
+    detail = None
+    for stream in (result.stderr, result.stdout):
+        lines = [
+            line.strip()
+            for line in stream.splitlines()
+            if line.strip()
+        ]
+        if lines:
+            detail = lines[-1]
+            break
+    if detail is None:
+        return None
+    detail = ANSI_ESCAPE.sub("", detail)
+    detail = "".join(
+        character if character.isprintable() else " "
+        for character in detail
+    )
+    detail = URL_USERINFO.sub(r"\1<redacted>@", detail)
+    detail = SENSITIVE_ASSIGNMENT.sub(r"\1<redacted>", detail)
+    detail = " ".join(detail.split())
+    if not detail:
+        return None
+    if len(detail) > 400:
+        detail = f"{detail[:399]}…"
+    return detail
 
 
 def _nonempty_lines(result: subprocess.CompletedProcess[str]) -> list[str]:
@@ -155,6 +193,48 @@ def _compose_base(output: Path, docker_prefix: list[str]) -> list[str]:
         "--file",
         str(output / "compose.yaml"),
     ]
+
+
+def expected_compose_provenance(output: Path) -> dict[str, str]:
+    resolved = output.resolve()
+    return {
+        "com.docker.compose.project.config_files": str(
+            resolved / "compose.yaml"
+        ),
+        "com.docker.compose.project.working_dir": str(resolved),
+    }
+
+
+def compose_render_status(
+    labels: dict[str, Any],
+    output: Path,
+) -> str:
+    expected = expected_compose_provenance(output)
+    config_files = labels.get(
+        "com.docker.compose.project.config_files"
+    )
+    working_dir = labels.get(
+        "com.docker.compose.project.working_dir"
+    )
+    if (
+        config_files
+        == expected["com.docker.compose.project.config_files"]
+        and working_dir
+        == expected["com.docker.compose.project.working_dir"]
+    ):
+        return "current"
+    if isinstance(config_files, str) and (
+        expected["com.docker.compose.project.config_files"]
+        in {
+            item.strip()
+            for item in config_files.split(",")
+            if item.strip()
+        }
+        and working_dir
+        == expected["com.docker.compose.project.working_dir"]
+    ):
+        return "additional-compose-files"
+    return "noncanonical"
 
 
 def _service_ids(lock: dict[str, Any]) -> list[str]:
@@ -229,6 +309,7 @@ def _inspect_current_container(
     container_id: str,
     lock: dict[str, Any],
     expected_services: set[str],
+    output: Path,
 ) -> str:
     result = _run(
         runner,
@@ -258,6 +339,13 @@ def _inspect_current_container(
             "bootstrap_runtime_unmanaged",
             container_id,
             "existing Compose project does not match the current lock",
+        )
+    if compose_render_status(labels, output) != "current":
+        _fail(
+            "bootstrap_runtime_composition_mismatch",
+            container_id,
+            "running Compose files or working directory do not match "
+            "the current canonical render",
         )
     if service not in expected_services:
         _fail(
@@ -333,7 +421,7 @@ def _check_ports(
 ) -> None:
     address = lock["network"]["bind_address"]
     ports = [lock["network"]["java_port"], lock["network"]["mcremote_port"]]
-    if lock["render_plan"]["adapter_revision"] in {"2", "3", "4"}:
+    if lock["render_plan"]["adapter_revision"] in {"2", "3", "4", "7"}:
         ports = [80, 443, *ports]
     for port in ports:
         published = _run(
@@ -576,7 +664,12 @@ def apply_toml_project(
             )
         actual_services = {
             _inspect_current_container(
-                runner, docker_prefix, container_id, lock, set(services)
+                runner,
+                docker_prefix,
+                container_id,
+                lock,
+                set(services),
+                output,
             )
             for container_id in containers
         }
@@ -661,7 +754,12 @@ def apply_toml_project(
             )
         actual_services = {
             _inspect_current_container(
-                runner, docker_prefix, container_id, lock, set(services)
+                runner,
+                docker_prefix,
+                container_id,
+                lock,
+                set(services),
+                output,
             )
             for container_id in current
         }

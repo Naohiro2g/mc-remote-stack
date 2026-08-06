@@ -2,8 +2,8 @@ schema_version = 1
 
 [profile]
 name = "vps-server"
-revision = "4"
-description = "Public VPS topology with explicit egress and typed Minecraft server settings"
+revision = "5"
+description = "Public VPS topology with explicit settings and enforced McRemote authentication"
 
 [capabilities]
 provided = [
@@ -13,6 +13,7 @@ provided = [
   "public-web",
   "scratch-runtime",
   "websocket-bridge",
+  "mcremote-auth-enforced",
 ]
 required_component_roles = [
   "caddy-edge",
@@ -39,6 +40,7 @@ required_security_controls = [
   "ipv4-only-publication",
   "explicit-minecraft-egress",
   "typed-minecraft-server-settings",
+  "mcremote-auth-enforced",
 ]
 instance_fields = [
   "deployment.name",
@@ -55,7 +57,7 @@ override_allowlist = ["capacity.memory"]
 
 [renderer]
 name = "compose"
-revision = "4"
+revision = "7"
 
 [[operator_input_roles]]
 id = "public-routes"

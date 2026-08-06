@@ -1,0 +1,47 @@
+schema_version = 1
+
+[profile]
+name = "home-server"
+revision = "4"
+description = "Single-host Compose topology with enforced McRemote authentication"
+
+[capabilities]
+provided = ["compose", "paper", "persistent-world", "mcremote-auth-enforced"]
+required_component_roles = ["minecraft-runtime", "paper-server", "mcremote-plugin"]
+
+[environment]
+allowed_channels = ["beta", "alpha"]
+allowed_exposures = ["isolated", "lan-only"]
+allowed_purposes = ["integration"]
+
+[policy]
+required_security_controls = ["online-mode", "rcon-disabled", "mcremote-auth-enforced"]
+instance_fields = [
+  "deployment.name",
+  "environment.identity",
+  "runtime.artifact_store",
+  "runtime.volumes",
+  "world.identity",
+  "network.bind_address",
+  "network.java_port",
+  "network.mcremote_port",
+  "agreements.minecraft_eula",
+]
+override_allowlist = ["capacity.memory"]
+
+[renderer]
+name = "compose"
+revision = "6"
+
+[[operator_input_roles]]
+id = "minecraft-motd"
+adapter = "minecraft-motd@1"
+required = false
+
+[[services]]
+id = "minecraft"
+role = "minecraft"
+
+[[volume_roles]]
+id = "minecraft-data"
+kind = "world"

@@ -63,6 +63,7 @@ PRIVATE_IPV4_NETWORKS = (
 )
 
 PROJECT_GITIGNORE = """/generated/
+/.mcrctl/
 /secrets/
 /backup/
 /backups/
@@ -781,6 +782,62 @@ def update_order_scalar(root: Path, logical_path: tuple[str, ...], value: str | 
             "order_semantic_drift",
             loaded.paths.order,
             f"edit changed values outside {'.'.join(logical_path)}",
+        )
+
+    _atomic_replace(loaded.paths.order, candidate_source.encode("utf-8"))
+    return True
+
+
+def update_order_volume_identity(root: Path, role: str, identity: str) -> bool:
+    """Losslessly replace one existing runtime volume identity by exact role."""
+
+    if not EXPLICIT_IDENTITY.fullmatch(role):
+        raise ValueError("runtime volume role must be an explicit identity")
+    if not EXPLICIT_IDENTITY.fullmatch(identity):
+        raise ValueError("runtime volume identity must be an explicit identity")
+
+    loaded = load_order(root)
+    matching_indexes = [
+        index
+        for index, volume in enumerate(loaded.order["runtime"]["volumes"])
+        if volume["role"] == role
+    ]
+    if len(matching_indexes) != 1:
+        raise ValueError(f"unknown runtime volume role: {role}")
+    index = matching_indexes[0]
+    if loaded.order["runtime"]["volumes"][index]["identity"] == identity:
+        return False
+
+    original = loaded.source_bytes.decode("utf-8")
+    try:
+        document = tomlkit.parse(original)
+    except ParseError as exc:
+        _fail("order_parse_failed", loaded.paths.order, str(exc))
+    document_volumes = document["runtime"]["volumes"]
+    document_indexes = [
+        item_index
+        for item_index, volume in enumerate(document_volumes)
+        if volume.get("role") == role
+    ]
+    if document_indexes != [index]:
+        raise ValueError(f"runtime volume role is ambiguous in edit document: {role}")
+    existing_item = document_volumes[index]["identity"]
+    document_volumes[index]["identity"] = _replacement_item(existing_item, identity)
+    candidate_source = tomlkit.dumps(document)
+
+    try:
+        candidate = tomllib.loads(candidate_source)
+    except tomllib.TOMLDecodeError as exc:  # pragma: no cover - guarded by TOML Kit
+        _fail("order_parse_failed", loaded.paths.order, str(exc))
+    _validate_order(candidate, loaded.paths.order)
+
+    expected = copy.deepcopy(loaded.order)
+    expected["runtime"]["volumes"][index]["identity"] = identity
+    if candidate != expected:
+        _fail(
+            "order_semantic_drift",
+            loaded.paths.order,
+            f"edit changed values outside runtime.volumes[{index}].identity",
         )
 
     _atomic_replace(loaded.paths.order, candidate_source.encode("utf-8"))
