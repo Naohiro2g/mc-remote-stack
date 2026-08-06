@@ -598,6 +598,85 @@ def test_bundled_alpha_preset_resolves_only_through_unverified_gate(
     assert lock["world"]["identity"] == "home-alpha-world"
 
 
+def test_bundled_b3_preset_resolves_only_with_credential_profile_and_unverified_gate(
+    tmp_path: Path,
+) -> None:
+    data_root = files("mc_remote_stack").joinpath("data")
+    project = init_toml_project(
+        tmp_path / "home-b3-alpha",
+        deployment_name="home-b3-alpha",
+        profile="home-server@3",
+        environment_identity="home-b3-alpha",
+        channel="alpha",
+        exposure="isolated",
+        purpose="integration",
+        preset="mcremote-paper@3",
+        artifact_store=str(tmp_path / "artifacts"),
+        runtime_volumes={
+            "minecraft-data": "home-b3-alpha-minecraft-data",
+            "credential-store": "home-b3-alpha-credential-store",
+            "credential-revocations": "home-b3-alpha-credential-revocations",
+        },
+        world_identity="home-b3-alpha-world",
+        bind_address="127.0.0.1",
+        java_port=25565,
+        mcremote_port=25575,
+        minecraft_eula=True,
+    )
+    _acknowledge(project.root, "unverified")
+
+    result = resolve_project(
+        project.root,
+        data_root=data_root,
+        allow_unverified=True,
+        resolved_at=FIRST_RESOLVED_AT,
+    )
+    lock = load_lock(project.root, data_root=data_root)
+
+    assert result.status == "created"
+    assert lock["input"]["profile"]["ref"] == "home-server@3"
+    assert lock["input"]["preset"]["ref"] == "mcremote-paper@3"
+    assert lock["compatibility"]["status"] == "unverified"
+    assert lock["compatibility"]["required_claims_sha256"] == (
+        "1171c2d2b352ff7ef8a9b90aa78ded38e9f510ad5dbc4770c6865332771347cf"
+    )
+    assert lock["compatibility"]["component_set_sha256"] == (
+        "70ffa50328ff3a2d1fe0d7d97f2c724e10cbd32052e24725193525e789818c73"
+    )
+    assert lock["compatibility"]["records"] == []
+    assert {
+        assignment["role"]: assignment["identity"]
+        for assignment in lock["runtime"]["volumes"]
+    } == {
+        "minecraft-data": "home-b3-alpha-minecraft-data",
+        "credential-store": "home-b3-alpha-credential-store",
+        "credential-revocations": "home-b3-alpha-credential-revocations",
+    }
+
+    incompatible = init_toml_project(
+        tmp_path / "home-b3-without-credential-profile",
+        deployment_name="home-b3-without-credential-profile",
+        profile="home-server@4",
+        environment_identity="home-b3-without-credential-profile",
+        channel="alpha",
+        exposure="isolated",
+        purpose="integration",
+        preset="mcremote-paper@3",
+        **_instance_kwargs("home-b3-without-credential-profile"),
+    )
+    _acknowledge(incompatible.root, "unverified")
+    with pytest.raises(ResolutionError) as exc_info:
+        resolve_project(
+            incompatible.root,
+            data_root=data_root,
+            allow_unverified=True,
+            resolved_at=FIRST_RESOLVED_AT,
+        )
+
+    assert exc_info.value.reason == "profile_incompatible"
+    assert "credential-rollback-separated" in str(exc_info.value)
+
+
 def test_public_web_profile_resolves_exact_multiservice_lock(tmp_path: Path) -> None:
     data_root = files("mc_remote_stack").joinpath("data")
     project = init_toml_project(

@@ -14,3 +14,8 @@ available_since = "2026-07-25"
 ref = "public-web-paper@1"
 status = "active"
 available_since = "2026-07-26"
+
+[[presets]]
+ref = "mcremote-paper@3"
+status = "active"
+available_since = "2026-08-07"

@@ -2,19 +2,47 @@
 
 確定前または別sliceへ送る作業だけを置く。private host名、IP、credential、account情報は書かない。
 
+## 2026-08-07 b3 release gate — McRemote協調checkpoint
+
+- [x] knowledge remote `main` commit `3dfbf57c07f2b7985c65edc5564b879f9e67e122`の最新dev agent
+  runtime protocol、`00-hub/release-gate-notes_ja.md`、`10-protocol/versioning-design_ja.md`
+  §10.11.1項14・15／§10.11.2、`11-plugin/platform-design_ja.md` §9を照合した。b3 scopeはcatalog一式と
+  Scratch `.sb3` save/load互換のままで、credential lifecycle／checkpoint、DoS guard、PoPを混ぜない。
+- [x] McRemote source `a3dab998b710f65f42f95058a68ec51d419b097c`からtag
+  `v1.21.11-2100.0.0b3`とGitHub prereleaseが作成された。asset
+  `mc-remote-1.21.11-2100.0.0b3.jar`はsize `138178`、SHA-256
+  `aeb190705bd9957ce73557dc1be0fe15efe7250ba9bc688945e6f537e00ef78e`。Stack自身のfetcherで再取得し、
+  release APIのdigest、作業依頼票、content-addressed store上の再計算値が一致した。
+- [x] append-onlyな`mcremote-paper@3`を追加し、`home-server@3`の
+  `credential-rollback-separated` capabilityだけで解決できるisolated alpha候補として固定した。
+  `home-server@4`等、二backend roleを持たないprofileとのresolveは`profile_incompatible`で拒否する。
+  compatibilityは`unverified`、required claimsは`profile-render` / `protocol-hello`のままである。
+- [x] 一時projectでresolver、plan、artifact fetch、compose@5 canonical renderを実行した。lock
+  `sha256:20532d350082fed32edec01c2757951f6b335d750b64366d50f1c526d5c544fe`、preset content
+  `f45ef27adb1dd80d1dda5cd80ddf16ee35332d72315751b48f0fbde8fbe38d19`。renderはauth enforced、
+  `/mcremote/credential-store`と`/mcremote/credential-revocations`の別volume、exact b3 JAR bindを持つ。
+- [ ] alpha applyはまだ行わない。b3 pluginは両backendが空のfresh起動を`UNINITIALIZED`として明示
+  credential bootstrapを要求する一方、Stackのbootstrap / reset transactionとcredential health
+  checkpoint consumerは未実装である。review済みlock、resource作成、plugin所有bootstrap surface呼出し、
+  失敗時の再試行境界を人間checkpoint込みで固定してからapplyする。
+- [ ] apply後はsanitized live-humanでLuckPerms effective meta＝hello `permissions.buildRange`＝実build
+  guardを確認する。long-lived公開gateを閉じるには別途live rollback / revoke evidenceが必要で、b3 catalog
+  gateと同一視しない。正式record／artifactのauthoringはknowledge側へ搬送し、private host名、player名、
+  UUID、token、pair codeはStackへ残さない。
+
 ## 2026-08-06 session close — b3 release gate再開点
 
 - [x] official public beta環境の修復は完了した（運用者確認）。これはb2環境の復旧完了であり、
   b3 release gateの合格やb3 artifactの確定を意味しない。
-- [ ] 次回はknowledgeの最新dev agent runtime protocolを取得後、同commitの
+- [x] knowledgeの最新dev agent runtime protocolを取得後、同commitの
   `00-hub/release-gate-notes_ja.md`、`10-protocol/versioning-design_ja.md` §10.11.2、b3定義を読み、
-  b3 release gate確認から再開する。
-- [ ] McRemote effective build range修正の21件PASSとbuild成功は、knowledge main
+  b3 release gate確認から再開した。
+- [x] McRemote effective build range修正の21件PASSとbuild成功は、knowledge main
   `97921f0626b00e0719801b7695769df1fea243e3`の`00-hub/NOTES_ja.md`にローカル進捗として
-  捕捉済み。ただし未コミットかつ既存catalog hardening変更を含む混在JARなので、release gateの
-  commit／artifact証跡には使わない。
-- [ ] 残る順序は、McRemoteで変更を分離したcommit・push・immutable artifactを作成し、Stackが
-  そのartifactを新preset revisionへexact-pinし、sanitized live-humanで再検証すること。
+  捕捉した当時の混在JARは正式証跡に使わず、後続のsource commit `a3dab998b710f65f42f95058a68ec51d419b097c`
+  とGitHub prerelease assetへ置き換えた。
+- [ ] McRemoteのimmutable artifact作成とStack `mcremote-paper@3` exact-pinまでは完了した。残る順序は
+  明示credential bootstrap / health境界を固定したalpha apply、sanitized live-human再検証である。
 - [x] credential checkpoint契約はknowledge `2026-08-06-02`へ着地確認OK。これはlong-lived
   credential gateの別sliceであり、契約着地や未実装checkpointをb3 scope／release gateへ混ぜない。
   checkpoint実装の未完了は直下の決定参照節で別途追跡する。
@@ -53,9 +81,9 @@
   欠落・parse失敗時0、LuckPerms不在時fallbackを変更せず、負値、context再設計、fallback既定値を
   本修正へ混ぜない。決定、維持事項、却下案、McRemote／Stackの担当分担は一致しており、
   knowledge remote `main`への着地確認OK。
-- [ ] 実装担当`Naohiro2g/McRemote`は上記knowledge commitを照合後、test-first修正とimmutable
-  artifact作成へ進む。Stackはplugin sourceを代理編集せず、artifactを受領後に新preset revisionへ
-  exact-pinし、sanitized live-humanでeffective meta＝hello buildRange＝実build guardを再検証する。
+- [x] McRemote source `a3dab998b710f65f42f95058a68ec51d419b097c`のtest-first修正を含む
+  GitHub prerelease artifactをStack `mcremote-paper@3`へexact-pinした。sanitized live-humanの
+  effective meta＝hello buildRange＝実build guard再検証は未完了である。
 
 ## 2026-08-05 b2 auth enforcement deployment correction
 
@@ -105,11 +133,9 @@
   server生成UUIDだけをfinal名に使い、同一directoryの`CREATE_NEW` temporary、非上書きpublish、
   symlink拒否、既存finalの同一性検証、破損・ID/hash矛盾のfail-closeを契約にする。
 - [x] plugin側は`CredentialStore`に加えて`RevocationAuthority`境界、domain mismatch fail-close、
-  durable tombstone、既存session終了を実装した。参照commitは`ecf967f6163bc8182ff399f685a6c9dc3c6d204d`。
-  clean exportからのtest / buildはPASSし、b3 JAR SHA-256は
-  `76ed56ae6ad60ae51bd0768c445c63c9a6fc979939b127ae5bcf533f40b493be`。remote branch
-  `feature/long-lived-credential`はclose票commit `238fc27902555604bfe3cd5b0eec802b14eeb6e5`まで
-  push済み。Stack presetへ固定できるrelease artifact originは未作成。
+  durable tombstone、既存session終了を実装した。b3 release sourceは
+  `a3dab998b710f65f42f95058a68ec51d419b097c`、GitHub prerelease assetのSHA-256は
+  `aeb190705bd9957ce73557dc1be0fe15efe7250ba9bc688945e6f537e00ef78e`である。
 - [x] stack側は`home-server@3` / `compose@5`で二backend roleと保存resourceを表現する。既定構成は
   `credential-store`と`credential-revocations`を`/data`外の別volumeへ置くことを推奨するが、物理
   二volumeをplugin起動条件にしない。alpha統合試験でrevoke拒否を強制するためprofile 3だけ
@@ -127,8 +153,9 @@
 - [x] doctorはlockどおりの三volume identity、writable mount、`/data`外のexact pathをlive containerで
   検査する。domain / store health判定は前項のprojection待ちであり、mount healthyだけでcredential
   healthyとは報告しない。
-- [ ] bundled b3 presetを新revisionで追加し、`home-server@3`とのapply contractを開く。現行
-  `mcremote-paper@2`は旧b2 JARなので組み合わせを拒否する。
+- [x] bundled `mcremote-paper@3`へexact b3 release assetを固定し、`home-server@3`だけで
+  resolver / fetch / renderできるunverified alpha contractを追加した。実apply contractは明示bootstrap /
+  reset transactionとcredential health consumerが未実装のため、まだ開かない。
 - [ ] exact plugin artifactとstack profileを固定したcross-repo `live-auto`で、準備済みA / BのA revoke→
   snapshotだけrollback→再起動を行い、A拒否・B成功・list / limit / current除外、authority継続、
   backup非包含、doctor healthyを一つのtransactionとして検証する。plugin単体のcrash / I/O fault試験を

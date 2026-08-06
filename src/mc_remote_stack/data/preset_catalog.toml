@@ -3,7 +3,7 @@ schema_version = 1
 [preset_catalog]
 generator = "mcrctl-preset-catalog-v1"
 canonicalization = "jcs-rfc8785-v1"
-source_sha256 = "fcab7817c66ba1350b43fd00ec0139128aee4d86f582a7d7214dde9332d0d70c"
+source_sha256 = "50386b14d38a9386efe7502f9d492a423a49ccee49a1faf750bb4084022b7acd"
 
 [[preset_catalog.presets]]
 ref = "mcremote-paper@1"
@@ -23,6 +23,17 @@ description = "Exact b2 artifacts for private alpha deployment-path validation"
 status = "active"
 available_since = "2026-07-25"
 required_profile_capabilities = ["compose", "paper", "persistent-world"]
+allowed_channels = ["alpha"]
+compatibility_status = "unverified"
+compatibility_records = []
+
+[[preset_catalog.presets]]
+ref = "mcremote-paper@3"
+content_sha256 = "f45ef27adb1dd80d1dda5cd80ddf16ee35332d72315751b48f0fbde8fbe38d19"
+description = "McRemote b3 catalog and rollback-separated credential integration candidate"
+status = "active"
+available_since = "2026-08-07"
+required_profile_capabilities = ["compose", "credential-rollback-separated", "paper", "persistent-world"]
 allowed_channels = ["alpha"]
 compatibility_status = "unverified"
 compatibility_records = []

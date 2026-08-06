@@ -8,7 +8,8 @@
 - knowledge確認commit: `58301cfa6d6ed998a8a6e38cdae1e8f7aa512abb`
 - knowledge着地commit: `9dd99f3aecccf4035cdfd5549d1e70f9f25d3b2d`
 - decision: `2026-08-02-01`（確定）/ `2026-08-02-03`（公開導線gate・保留）
-- plugin実装参照commit: `ecf967f6163bc8182ff399f685a6c9dc3c6d204d`
+- plugin b3 release source commit: `a3dab998b710f65f42f95058a68ec51d419b097c`
+- plugin b3 release evidence commit: `3dfbf57c07f2b7985c65edc5564b879f9e67e122`
 - 入力: 2026-08-01 long-lived credential lifecycle搬送票2
 
 ## 1. 解くべき不変条件
@@ -18,13 +19,13 @@
 > revoke成功を応答したlong-lived credentialは、rollback可能なcredential snapshotがrevoke前へ
 > 戻っても、再び認証成功してはならない。
 
-McRemote `ecf967f6163bc8182ff399f685a6c9dc3c6d204d`では、`mcrl_`、永続store、credential list /
-revoke / logout、`RevocationAuthority`が実装済みである。同commitをclean exportして
-`./gradlew clean test build`に成功し、生成JAR
-`mc-remote-1.21.11-2100.0.0b3.jar`のSHA-256は
-`76ed56ae6ad60ae51bd0768c445c63c9a6fc979939b127ae5bcf533f40b493be`である。ただし、同commitの
-remote branchはclose票commit `238fc27902555604bfe3cd5b0eec802b14eeb6e5`までpush済みだが、
-release artifact originは未作成であり、stackのbundled presetとlive apply gateにはまだ採用しない。
+McRemote `a3dab998b710f65f42f95058a68ec51d419b097c`では、`mcrl_`、永続store、credential list /
+revoke / logout、`RevocationAuthority`に加え、b3 catalogとLuckPerms effective build range修正が
+実装済みである。tag `v1.21.11-2100.0.0b3`のGitHub prerelease asset
+`mc-remote-1.21.11-2100.0.0b3.jar`はsize `138178`、SHA-256
+`aeb190705bd9957ce73557dc1be0fe15efe7250ba9bc688945e6f537e00ef78e`である。Stack自身のartifact
+fetcherで公開assetを再取得し、このdigestとの一致を確認した。bundled `mcremote-paper@3`はこのassetを
+exact-pinするが、compatibilityはlive evidenceが揃うまで`unverified`を維持する。
 
 この保証は、Minecraft world restoreやcredential snapshot restoreを誤って実行するoperatorから
 守る運用安全性である。host rootや同一JVMの悪意あるpluginがauthorityを改ざん・削除する攻撃までを
@@ -240,12 +241,14 @@ renderer `compose@5`を追加した。新revisionは`minecraft-data`、`credenti
 snapshotを`runtime-data`、authorityを`security-state`として区別し、将来の汎用backup選択でも両者を
 暗黙に同じ扱いへ戻さない。
 
-`compose@5`のrender、mount topology doctor、world-only restore試験は実装済みである。一方、bundled
-`mcremote-paper@2`は旧b2 JARのままなので、`home-server@3`とのlive apply contractは意図的に許可して
-いない。b3 commitにstableなremote originを与え、新preset revisionへSHA-256を固定してからapply gateを
-追加する。`home-server@3`はalpha統合試験でrevoke結果を実際に強制するため、生成するMcRemote設定の
-`auth.enforcement`を`true`とする。既存`home-server@2`のimmutable bytesは変更しない。b2の
-認証強制漏れを修正する通常profileは、append-onlyな`home-server@4` / `vps-server@5`として分離する。
+`compose@5`のrender、mount topology doctor、world-only restore試験は実装済みである。append-onlyな
+`mcremote-paper@3`は公開b3 JARをexact-pinし、`credential-rollback-separated` capabilityを要求するため、
+`home-server@3`だけでisolated alphaのresolver / fetch / renderへ進める。compatibilityは`unverified`で、
+両backendが空のfresh起動に必要な明示bootstrap / reset transactionとcredential health consumerが
+未実装の間は実apply contractを開かない。`home-server@3`はalpha統合試験でrevoke結果を実際に強制する
+ため、生成するMcRemote設定の`auth.enforcement`を`true`とする。既存preset / profileのimmutable bytesは
+変更しない。b2の認証強制漏れを修正する通常profileは、append-onlyな`home-server@4` / `vps-server@5`として
+分離する。
 
 非container Paperでも二backend pathを明示設定する。同一canonical path、一方が他方の配下になる設定、
 相対path、plugin data folderへの暗黙fallback、store障害時のin-memory fallbackはproduction authで

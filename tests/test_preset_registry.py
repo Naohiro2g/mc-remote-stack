@@ -712,3 +712,47 @@ def test_bundled_alpha_preset_is_immutable_unverified_and_catalogued() -> None:
     assert catalog["preset_catalog"]["presets"][1]["compatibility_status"] == "unverified"
     assert catalog["preset_catalog"]["presets"][1]["compatibility_records"] == []
     verify_preset_catalog()
+
+
+def test_bundled_b3_preset_is_exact_unverified_and_credential_profile_only() -> None:
+    policy = load_catalog_policy()
+    catalog = load_preset_catalog()
+    b2 = load_preset("mcremote-paper@2")
+    b3 = load_preset("mcremote-paper@3")
+
+    assert b3.data["requirements"] == {
+        "profile_capabilities": [
+            "compose",
+            "paper",
+            "persistent-world",
+            "credential-rollback-separated",
+        ],
+        "allowed_channels": ["alpha"],
+        "required_claims": ["profile-render", "protocol-hello"],
+    }
+    assert b3.data["components"] == b2.data["components"]
+    assert b3.data["artifacts"][:2] == b2.data["artifacts"][:2]
+    assert b3.data["artifacts"][2] == {
+        "id": "mcremote-jar",
+        "kind": "https-file",
+        "version": "2100.0.0b3",
+        "filename": "mc-remote-1.21.11-2100.0.0b3.jar",
+        "sha256": "aeb190705bd9957ce73557dc1be0fe15efe7250ba9bc688945e6f537e00ef78e",
+        "origin": (
+            "https://github.com/Naohiro2g/McRemote/releases/download/"
+            "v1.21.11-2100.0.0b3/mc-remote-1.21.11-2100.0.0b3.jar"
+        ),
+    }
+    assert policy["presets"][-1] == {
+        "ref": "mcremote-paper@3",
+        "status": "active",
+        "available_since": "2026-08-07",
+    }
+    catalog_entry = next(
+        entry
+        for entry in catalog["preset_catalog"]["presets"]
+        if entry["ref"] == "mcremote-paper@3"
+    )
+    assert catalog_entry["compatibility_status"] == "unverified"
+    assert catalog_entry["compatibility_records"] == []
+    verify_preset_catalog()
