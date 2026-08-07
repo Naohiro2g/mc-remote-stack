@@ -2,12 +2,12 @@
 
 確定前または別sliceへ送る作業だけを置く。private host名、IP、credential、account情報は書かない。
 
-## 2026-08-07 b3 release gate — McRemote協調checkpoint
+## 2026-08-07 b3 milestone close — McRemote協調結果 [→DEC 2026-08-07-01]
 
-- [x] knowledge remote `main` commit `3dfbf57c07f2b7985c65edc5564b879f9e67e122`の最新dev agent
-  runtime protocol、`00-hub/release-gate-notes_ja.md`、`10-protocol/versioning-design_ja.md`
-  §10.11.1項14・15／§10.11.2、`11-plugin/platform-design_ja.md` §9を照合した。b3 scopeはcatalog一式と
-  Scratch `.sb3` save/load互換のままで、credential lifecycle／checkpoint、DoS guard、PoPを混ぜない。
+- [x] knowledge remote `main` commit `7476a8cbf29d08663b075f5ce3517a03a142bbca`の最新dev agent
+  runtime protocol、`00-hub/DECISIONS_ja.md`の`2026-08-07-01`、`00-hub/authentication-roadmap_ja.md`、
+  `00-hub/NOTES_ja.md`を照合した。b3全体は完了扱いとし、long-lived公開gate、credential lifecycle／
+  checkpoint、alpha apply、追加live-humanをb3 release gateへ戻さない。
 - [x] McRemote source `a3dab998b710f65f42f95058a68ec51d419b097c`からtag
   `v1.21.11-2100.0.0b3`とGitHub prereleaseが作成された。asset
   `mc-remote-1.21.11-2100.0.0b3.jar`はsize `138178`、SHA-256
@@ -21,16 +21,17 @@
   `sha256:20532d350082fed32edec01c2757951f6b335d750b64366d50f1c526d5c544fe`、preset content
   `f45ef27adb1dd80d1dda5cd80ddf16ee35332d72315751b48f0fbde8fbe38d19`。renderはauth enforced、
   `/mcremote/credential-store`と`/mcremote/credential-revocations`の別volume、exact b3 JAR bindを持つ。
-- [ ] alpha applyはまだ行わない。b3 pluginは両backendが空のfresh起動を`UNINITIALIZED`として明示
+- [→DEC 2026-08-07-01] alpha applyはpost-b3 credential-lifecycle sliceとして再開まで行わない。
+  b3 pluginは両backendが空のfresh起動を`UNINITIALIZED`として明示
   credential bootstrapを要求する一方、Stackのbootstrap / reset transactionとcredential health
   checkpoint consumerは未実装である。review済みlock、resource作成、plugin所有bootstrap surface呼出し、
-  失敗時の再試行境界を人間checkpoint込みで固定してからapplyする。
-- [ ] apply後はsanitized live-humanでLuckPerms effective meta＝hello `permissions.buildRange`＝実build
-  guardを確認する。long-lived公開gateを閉じるには別途live rollback / revoke evidenceが必要で、b3 catalog
-  gateと同一視しない。正式record／artifactのauthoringはknowledge側へ搬送し、private host名、player名、
-  UUID、token、pair codeはStackへ残さない。
+  失敗時の再試行境界を人間checkpoint込みで固定してからapplyする。未実装であることはb3未完了を意味しない。
+- [→DEC 2026-08-07-01] apply後のsanitized live-humanではLuckPerms effective meta＝hello
+  `permissions.buildRange`＝実build guardをpost-b3運用証跡として確認する。long-lived公開gateには別途live
+  rollback / revoke evidenceが必要で、b3 catalog gateと同一視しない。正式record／artifactのauthoringは
+  knowledge側へ搬送し、private host名、player名、UUID、token、pair codeはStackへ残さない。
 
-## 2026-08-06 session close — b3 release gate再開点
+## 2026-08-06 session close — b3 release gate再開点（履歴）
 
 - [x] official public beta環境の修復は完了した（運用者確認）。これはb2環境の復旧完了であり、
   b3 release gateの合格やb3 artifactの確定を意味しない。
@@ -41,13 +42,16 @@
   `97921f0626b00e0719801b7695769df1fea243e3`の`00-hub/NOTES_ja.md`にローカル進捗として
   捕捉した当時の混在JARは正式証跡に使わず、後続のsource commit `a3dab998b710f65f42f95058a68ec51d419b097c`
   とGitHub prerelease assetへ置き換えた。
-- [ ] McRemoteのimmutable artifact作成とStack `mcremote-paper@3` exact-pinまでは完了した。残る順序は
-  明示credential bootstrap / health境界を固定したalpha apply、sanitized live-human再検証である。
+- [→DEC 2026-08-07-01] McRemoteのimmutable artifact作成とStack `mcremote-paper@3` exact-pinまでは完了した。
+  当時の残りとした明示credential bootstrap / health境界、alpha apply、sanitized live-human再検証は
+  post-b3 credential-lifecycle sliceへ再分類した。b3 release gateはこの行から再開しない。
 - [x] credential checkpoint契約はknowledge `2026-08-06-02`へ着地確認OK。これはlong-lived
   credential gateの別sliceであり、契約着地や未実装checkpointをb3 scope／release gateへ混ぜない。
   checkpoint実装の未完了は直下の決定参照節で別途追跡する。
 
-## 2026-08-06 credential health checkpoint [→DEC 2026-08-06-02]
+## 2026-08-06 credential health checkpoint [→DEC 2026-08-06-02 / 2026-08-07-01]
+
+以下の未実装項目はpost-b3 credential-lifecycle sliceであり、b3 release gateの残件ではない。
 
 - [x] 正式参照`Naohiro2g/mc-remote-knowledge` / commit
   `97921f0626b00e0719801b7695769df1fea243e3` / `00-hub/DECISIONS_ja.md` /
@@ -56,12 +60,13 @@
 - [x] projectionはconsole-onlyの明示checkpoint応答としてだけ生成する。heartbeat、定期／自発更新、
   RCON、wire、Stackによる内部JSON解析・生成・修復は使わない。McRemoteはbackendを変更せず完全再検証し、
   `/data/plugins/McRemote/credential-health.json`へ同一doctor runの非null nonceをatomic publishする。
-- [ ] McRemote／Stackは同じschema-v1 fixtureでnested object shapeとenum語彙をtest-first固定する。
+- [→DEC 2026-08-07-01] McRemote／Stackは同じschema-v1 fixtureでnested object shapeとenum語彙を
+  test-first固定する。
   fixtureと双方のwriter／parser testが揃うまで、Stack doctorはcheckpointを利用可能と主張しない。
-- [ ] Stackはdeployment単位のdoctor直列化、nonce、bounded read／retry、16 KiB・UTF-8・regular-file／
+- [→DEC 2026-08-07-01] Stackはdeployment単位のdoctor直列化、nonce、bounded read／retry、16 KiB・UTF-8・regular-file／
   non-symlink・schema／field整合のfail-closed検証を実装する。`CREATE_CONSOLE_IN_PIPE=true`とruntime
   UID／GIDをpreset／lock／renderとcontainer実体で再現可能に照合する。
-- [ ] bootstrap／reset transactionは別設計の未確定事項として残し、外部transaction IDをcheckpointへ
+- [→DEC 2026-08-07-01] bootstrap／reset transactionは別設計の未確定事項として残し、外部transaction IDをcheckpointへ
   混ぜない。契約着地だけではlong-lived credential gateを開かず、両repo実装、immutable artifact／
   preset、sanitized live、live restore後のauthority継続まで正式証跡を揃える。
 
@@ -83,7 +88,8 @@
   knowledge remote `main`への着地確認OK。
 - [x] McRemote source `a3dab998b710f65f42f95058a68ec51d419b097c`のtest-first修正を含む
   GitHub prerelease artifactをStack `mcremote-paper@3`へexact-pinした。sanitized live-humanの
-  effective meta＝hello buildRange＝実build guard再検証は未完了である。
+  effective meta＝hello buildRange＝実build guard再検証はpost-b3運用証跡へ送った
+  [→DEC 2026-08-07-01]。
 
 ## 2026-08-05 b2 auth enforcement deployment correction
 
@@ -141,10 +147,10 @@
   二volumeをplugin起動条件にしない。alpha統合試験でrevoke拒否を強制するためprofile 3だけ
   `auth.enforcement=true`とする。Authorityのvolume kindは`security-state`として通常runtime dataから
   区別し、現行`home-server@2` / `compose@1`へ破壊的追加しない。
-- [ ] stackはprofileに従うresource作成・mountと明示bootstrap / resetの承認・transactionだけを担い、
+- [→DEC 2026-08-07-01] stackはprofileに従うresource作成・mountと明示bootstrap / resetの承認・transactionだけを担い、
   domainやplugin内部JSONを生成しない。pluginが形式の正本となる。二backend初期化の途中状態は通常
   起動で自動修復せず、双方空または同一bootstrap transactionと検証できる場合だけ再試行する。
-- [ ] McRemote実装とstack profileを接続する前に、機械可読で非秘密なcredential health projectionと
+- [→DEC 2026-08-07-01] McRemote実装とstack profileを接続する前に、機械可読で非秘密なcredential health projectionと
   互換versionを両repoで固定する。現commitの`/mcremote credential status`とstartup logは人間向けで
   Stack doctor / bootstrap transactionの安定契約にはできない。projectionはplugin自身が検証した
   `UNINITIALIZED` / `HEALTHY` / `DEGRADED` / `UNHEALTHY`、snapshot / authority存在、domain一致を返し、
