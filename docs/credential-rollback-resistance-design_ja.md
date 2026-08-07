@@ -244,11 +244,13 @@ snapshotを`runtime-data`、authorityを`security-state`として区別し、将
 `compose@5`のrender、mount topology doctor、world-only restore試験は実装済みである。append-onlyな
 `mcremote-paper@3`は公開b3 JARをexact-pinし、`credential-rollback-separated` capabilityを要求するため、
 `home-server@3`だけでisolated alphaのresolver / fetch / renderへ進める。compatibilityは`unverified`で、
-両backendが空のfresh起動に必要な明示bootstrap / reset transactionとcredential health consumerが
-未実装の間は実apply contractを開かない。`home-server@3`はalpha統合試験でrevoke結果を実際に強制する
-ため、生成するMcRemote設定の`auth.enforcement`を`true`とする。既存preset / profileのimmutable bytesは
-変更しない。b2の認証強制漏れを修正する通常profileは、append-onlyな`home-server@4` / `vps-server@5`として
-分離する。
+両backendが空のfresh stateだけを対象とするcontrolled live testでは、既存の理由付きacknowledgementと
+review済みlockを要求してinitial applyを許可する。plugin所有console commandによるbootstrapと人間観測を
+検証時だけ使用し、command出力を恒久契約にしない。機械可読credential health consumerが未実装の間は
+通常doctorと一般運用のapply contractを開かず、resetもStackから呼ばない。`home-server@3`はalpha統合試験で
+revoke結果を実際に強制するため、生成するMcRemote設定の`auth.enforcement`を`true`とする。既存preset /
+profileのimmutable bytesは変更しない。b2の認証強制漏れを修正する通常profileは、append-onlyな
+`home-server@4` / `vps-server@5`として分離する。
 
 非container Paperでも二backend pathを明示設定する。同一canonical path、一方が他方の配下になる設定、
 相対path、plugin data folderへの暗黙fallback、store障害時のin-memory fallbackはproduction authで

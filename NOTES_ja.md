@@ -155,7 +155,10 @@
   healthyとは報告しない。
 - [x] bundled `mcremote-paper@3`へexact b3 release assetを固定し、`home-server@3`だけで
   resolver / fetch / renderできるunverified alpha contractを追加した。実apply contractは明示bootstrap /
-  reset transactionとcredential health consumerが未実装のため、まだ開かない。
+  reset transactionとcredential health consumerが未実装のため、一般運用にはまだ開かない。fresh stateの
+  controlled live testに限り、理由付きunverified acknowledgement、review済みlock、plugin consoleによる
+  一度だけのbootstrapを要求してinitial applyを許可する。手順は
+  [`docs/b3-credential-isolated-alpha-validation-guide_ja.md`](docs/b3-credential-isolated-alpha-validation-guide_ja.md)。
 - [ ] exact plugin artifactとstack profileを固定したcross-repo `live-auto`で、準備済みA / BのA revoke→
   snapshotだけrollback→再起動を行い、A拒否・B成功・list / limit / current除外、authority継続、
   backup非包含、doctor healthyを一つのtransactionとして検証する。plugin単体のcrash / I/O fault試験を
