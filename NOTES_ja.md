@@ -163,6 +163,12 @@
   snapshotだけrollback→再起動を行い、A拒否・B成功・list / limit / current除外、authority継続、
   backup非包含、doctor healthyを一つのtransactionとして検証する。plugin単体のcrash / I/O fault試験を
   このlive testの代用にせず、逆にstackからfile backend内部faultを注入しない。
+- [ ] 2026-08-07のb3 isolated alpha初回bootstrapで、fresh credential volume rootが`0:0 / 0755`の
+  ままmountされ、UID 1000のMcRemoteがbootstrap markerを作れず`UNHEALTHY`へfail closedすることを
+  live確認した。credential record / tombstoneは作成されず、既存二環境はhealthyを維持した。回帰修正は
+  compose@5のruntime UID/GIDを`1000:1000`へ固定し、新規credential volumeだけをexact runtime imageの
+  networkなし・read-only・CHOWN-only helperで起動前初期化する。現検証volumeは手動修復せず、修正merge後に
+  空のisolated projectとして再作成する。
 - [ ] 公開gateを閉じる際は、`/mcremote pair`を含む実際の`mcrl_`発行とdevice別revoke / logoutを
   `live-human`で一度確認し、token・pair code・UUIDをredactした正式evidenceをknowledgeへ搬送する。
 - [ ] plugin実装→stack profile / renderer→`2026-08-02-03`のlive rollback gateの順で閉じる。

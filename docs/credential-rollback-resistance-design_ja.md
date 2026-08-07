@@ -252,6 +252,18 @@ revoke結果を実際に強制するため、生成するMcRemote設定の`auth.
 profileのimmutable bytesは変更しない。b2の認証強制漏れを修正する通常profileは、append-onlyな
 `home-server@4` / `vps-server@5`として分離する。
 
+compose@5はMinecraft processのruntime identityをUID/GID `1000:1000`へ固定する。initial applyは
+新規作成した`credential-store` / `credential-revocations` volumeだけを、lock済みMinecraft runtime
+imageの一時containerで起動前に同ownerへ初期化する。一時containerはnetworkなし、read-only rootfs、
+`CHOWN` capabilityだけを持ち、対象volume root以外をmountしない。既存volumeは自動`chown`せず、
+initializer失敗時はMinecraftを起動しない。
+
+このpreflightは2026-08-07のb3 isolated alpha初回検証で得たlive findingに基づく。旧applyはDockerが
+作成したvolume rootを`0:0 / 0755`のまま`/mcremote/*`へmountしたため、UID 1000のMcRemoteが
+`.bootstrap-pending.json`を作成できず`UNHEALTHY`へfail closedした。credential内容は作成されず、
+既存environmentへの影響もなかった。手動`chown`を通常runbookへ採らず、deterministic applyの責務として
+修正する。
+
 非container Paperでも二backend pathを明示設定する。同一canonical path、一方が他方の配下になる設定、
 相対path、plugin data folderへの暗黙fallback、store障害時のin-memory fallbackはproduction authで
 受理しない。同じfilesystem上の兄弟directoryはprofileが保護範囲を限定して宣言する場合に許容できる。

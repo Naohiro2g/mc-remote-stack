@@ -289,6 +289,8 @@ def test_credential_storage_renderer_mounts_security_state_outside_data(
     assert result.status == "created"
     compose = yaml.safe_load((output / "compose.yaml").read_text(encoding="utf-8"))
     minecraft = compose["services"]["minecraft"]
+    assert minecraft["environment"]["UID"] == "1000"
+    assert minecraft["environment"]["GID"] == "1000"
     credential_mounts = [
         mount
         for mount in minecraft["volumes"]

@@ -8,6 +8,7 @@ import pytest
 from mc_remote_stack.apply import (
     ApplyContractError,
     TomlApplyResult,
+    _initialize_created_credential_volumes,
     _safe_command_failure_detail,
     _validate_bootstrap_contract,
     apply_toml_project,
@@ -315,6 +316,104 @@ def test_b3_credential_alpha_requires_one_shot_unverified_allowance(
     assert runner.calls == []
 
 
+def test_fresh_credential_volumes_are_initialized_for_pinned_runtime_user() -> None:
+    image = "registry.example/minecraft:fixture-java21@sha256:" + "a" * 64
+    command = _docker(
+        "run",
+        "--rm",
+        "--pull",
+        "never",
+        "--network",
+        "none",
+        "--read-only",
+        "--cap-drop",
+        "ALL",
+        "--cap-add",
+        "CHOWN",
+        "--user",
+        "0:0",
+        "--mount",
+        (
+            "type=volume,source=home-b3-alpha-credential-store,"
+            "target=/credential-store,volume-nocopy"
+        ),
+        "--mount",
+        (
+            "type=volume,source=home-b3-alpha-credential-revocations,"
+            "target=/credential-revocations,volume-nocopy"
+        ),
+        "--entrypoint",
+        "chown",
+        image,
+        "1000:1000",
+        "/credential-store",
+        "/credential-revocations",
+    )
+    runner = FakeDocker({command: [_result(command)]})
+
+    _initialize_created_credential_volumes(
+        runner,
+        ["docker", "--context", "default"],
+        image=image,
+        volume_assignments={
+            "minecraft-data": "home-b3-alpha-minecraft-data",
+            "credential-store": "home-b3-alpha-credential-store",
+            "credential-revocations": "home-b3-alpha-credential-revocations",
+        },
+        created_volumes={
+            "home-b3-alpha-minecraft-data",
+            "home-b3-alpha-credential-store",
+            "home-b3-alpha-credential-revocations",
+        },
+    )
+
+    assert runner.calls == [(command, 120)]
+
+
+def test_credential_volume_initializer_does_not_touch_existing_state() -> None:
+    runner = FakeDocker({})
+
+    _initialize_created_credential_volumes(
+        runner,
+        ["docker", "--context", "default"],
+        image="registry.example/minecraft:fixture-java21@sha256:" + "a" * 64,
+        volume_assignments={
+            "minecraft-data": "home-b3-alpha-minecraft-data",
+            "credential-store": "home-b3-alpha-credential-store",
+            "credential-revocations": "home-b3-alpha-credential-revocations",
+        },
+        created_volumes={"home-b3-alpha-minecraft-data"},
+    )
+
+    assert runner.calls == []
+
+
+def test_credential_volume_initializer_failure_is_fail_closed() -> None:
+    image = "registry.example/minecraft:fixture-java21@sha256:" + "a" * 64
+    calls: list[tuple[tuple[str, ...], int]] = []
+
+    def failing_runner(
+        command: list[str], timeout: int
+    ) -> subprocess.CompletedProcess[str]:
+        calls.append((tuple(command), timeout))
+        return _result(tuple(command), returncode=1, stderr="chown failed\n")
+
+    with pytest.raises(ApplyContractError) as exc_info:
+        _initialize_created_credential_volumes(
+            failing_runner,
+            ["docker", "--context", "default"],
+            image=image,
+            volume_assignments={
+                "credential-store": "home-b3-alpha-credential-store",
+                "credential-revocations": "home-b3-alpha-credential-revocations",
+            },
+            created_volumes={"home-b3-alpha-credential-store"},
+        )
+
+    assert exc_info.value.reason == "bootstrap_volume_initialize_failed"
+    assert all("credential-revocations" not in part for part in calls[0][0])
+
+
 def _compose_base(output: Path) -> tuple[str, ...]:
     return _docker(
         "compose",
@@ -327,15 +426,15 @@ def _compose_base(output: Path) -> tuple[str, ...]:
     )
 
 
-def _managed_volume(lock: dict) -> dict:
+def _managed_volume(lock: dict, name: str = "home-beta-minecraft-data") -> dict:
     return {
-        "Name": "home-beta-minecraft-data",
+        "Name": name,
         "Driver": "local",
         "Labels": {
             "io.mc-remote.owner": "mcrctl",
-            "io.mc-remote.deployment": "home",
-            "io.mc-remote.environment": "home-beta",
-            "io.mc-remote.world": "home-beta-world",
+            "io.mc-remote.deployment": lock["deployment"]["name"],
+            "io.mc-remote.environment": lock["environment"]["identity"],
+            "io.mc-remote.world": lock["world"]["identity"],
             "io.mc-remote.created-by-lock": lock["lock_identity"],
         },
     }
@@ -351,7 +450,7 @@ def _managed_container(
         "Id": "container-current",
         "Config": {
             "Labels": {
-                "com.docker.compose.project": "home",
+                "com.docker.compose.project": lock["deployment"]["name"],
                 "com.docker.compose.service": "minecraft",
                 "com.docker.compose.project.config_files": str(
                     output.resolve() / "compose.yaml"
@@ -359,9 +458,9 @@ def _managed_container(
                 "com.docker.compose.project.working_dir": str(
                     output.resolve()
                 ),
-                "io.mc-remote.deployment": "home",
-                "io.mc-remote.environment": "home-beta",
-                "io.mc-remote.world": "home-beta-world",
+                "io.mc-remote.deployment": lock["deployment"]["name"],
+                "io.mc-remote.environment": lock["environment"]["identity"],
+                "io.mc-remote.world": lock["world"]["identity"],
                 "io.mc-remote.lock": lock["lock_identity"],
             }
         },
@@ -372,12 +471,23 @@ def _managed_container(
 def _read_only_responses(
     output: Path,
     *,
+    lock: dict | None = None,
     project_containers: list[str] | None = None,
     volume_names: list[str] | None = None,
 ) -> dict[tuple[str, ...], list[subprocess.CompletedProcess[str]]]:
     base = _compose_base(output)
+    compose_project = lock["deployment"]["name"] if lock else "home"
+    expected_volumes = (
+        [assignment["identity"] for assignment in lock["runtime"]["volumes"]]
+        if lock
+        else ["home-beta-minecraft-data"]
+    )
+    ports = (
+        [str(lock["network"]["java_port"]), str(lock["network"]["mcremote_port"])]
+        if lock
+        else ["25565", "25575"]
+    )
     container_stdout = "".join(f"{value}\n" for value in (project_containers or []))
-    volume_stdout = "".join(f"{value}\n" for value in (volume_names or []))
     commands = {
         ("docker", "context", "inspect", "default"): [
             _result(
@@ -400,30 +510,32 @@ def _read_only_responses(
             "--all",
             "--quiet",
             "--filter",
-            "label=com.docker.compose.project=home",
+            f"label=com.docker.compose.project={compose_project}",
         ): [_result(("docker",), stdout=container_stdout)],
-        _docker(
-            "volume",
-            "ls",
-            "--quiet",
-            "--filter",
-            "name=^home\\-beta\\-minecraft\\-data$",
-        ): [_result(("docker",), stdout=volume_stdout)],
-        _docker(
-            "ps",
-            "--all",
-            "--quiet",
-            "--filter",
-            "publish=25565",
-        ): [_result(("docker",))],
-        _docker(
-            "ps",
-            "--all",
-            "--quiet",
-            "--filter",
-            "publish=25575",
-        ): [_result(("docker",))],
     }
+    existing_volumes = set(volume_names or [])
+    for volume in expected_volumes:
+        volume_stdout = f"{volume}\n" if volume in existing_volumes else ""
+        escaped_volume = volume.replace("-", "\\-")
+        commands[
+            _docker(
+                "volume",
+                "ls",
+                "--quiet",
+                "--filter",
+                f"name=^{escaped_volume}$",
+            )
+        ] = [_result(("docker",), stdout=volume_stdout)]
+    for port in ports:
+        commands[
+            _docker(
+                "ps",
+                "--all",
+                "--quiet",
+                "--filter",
+                f"publish={port}",
+            )
+        ] = [_result(("docker",))]
     return commands
 
 
@@ -555,6 +667,133 @@ def test_bootstrap_apply_is_bound_to_current_lock_and_verified_render(
             "home-beta-minecraft-data",
         )
     )
+
+
+def test_b3_apply_initializes_fresh_credential_volumes_before_compose_up(
+    tmp_path: Path,
+) -> None:
+    project, data_root, output, lock = _prepared_b3_credential_project(tmp_path)
+    base = _compose_base(output)
+    responses = _read_only_responses(output, lock=lock)
+    labels = _managed_volume(lock)["Labels"]
+    volumes = {
+        assignment["role"]: assignment["identity"]
+        for assignment in lock["runtime"]["volumes"]
+    }
+    runtime_component = next(
+        component
+        for component in lock["components"]
+        if component["role"] == "minecraft-runtime"
+    )
+    runtime_artifact = next(
+        artifact
+        for artifact in lock["artifacts"]
+        if artifact["id"] == runtime_component["artifact"]
+    )
+    image = (
+        f"{runtime_artifact['locator']}:{runtime_artifact['version']}"
+        f"@{runtime_artifact['digest']}"
+    )
+    responses[base + ("pull", "--policy", "always", "--quiet", "minecraft")] = [
+        _result(base)
+    ]
+    for volume in volumes.values():
+        create_arguments = ["volume", "create", "--driver", "local"]
+        for key, value in labels.items():
+            create_arguments.extend(["--label", f"{key}={value}"])
+        create_arguments.append(volume)
+        create_command = _docker(*create_arguments)
+        responses[create_command] = [_result(create_command, stdout=f"{volume}\n")]
+        inspect_command = _docker("volume", "inspect", volume)
+        responses[inspect_command] = [
+            _result(
+                inspect_command,
+                stdout=json.dumps([_managed_volume(lock, volume)]) + "\n",
+            )
+        ]
+    initialize_command = _docker(
+        "run",
+        "--rm",
+        "--pull",
+        "never",
+        "--network",
+        "none",
+        "--read-only",
+        "--cap-drop",
+        "ALL",
+        "--cap-add",
+        "CHOWN",
+        "--user",
+        "0:0",
+        "--mount",
+        (
+            f"type=volume,source={volumes['credential-store']},"
+            "target=/credential-store,volume-nocopy"
+        ),
+        "--mount",
+        (
+            f"type=volume,source={volumes['credential-revocations']},"
+            "target=/credential-revocations,volume-nocopy"
+        ),
+        "--entrypoint",
+        "chown",
+        image,
+        "1000:1000",
+        "/credential-store",
+        "/credential-revocations",
+    )
+    responses[initialize_command] = [_result(initialize_command)]
+    up_command = base + (
+        "up",
+        "--detach",
+        "--wait",
+        "--wait-timeout",
+        "300",
+        "--no-build",
+        "--pull",
+        "never",
+        "minecraft",
+    )
+    responses[up_command] = [_result(up_command)]
+    project_ps = _docker(
+        "ps",
+        "--all",
+        "--quiet",
+        "--filter",
+        "label=com.docker.compose.project=home-b3-alpha",
+    )
+    responses[project_ps] = [
+        responses[project_ps][0],
+        _result(project_ps, stdout="container-current\n"),
+    ]
+    inspect_container = _docker("inspect", "container-current")
+    responses[inspect_container] = [
+        _result(
+            inspect_container,
+            stdout=json.dumps([_managed_container(lock, output)]) + "\n",
+        )
+    ]
+    runner = FakeDocker(responses)
+    progress: list[str] = []
+
+    result = apply_toml_project(
+        project,
+        output,
+        expected_lock_identity=lock["lock_identity"],
+        docker_context="default",
+        data_root=data_root,
+        bootstrap=True,
+        confirmed=True,
+        allow_unverified=True,
+        runner=runner,
+        port_probe=lambda _address, _port: None,
+        progress=progress.append,
+    )
+
+    assert result.status == "created"
+    assert "initialize-credential-volumes" in progress
+    commands = [command for command, _timeout in runner.calls]
+    assert commands.index(initialize_command) < commands.index(up_command)
 
 
 @pytest.mark.parametrize(

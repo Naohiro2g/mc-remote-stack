@@ -17,6 +17,7 @@ import yaml
 
 from .preset_registry import semantic_sha256
 from .resolver import inspect_lock, load_lock
+from .runtime_contract import MINECRAFT_RUNTIME_GID, MINECRAFT_RUNTIME_UID
 from .toml_project import load_order
 from .validation import Issue, LoadedProject, validate_project
 from .yamlio import dump_mapping
@@ -409,28 +410,37 @@ def _compose_v1(
         ]
     )
 
+    environment = {
+        "EULA": "TRUE",
+        "TYPE": "PAPER",
+        "VERSION": minecraft_version,
+        "PAPER_CUSTOM_JAR": f"/artifacts/{paper_filename}",
+        "ONLINE_MODE": "true",
+        "ENABLE_RCON": "false",
+        "CREATE_CONSOLE_IN_PIPE": "true",
+        "REMOVE_OLD_MODS": "true",
+        "REMOVE_OLD_MODS_DEPTH": "1",
+        "SKIP_DOWNLOAD_DEFAULTS": "true",
+        "COPY_CONFIG_DEST": "/data",
+        "SYNC_SKIP_NEWER_IN_DESTINATION": "false",
+        "REPLACE_ENV_DURING_SYNC": "false",
+        "LEVEL": world_identity,
+    }
+    if credential_storage:
+        environment.update(
+            {
+                "UID": str(MINECRAFT_RUNTIME_UID),
+                "GID": str(MINECRAFT_RUNTIME_GID),
+            }
+        )
+
     compose = {
         "name": deployment_name,
         "services": {
             service_id: {
                 "image": image,
                 "restart": "unless-stopped",
-                "environment": {
-                    "EULA": "TRUE",
-                    "TYPE": "PAPER",
-                    "VERSION": minecraft_version,
-                    "PAPER_CUSTOM_JAR": f"/artifacts/{paper_filename}",
-                    "ONLINE_MODE": "true",
-                    "ENABLE_RCON": "false",
-                    "CREATE_CONSOLE_IN_PIPE": "true",
-                    "REMOVE_OLD_MODS": "true",
-                    "REMOVE_OLD_MODS_DEPTH": "1",
-                    "SKIP_DOWNLOAD_DEFAULTS": "true",
-                    "COPY_CONFIG_DEST": "/data",
-                    "SYNC_SKIP_NEWER_IN_DESTINATION": "false",
-                    "REPLACE_ENV_DURING_SYNC": "false",
-                    "LEVEL": world_identity,
-                },
+                "environment": environment,
                 "ports": [
                     f"{network['bind_address']}:{network['java_port']}:25565/tcp",
                     f"{network['bind_address']}:{network['mcremote_port']}:25575/tcp",
