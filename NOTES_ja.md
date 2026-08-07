@@ -159,28 +159,30 @@
   controlled live testに限り、理由付きunverified acknowledgement、review済みlock、plugin consoleによる
   一度だけのbootstrapを要求してinitial applyを許可する。手順は
   [`docs/b3-credential-isolated-alpha-validation-guide_ja.md`](docs/b3-credential-isolated-alpha-validation-guide_ja.md)。
-- [ ] exact plugin artifactとstack profileを固定したcross-repo `live-auto`で、準備済みA / BのA revoke→
+- [→DEC 2026-08-07-01] exact plugin artifactとstack profileを固定したcross-repo `live-auto`で、準備済みA / BのA revoke→
   snapshotだけrollback→再起動を行い、A拒否・B成功・list / limit / current除外、authority継続、
   backup非包含、doctor healthyを一つのtransactionとして検証する。plugin単体のcrash / I/O fault試験を
-  このlive testの代用にせず、逆にstackからfile backend内部faultを注入しない。
-- [ ] 2026-08-07のb3 isolated alpha初回bootstrapで、fresh credential volume rootが`0:0 / 0755`の
+  このlive testの代用にせず、逆にstackからfile backend内部faultを注入しない。b3残件には戻さず、
+  ケータリング実践で需要を確認した後の人間の横断決定まで後続送りとする。
+- [done] 2026-08-07のb3 isolated alpha初回bootstrapで、fresh credential volume rootが`0:0 / 0755`の
   ままmountされ、UID 1000のMcRemoteがbootstrap markerを作れず`UNHEALTHY`へfail closedすることを
   live確認した。credential record / tombstoneは作成されず、既存二環境はhealthyを維持した。回帰修正は
   compose@5のruntime UID/GIDを`1000:1000`へ固定し、新規credential volumeだけをexact runtime imageの
-  networkなし・read-only・CHOWN-only helperで起動前初期化する。現検証volumeは手動修復せず、修正merge後に
-  空のisolated projectとして再作成する。
-- [ ] 公開gateを閉じる際は、`/mcremote pair`を含む実際の`mcrl_`発行とdevice別revoke / logoutを
+  networkなし・read-only・CHOWN-only helperで起動前初期化する形でmergeした。isolated projectを空から
+  再作成し、bootstrap、同一domainの正常restart、tokenなし`auth_required`、`mcrl_` pairing、client再接続、
+  server restart後の再接続までPASSした。A/B revokeとrollbackは未実施であり、公開gateの根拠へ拡張しない。
+- [→DEC 2026-08-07-01] 公開gateを閉じる際は、`/mcremote pair`を含む実際の`mcrl_`発行とdevice別revoke / logoutを
   `live-human`で一度確認し、token・pair code・UUIDをredactした正式evidenceをknowledgeへ搬送する。
-- [ ] plugin実装→stack profile / renderer→`2026-08-02-03`のlive rollback gateの順で閉じる。
+- [→DEC 2026-08-07-01] credential-lifecycle再開後は正式list / revoke / logout API→checkpoint＋doctor→
+  secret-safe runner→snapshot rollback transaction→reset / disaster recoveryの順で閉じる。
   authority自体をrollbackする脅威には外部単調状態が必要であり、offline
   cateringのhost全損ではcredential継続を主張しない。VPSで継続性を主張する場合はrevoke成功前の
   off-host同期durable commitを要求し、remote freshnessを証明できない復旧は全失効へ倒す。
 - [x] stack / McRemote双方の着地確認OK後、2026-08-03に一時handoff materialをcleanupした。
-- [ ] 2026-08-04 session close時点で、knowledge main
-  `16e888376114b73609c75b02ca028fc414545a04`の契約とは一致するが、
-  `11-plugin/platform-design_ja.md` §9.9と`2026-08-02-03`の実装状況は、まだplugin本体・二backend
-  profile未実装という古い記載である。両source repoのcommit / pushとcross-repo検証後に進捗を更新する。
-  `2026-08-02-08`の`mcrs_`再起動継続は別実装sliceとして残し、long-lived完了へ混ぜない。
+- [done] 旧knowledge記載と実装状況のdriftは、knowledge
+  `552d27fb67122be9da332310490a0bf8ecbe8363`の`2026-08-07-01`と
+  `00-hub/authentication-roadmap_ja.md`で解消した。b3横断スコープは完了・凍結し、既定`session`と
+  long-lived公開gateを維持したまま、b4利用者向け機能とケータリング観察へ進む。
 
 ## 2026-07-31 Bridge共有単位／connection_targets schema、knowledge着地確認OK [→DEC 2026-07-30-03]
 
