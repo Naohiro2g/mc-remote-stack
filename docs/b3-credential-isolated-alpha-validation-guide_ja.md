@@ -100,6 +100,8 @@ uv run mcrctl apply \
 ```
 
 apply成功はcontainerとmount topologyの成立だけを意味し、credential domainの健康を意味しない。
+fresh credential volumeのroot ownerはapplyが起動前にruntime UID/GID `1000:1000`へ初期化する。
+既存volumeを暗黙に`chown`しないため、owner不一致やpartial stateを検出した場合は手動修復せず停止する。
 canonical composeから対象containerを一意に解決し、container-local consoleへ一度だけ投入する。
 
 ```bash
@@ -122,11 +124,11 @@ docker --context default logs --follow --tail 100 "$CONTAINER_ID"
 
 ```bash
 
-docker --context default exec "$CONTAINER_ID" \
+docker --context default exec --user 1000:1000 "$CONTAINER_ID" \
   mc-send-to-console "mcremote credential status"
-docker --context default exec "$CONTAINER_ID" \
+docker --context default exec --user 1000:1000 "$CONTAINER_ID" \
   mc-send-to-console "mcremote credential bootstrap"
-docker --context default exec "$CONTAINER_ID" \
+docker --context default exec --user 1000:1000 "$CONTAINER_ID" \
   mc-send-to-console "mcremote credential status"
 ```
 
