@@ -6,7 +6,8 @@ MinecraftとMcRemoteのpublic betaを構築する。provider、実IP、個人名
 
 ## 0. 現在の完成範囲
 
-現在実装済みの`vps-server@5`は、次を一つのpublic bootstrap transactionとして扱う。
+現在実装済みの`vps-server@6` / `public-web-paper@2`は、b3のScratch、Bridge、
+McRemoteをsession-only認証で固定し、次を一つのpublic bootstrap transactionとして扱う。
 
 - exact OCI Caddy / Scratch / Bridge / Minecraft runtime、Paper JAR、McRemote JAR
 - Caddyだけをpublic edgeへ接続し、backend間通信をinternal app networkへ限定
@@ -26,6 +27,18 @@ MinecraftとMcRemoteのpublic betaを構築する。provider、実IP、個人名
 - HTTPS / WSSの外部smokeを行うdoctor claim
 - backup / restore、upgrade、既存world import、stable / beta排他切替
 - 既存deploymentからのin-place migration
+
+### 現行b2 VPSの停止境界
+
+`official-public-beta`の現行観測は`vps-server@5` / `public-web-paper@1`相当のb2で、
+recovery用の追加Composeと旧generated treeを使っている。新規host用の
+`vps-server@6` / `public-web-paper@2`が解決・renderできることは、そのlive runtimeを
+上書きしてよい根拠にならない。
+
+b2からb3への更新に`--bootstrap`を使わない。先に人間のinteractive sudo checkpointで
+live Docker inspect / doctorを取得し、現行のCompose file列、working directory、volume、
+plugin / config mountを確定する。それらを保存したb3 upgrade transactionは未実装であり、
+実装とreviewが終わるまで現行runtimeを変更しない。
 
 旧`official-vps` YAML fixtureは、Caddy / Scratch / Bridgeを含む回帰比較と過去構成の読取りに
 残しているが、新規VPSのapply経路ではない。archiveやprivate inventoryをこのrunbookの
@@ -124,12 +137,12 @@ cd "$MC_REMOTE_STACK"
 uv run mcrctl init "$MC_REMOTE_PROJECT" \
   --format toml \
   --deployment-name official-public-beta \
-  --profile vps-server@5 \
+  --profile vps-server@6 \
   --environment-identity official-public-beta \
   --channel beta \
   --exposure public \
   --purpose integration \
-  --preset public-web-paper@1 \
+  --preset public-web-paper@2 \
   --artifact-store "$MC_REMOTE_ARTIFACT_STORE" \
   --volume minecraft-data=official-public-beta-minecraft-data \
   --volume caddy-data=official-public-beta-caddy-data \
@@ -209,7 +222,7 @@ cd "$MC_REMOTE_STACK"
 uv run mcrctl accept-eula --project "$MC_REMOTE_PROJECT" --yes
 ```
 
-`vps-server@5` + `public-web-paper@1`は、public VPSでの新TOML live evidenceが正式着地するまでは
+`vps-server@6` + `public-web-paper@2`は、public VPSでのb3 live evidenceが正式着地するまでは
 `unverified`である。bootstrapを行う人間は`mc-remote.toml`へ次を記録する。
 
 ```toml

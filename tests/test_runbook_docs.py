@@ -24,8 +24,8 @@ def test_public_vps_runbook_uses_the_real_toml_init_cli() -> None:
 
     assert "mcrctl init-toml" not in guide
     assert "mcrctl init \"$MC_REMOTE_PROJECT\" \\\n  --format toml" in guide
-    assert "--profile vps-server@5" in guide
-    assert "--preset public-web-paper@1" in guide
+    assert "--profile vps-server@6" in guide
+    assert "--preset public-web-paper@2" in guide
     assert "--volume caddy-data=official-public-beta-caddy-data" in guide
     assert 'adapter = "public-routes@1"' in guide
     assert 'adapter = "minecraft-server@1"' in guide
@@ -57,3 +57,15 @@ def test_public_vps_runbook_uses_resumable_auth_migration_transaction() -> None:
     assert '--auth-config-root "$AUTH_CONFIG_ROOT"' in guide
     assert "review済みの追加Composeだけをexact SHA-256で保存" in guide
     assert "旧runtimeへ自動復帰しない" in guide
+
+
+def test_public_vps_runbook_does_not_treat_b2_to_b3_as_bootstrap() -> None:
+    guide = (REPO_ROOT / "docs" / "public-vps-bootstrap-guide_ja.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert "vps-server@5` / `public-web-paper@1`" in guide
+    assert "vps-server@6` / `public-web-paper@2`" in guide
+    assert "b2からb3への更新に`--bootstrap`を使わない" in guide
+    assert "live Docker inspect / doctor" in guide
+    assert "upgrade transactionは未実装" in guide
