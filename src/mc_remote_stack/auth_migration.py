@@ -9,6 +9,8 @@ import os
 import re
 import shutil
 import tempfile
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from importlib.resources.abc import Traversable
 from pathlib import Path
@@ -63,6 +65,47 @@ PROFILE_TRANSITIONS = {
     "home-server@2": "home-server@4",
     "vps-server@4": "vps-server@5",
 }
+
+
+@dataclass(frozen=True)
+class MigrationSpec:
+    name: str
+    schema: str
+    relative: Path
+    profile_transitions: dict[str, str]
+    preset_transitions: dict[str, str]
+    candidate_policy: str
+
+
+AUTH_ENFORCEMENT_MIGRATION = MigrationSpec(
+    name=MIGRATION_NAME,
+    schema=MIGRATION_SCHEMA,
+    relative=MIGRATION_RELATIVE,
+    profile_transitions=PROFILE_TRANSITIONS,
+    preset_transitions={},
+    candidate_policy="auth-only",
+)
+PUBLIC_B3_MIGRATION = MigrationSpec(
+    name="public-b3",
+    schema="mcrctl.public-b3-migration",
+    relative=Path(".mcrctl") / "migrations" / "public-b3",
+    profile_transitions={"vps-server@5": "vps-server@6"},
+    preset_transitions={"public-web-paper@1": "public-web-paper@2"},
+    candidate_policy="public-b3",
+)
+_ACTIVE_MIGRATION: ContextVar[MigrationSpec] = ContextVar(
+    "mc_remote_stack_active_migration",
+    default=AUTH_ENFORCEMENT_MIGRATION,
+)
+
+
+@contextmanager
+def _activate_migration(spec: MigrationSpec):
+    token = _ACTIVE_MIGRATION.set(spec)
+    try:
+        yield
+    finally:
+        _ACTIVE_MIGRATION.reset(token)
 SHA256_IDENTITY = re.compile(r"^sha256:[0-9a-f]{64}$")
 MAX_PRESERVED_COMPOSE_FILES = 4
 MAX_PRESERVED_COMPOSE_BYTES = 64 * 1024
@@ -129,7 +172,7 @@ def _fail(reason: str, path: object, message: str) -> None:
 
 
 def _migration_root(project_root: Path) -> Path:
-    return project_root.resolve() / MIGRATION_RELATIVE
+    return project_root.resolve() / _ACTIVE_MIGRATION.get().relative
 
 
 def _state_path(project_root: Path) -> Path:
@@ -221,9 +264,9 @@ def load_auth_migration_state(project_root: Path) -> dict[str, Any]:
     if set(value) != required:
         _fail("migration_transaction_invalid", path, "transaction fields do not match schema version 1")
     if (
-        value["schema"] != MIGRATION_SCHEMA
+        value["schema"] != _ACTIVE_MIGRATION.get().schema
         or value["schema_version"] != MIGRATION_SCHEMA_VERSION
-        or value["migration"] != MIGRATION_NAME
+        or value["migration"] != _ACTIVE_MIGRATION.get().name
         or value["phase"] not in PHASES
         or not isinstance(value["project_root"], str)
         or not isinstance(value["output"], str)
@@ -305,6 +348,7 @@ def _build_candidate(
     destination: Path,
     *,
     target_profile: str,
+    target_preset: str | None = None,
     target_volumes: dict[str, str],
     data_root: Traversable,
     allow_unverified: bool,
@@ -313,6 +357,8 @@ def _build_candidate(
 ) -> tuple[dict[str, Any], Path]:
     _copy_project_source(project_root, destination, output)
     update_order_scalar(destination, ("deployment", "profile"), target_profile)
+    if target_preset is not None:
+        update_order_scalar(destination, ("deployment", "preset"), target_preset)
     for role, identity in sorted(target_volumes.items()):
         update_order_volume_identity(destination, role, identity)
     resolve_project(
@@ -333,12 +379,12 @@ def _validate_transition(
     target_volumes: dict[str, str],
 ) -> tuple[str, tuple[tuple[str, str, str], ...]]:
     source_profile = source_lock["input"]["profile"]["ref"]
-    target_profile = PROFILE_TRANSITIONS.get(source_profile)
+    target_profile = _ACTIVE_MIGRATION.get().profile_transitions.get(source_profile)
     if target_profile is None:
         _fail(
             "migration_transition_unsupported",
             "input.profile.ref",
-            f"auth-enforcement migration does not support source profile {source_profile}",
+            f"{_ACTIVE_MIGRATION.get().name} migration does not support source profile {source_profile}",
         )
     source_volumes = {
         volume["role"]: volume["identity"]
@@ -542,10 +588,60 @@ def _make_plan(
     )
 
 
-def _validate_auth_only_candidate(
+def _validate_migration_candidate(
     source_lock: dict[str, Any],
     target_lock: dict[str, Any],
 ) -> None:
+    spec = _ACTIVE_MIGRATION.get()
+    if spec.candidate_policy == "public-b3":
+        exact_fields = (
+            "environment",
+            "world",
+            "network",
+            "agreements",
+            "acknowledgements",
+            "operator_inputs",
+            "secret_references",
+            "scope",
+        )
+        source_runtime = {
+            key: value for key, value in source_lock["runtime"].items() if key != "volumes"
+        }
+        target_runtime = {
+            key: value for key, value in target_lock["runtime"].items() if key != "volumes"
+        }
+        source_render = source_lock["render_plan"]
+        target_render = target_lock["render_plan"]
+        source_profile = source_lock["input"]["profile"]["ref"]
+        target_profile = target_lock["input"]["profile"]["ref"]
+        source_preset = source_lock["input"]["preset"]["ref"]
+        target_preset = target_lock["input"]["preset"]["ref"]
+        if (
+            source_profile != "vps-server@5"
+            or target_profile != spec.profile_transitions.get(source_profile)
+            or source_preset != "public-web-paper@1"
+            or target_preset != spec.preset_transitions.get(source_preset)
+            or any(source_lock[field] != target_lock[field] for field in exact_fields)
+            or source_lock["deployment"]["name"] != target_lock["deployment"]["name"]
+            or source_runtime != target_runtime
+            or source_render["adapter"] != "compose"
+            or target_render["adapter"] != "compose"
+            or source_render["adapter_revision"] != "7"
+            or target_render["adapter_revision"] != "8"
+            or source_render["services"] != target_render["services"]
+            or source_render["volume_roles"] != target_render["volume_roles"]
+            or source_render["operator_inputs"] != target_render["operator_inputs"]
+            or set(target_render["required_security_controls"])
+            != set(source_render["required_security_controls"])
+            | {"mcremote-session-only"}
+        ):
+            _fail(
+                "migration_transition_not_reviewed",
+                "migration.target_lock",
+                "candidate changes state beyond the exact reviewed public b2-to-b3 release transition",
+            )
+        return
+
     exact_fields = (
         "environment",
         "world",
@@ -1251,6 +1347,8 @@ def plan_auth_enforcement_migration(
         )
         source_lock = source_verification.lock
         target_profile, migrations = _validate_transition(source_lock, target_volumes)
+        source_preset = source_lock["input"]["preset"]["ref"]
+        target_preset = _ACTIVE_MIGRATION.get().preset_transitions.get(source_preset)
         (
             preserved_files,
             preserved_sha256,
@@ -1268,13 +1366,14 @@ def plan_auth_enforcement_migration(
                 output,
                 candidate_root,
                 target_profile=target_profile,
+                target_preset=target_preset,
                 target_volumes=target_volumes,
                 data_root=data_root,
                 allow_unverified=allow_unverified,
                 allow_eol=allow_eol,
                 resolved_at=source_lock["resolved_at"],
             )
-            _validate_auth_only_candidate(source_lock, target_lock)
+            _validate_migration_candidate(source_lock, target_lock)
             plan = _make_plan(
                 project_root,
                 output,
@@ -1322,9 +1421,9 @@ def plan_auth_enforcement_migration(
 
 def _state_from_plan(plan: AuthMigrationPlan) -> dict[str, Any]:
     return {
-        "schema": MIGRATION_SCHEMA,
+        "schema": _ACTIVE_MIGRATION.get().schema,
         "schema_version": MIGRATION_SCHEMA_VERSION,
-        "migration": MIGRATION_NAME,
+        "migration": _ACTIVE_MIGRATION.get().name,
         "phase": "prepared",
         "project_root": str(plan.project_root),
         "output": str(plan.output),
@@ -1406,7 +1505,7 @@ def _prepare_transaction(
     migration_root.parent.mkdir(parents=True, exist_ok=True)
     temporary = Path(
         tempfile.mkdtemp(
-            prefix=f".{MIGRATION_NAME}.",
+            prefix=f".{_ACTIVE_MIGRATION.get().name}.",
             suffix=".prepare",
             dir=migration_root.parent,
         )
@@ -1415,11 +1514,13 @@ def _prepare_transaction(
         candidate_root = temporary / "candidate"
         source_render = temporary / "source-render"
         source_lock = load_lock(plan.project_root, data_root=data_root)
+        source_preset = source_lock["input"]["preset"]["ref"]
         target_lock, _candidate_output = _build_candidate(
             plan.project_root,
             source_output,
             candidate_root,
             target_profile=plan.target_profile,
+            target_preset=_ACTIVE_MIGRATION.get().preset_transitions.get(source_preset),
             target_volumes=target_volumes,
             data_root=data_root,
             allow_unverified=allow_unverified,
@@ -1438,6 +1539,20 @@ def _prepare_transaction(
             source_output,
         )
         shutil.copytree(source_output, source_render)
+        if (
+            _ACTIVE_MIGRATION.get().candidate_policy == "public-b3"
+            and plan.auth_config_root is not None
+        ):
+            source_auth_config = (
+                plan.auth_config_root / "plugins" / "McRemote" / "config.yml"
+            )
+            if source_auth_config.is_symlink() or not source_auth_config.is_file():
+                _fail(
+                    "migration_auth_config_invalid",
+                    source_auth_config,
+                    "public b3 migration requires the exact existing external McRemote config",
+                )
+            shutil.copyfile(source_auth_config, temporary / "source-auth-config.yml")
         state = _state_from_plan(plan)
         preserved_root = temporary / "preserved-compose"
         if state["preserved_compose_files"]:
@@ -1584,13 +1699,34 @@ def _install_auth_config(plan: AuthMigrationPlan) -> None:
     destination_directory = plan.auth_config_root / "plugins" / "McRemote"
     destination = destination_directory / "config.yml"
     if destination.exists() or destination.is_symlink():
-        if destination.is_symlink() or not destination.is_file() or destination.read_bytes() != content:
+        if destination.is_symlink() or not destination.is_file():
             _fail(
                 "migration_auth_config_conflict",
                 destination,
                 "existing private McRemote config differs from the target generated config",
             )
-        return
+        existing = destination.read_bytes()
+        if existing == content:
+            return
+        if _ACTIVE_MIGRATION.get().candidate_policy == "public-b3":
+            source_snapshot = _migration_root(plan.project_root) / "source-auth-config.yml"
+            if (
+                source_snapshot.is_symlink()
+                or not source_snapshot.is_file()
+                or source_snapshot.read_bytes() != existing
+            ):
+                _fail(
+                    "migration_auth_config_conflict",
+                    destination,
+                    "external McRemote config differs from both reviewed source and target",
+                )
+            _atomic_write(destination, content, mode=0o640)
+            return
+        _fail(
+            "migration_auth_config_conflict",
+            destination,
+            "existing private McRemote config differs from the target generated config",
+        )
     destination_directory.mkdir(parents=True, exist_ok=True, mode=0o750)
     _atomic_write(destination, content, mode=0o640)
     _fsync_directory(destination_directory.parent)
@@ -1616,7 +1752,7 @@ def _load_transaction_locks(
         candidate_root / "generated",
         data_root=data_root,
     ).lock
-    _validate_auth_only_candidate(loaded_source, loaded_target)
+    _validate_migration_candidate(loaded_source, loaded_target)
     if (
         loaded_source["lock_identity"] != plan.source_lock_identity
         or loaded_target["lock_identity"] != plan.target_lock_identity
@@ -1644,8 +1780,12 @@ def _load_transaction_locks(
     if (
         plan.source_profile != source_profile
         or plan.target_profile != target_profile
-        or PROFILE_TRANSITIONS.get(source_profile) != target_profile
-        or loaded_source["input"]["preset"]["ref"]
+        or _ACTIVE_MIGRATION.get().profile_transitions.get(source_profile)
+        != target_profile
+        or _ACTIVE_MIGRATION.get().preset_transitions.get(
+            loaded_source["input"]["preset"]["ref"],
+            loaded_source["input"]["preset"]["ref"],
+        )
         != loaded_target["input"]["preset"]["ref"]
         or loaded_source["deployment"]["name"] != plan.deployment
         or loaded_target["deployment"]["name"] != plan.deployment
@@ -1926,7 +2066,8 @@ def apply_auth_enforcement_migration(
             project_root / ORDER_NAME,
             "migration requires an existing TOML deployment project",
         )
-    lock_path = project_root / ".mcrctl" / "migrations" / f"{MIGRATION_NAME}.lock"
+    migration_name = _ACTIVE_MIGRATION.get().name
+    lock_path = project_root / ".mcrctl" / "migrations" / f"{migration_name}.lock"
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     descriptor = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o640)
     try:
@@ -1936,7 +2077,7 @@ def apply_auth_enforcement_migration(
             _fail(
                 "migration_concurrent_apply",
                 lock_path,
-                "another auth-enforcement apply is already running",
+                f"another {migration_name} apply is already running",
             )
         return _apply_auth_enforcement_migration_locked(
             project_root,
@@ -1963,3 +2104,24 @@ def apply_auth_enforcement_migration(
     finally:
         fcntl.flock(descriptor, fcntl.LOCK_UN)
         os.close(descriptor)
+
+
+def plan_public_b3_upgrade(*args: Any, **kwargs: Any) -> AuthMigrationPlan:
+    """Plan the exact public b2-to-b3 migration in its own durable namespace."""
+
+    with _activate_migration(PUBLIC_B3_MIGRATION):
+        return plan_auth_enforcement_migration(*args, **kwargs)
+
+
+def apply_public_b3_upgrade(*args: Any, **kwargs: Any) -> AuthMigrationResult:
+    """Apply or resume the exact public b2-to-b3 migration."""
+
+    with _activate_migration(PUBLIC_B3_MIGRATION):
+        return apply_auth_enforcement_migration(*args, **kwargs)
+
+
+def load_public_b3_upgrade_state(project_root: Path) -> dict[str, Any]:
+    """Load one durable public b3 migration state."""
+
+    with _activate_migration(PUBLIC_B3_MIGRATION):
+        return load_auth_migration_state(project_root)

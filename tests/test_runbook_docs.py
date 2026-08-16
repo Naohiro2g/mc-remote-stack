@@ -68,4 +68,7 @@ def test_public_vps_runbook_does_not_treat_b2_to_b3_as_bootstrap() -> None:
     assert "vps-server@6` / `public-web-paper@2`" in guide
     assert "b2からb3への更新に`--bootstrap`を使わない" in guide
     assert "live Docker inspect / doctor" in guide
-    assert "upgrade transactionは未実装" in guide
+    assert 'mcrctl" migration public-b3 plan' in guide
+    assert 'mcrctl" migration public-b3 apply' in guide
+    assert "source volumeは削除しない" in guide
+    assert "source-auth-config.yml" in guide

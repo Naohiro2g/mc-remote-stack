@@ -311,8 +311,9 @@
   `vps-server@6` / `public-web-paper@2`へexact digestで固定した。McRemote b3は長期credentialを
   開かず、session-only構成とする。compatibilityはVPS live evidenceの正式着地まで`unverified`とする。
 - 現行b2はrecovery overrideと旧generated Composeを使っており、新規bootstrapで上書きしない。
-  live Compose provenance、volume、plugin / config mountを保存するb3 upgrade transactionは未実装である。
-  そのreviewと人間sudo checkpoint完了までVPS runtimeは変更しない。
+  `migration public-b3`は別volumeへのcopy、review済みCompose / source auth configのsnapshot、
+  exact b3 candidateのpublish、start / doctor、phase resumeを一つのtransactionとする。
+  人間sudo checkpointでplanのlive preflightとidentity reviewを終えるまでVPS runtimeは変更しない。
 
 ## 2026-07-27 catering VPS session handoff
 

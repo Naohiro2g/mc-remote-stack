@@ -37,8 +37,55 @@ recovery用の追加Composeと旧generated treeを使っている。新規host�
 
 b2からb3への更新に`--bootstrap`を使わない。先に人間のinteractive sudo checkpointで
 live Docker inspect / doctorを取得し、現行のCompose file列、working directory、volume、
-plugin / config mountを確定する。それらを保存したb3 upgrade transactionは未実装であり、
-実装とreviewが終わるまで現行runtimeを変更しない。
+plugin / config mountを確定する。専用transactionは新しい3 volumeへsource bytesをcopyし、
+review済みrecovery ComposeをSHA-256でsnapshotしたうえでb3を起動する。
+
+```sh
+MC_REMOTE_STACK="$HOME/mc-remote-stack"
+MC_REMOTE_PROJECT="$HOME/mc-remote-deployments/official-public-beta"
+MC_REMOTE_OUTPUT="$MC_REMOTE_PROJECT/generated"
+AUTH_CONFIG_ROOT="$HOME/.config/mc-remote/runtime/official-public-beta/minecraft"
+
+sudo "$MC_REMOTE_STACK/.venv/bin/mcrctl" migration public-b3 plan \
+  --project "$MC_REMOTE_PROJECT" \
+  --output "$MC_REMOTE_OUTPUT" \
+  --docker-context default \
+  --target-volume minecraft-data=official-public-beta-b3-minecraft-data \
+  --target-volume caddy-data=official-public-beta-b3-caddy-data \
+  --target-volume caddy-config=official-public-beta-b3-caddy-config \
+  --preserve-compose-file "$MC_REMOTE_PROJECT/recovery/compose.recovery-plugins.yaml" \
+  --preserve-compose-file "$MC_REMOTE_PROJECT/recovery/compose.homepage.yaml" \
+  --auth-config-root "$AUTH_CONFIG_ROOT" \
+  --allow-unverified
+```
+
+planが示すsource / target lock、volume copy、preserved compositionをreviewしてから適用する。
+
+```sh
+REVIEWED_SOURCE_LOCK="sha256:<planで確認したsource>"
+REVIEWED_TARGET_LOCK="sha256:<planで確認したtarget>"
+REVIEWED_COMPOSITION="sha256:<planで確認したpreserved-composition>"
+
+sudo "$MC_REMOTE_STACK/.venv/bin/mcrctl" migration public-b3 apply \
+  --project "$MC_REMOTE_PROJECT" \
+  --output "$MC_REMOTE_OUTPUT" \
+  --docker-context default \
+  --target-volume minecraft-data=official-public-beta-b3-minecraft-data \
+  --target-volume caddy-data=official-public-beta-b3-caddy-data \
+  --target-volume caddy-config=official-public-beta-b3-caddy-config \
+  --preserve-compose-file "$MC_REMOTE_PROJECT/recovery/compose.recovery-plugins.yaml" \
+  --preserve-compose-file "$MC_REMOTE_PROJECT/recovery/compose.homepage.yaml" \
+  --auth-config-root "$AUTH_CONFIG_ROOT" \
+  --expected-source-lock-identity "$REVIEWED_SOURCE_LOCK" \
+  --expected-target-lock-identity "$REVIEWED_TARGET_LOCK" \
+  --expected-preserved-composition-identity "$REVIEWED_COMPOSITION" \
+  --allow-unverified \
+  --yes
+```
+
+transactionは`.mcrctl/migrations/public-b3/`へsource render、target candidate、Compose snapshot、
+`source-auth-config.yml`を保存する。source volumeは削除しない。失敗時はphaseと理由を保存し、
+同じlock identityと引数でresumeする。旧runtimeを自動起動せず、旧volumeやsnapshotを削除しない。
 
 旧`official-vps` YAML fixtureは、Caddy / Scratch / Bridgeを含む回帰比較と過去構成の読取りに
 残しているが、新規VPSのapply経路ではない。archiveやprivate inventoryをこのrunbookの
