@@ -45,6 +45,30 @@ MC_REMOTE_STACK="$HOME/mc-remote-stack"
 MC_REMOTE_PROJECT="$HOME/mc-remote-deployments/official-public-beta"
 MC_REMOTE_OUTPUT="$MC_REMOTE_PROJECT/generated"
 AUTH_CONFIG_ROOT="$HOME/.config/mc-remote/runtime/official-public-beta/minecraft"
+```
+
+現行Minecraft containerをexactly oneまで絞り、Dockerが記録したCompose provenanceを確認する。
+
+```sh
+sudo docker ps \
+  --filter "label=com.docker.compose.project=official-public-beta" \
+  --filter "label=com.docker.compose.service=minecraft" \
+  --format '{{.ID}}'
+
+SOURCE_MINECRAFT_CONTAINER="<上で確認したexactly oneのcontainer ID>"
+sudo docker inspect \
+  --format '{{ index .Config.Labels "com.docker.compose.project.config_files" }}' \
+  "$SOURCE_MINECRAFT_CONTAINER"
+```
+
+前段の`auth-enforcement` transactionから起動した現行runtimeでは、追加Composeのidentityは
+原本の`recovery/` pathではなく、そのtransactionが固定したsnapshot pathである。内容が同じでも
+原本へ置き換えず、inspect結果の順序どおりにexact pathを指定する。現在期待する2 pathは次である。
+inspect結果が異なる場合は推測せず、そのruntimeを起動したreview済みfile列を先に確定する。
+
+```sh
+SOURCE_RECOVERY_COMPOSE="$MC_REMOTE_PROJECT/.mcrctl/migrations/auth-enforcement/preserved-compose/00-compose.recovery-plugins.yaml"
+SOURCE_HOMEPAGE_COMPOSE="$MC_REMOTE_PROJECT/.mcrctl/migrations/auth-enforcement/preserved-compose/01-compose.homepage.yaml"
 
 sudo "$MC_REMOTE_STACK/.venv/bin/mcrctl" migration public-b3 plan \
   --project "$MC_REMOTE_PROJECT" \
@@ -53,8 +77,8 @@ sudo "$MC_REMOTE_STACK/.venv/bin/mcrctl" migration public-b3 plan \
   --target-volume minecraft-data=official-public-beta-b3-minecraft-data \
   --target-volume caddy-data=official-public-beta-b3-caddy-data \
   --target-volume caddy-config=official-public-beta-b3-caddy-config \
-  --preserve-compose-file "$MC_REMOTE_PROJECT/recovery/compose.recovery-plugins.yaml" \
-  --preserve-compose-file "$MC_REMOTE_PROJECT/recovery/compose.homepage.yaml" \
+  --preserve-compose-file "$SOURCE_RECOVERY_COMPOSE" \
+  --preserve-compose-file "$SOURCE_HOMEPAGE_COMPOSE" \
   --auth-config-root "$AUTH_CONFIG_ROOT" \
   --allow-unverified
 ```
@@ -73,8 +97,8 @@ sudo "$MC_REMOTE_STACK/.venv/bin/mcrctl" migration public-b3 apply \
   --target-volume minecraft-data=official-public-beta-b3-minecraft-data \
   --target-volume caddy-data=official-public-beta-b3-caddy-data \
   --target-volume caddy-config=official-public-beta-b3-caddy-config \
-  --preserve-compose-file "$MC_REMOTE_PROJECT/recovery/compose.recovery-plugins.yaml" \
-  --preserve-compose-file "$MC_REMOTE_PROJECT/recovery/compose.homepage.yaml" \
+  --preserve-compose-file "$SOURCE_RECOVERY_COMPOSE" \
+  --preserve-compose-file "$SOURCE_HOMEPAGE_COMPOSE" \
   --auth-config-root "$AUTH_CONFIG_ROOT" \
   --expected-source-lock-identity "$REVIEWED_SOURCE_LOCK" \
   --expected-target-lock-identity "$REVIEWED_TARGET_LOCK" \

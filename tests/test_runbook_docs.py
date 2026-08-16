@@ -72,3 +72,22 @@ def test_public_vps_runbook_does_not_treat_b2_to_b3_as_bootstrap() -> None:
     assert 'mcrctl" migration public-b3 apply' in guide
     assert "source volumeは削除しない" in guide
     assert "source-auth-config.yml" in guide
+
+
+def test_public_b3_runbook_reuses_exact_runtime_compose_provenance() -> None:
+    guide = (REPO_ROOT / "docs" / "public-vps-bootstrap-guide_ja.md").read_text(
+        encoding="utf-8"
+    )
+    section = guide.split("### 現行b2 VPSの停止境界", 1)[1].split("## 1.", 1)[0]
+
+    assert "com.docker.compose.project.config_files" in section
+    assert '--preserve-compose-file "$SOURCE_RECOVERY_COMPOSE"' in section
+    assert '--preserve-compose-file "$SOURCE_HOMEPAGE_COMPOSE"' in section
+    assert (
+        '--preserve-compose-file "$MC_REMOTE_PROJECT/recovery/'
+        'compose.recovery-plugins.yaml"'
+    ) not in section
+    assert (
+        '--preserve-compose-file "$MC_REMOTE_PROJECT/recovery/'
+        'compose.homepage.yaml"'
+    ) not in section
