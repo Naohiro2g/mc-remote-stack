@@ -303,6 +303,18 @@
 - **未整理のまま残った項目**: 個人環境でのCloudflare Tunnelの具体的な用途、VPS-ホームサーバー間の
   SSH tunnel構成。いずれも別途検討が要る。
 
+## 2026-08-16 official public beta b3 preparation
+
+- public Scratch runtime configとhost上の参照可能artifactから、現行`official-public-beta`は
+  b2でありb3ではないことを確認した。live Docker inspect / doctorはinteractive sudo待ちである。
+- b3 Scratch / Bridge OCI indexをsource `3f1a10a366bfbe76e32b5a31c54da19eddd56e56`から生成し、
+  `vps-server@6` / `public-web-paper@2`へexact digestで固定した。McRemote b3は長期credentialを
+  開かず、session-only構成とする。compatibilityはVPS live evidenceの正式着地まで`unverified`とする。
+- 現行b2はrecovery overrideと旧generated Composeを使っており、新規bootstrapで上書きしない。
+  `migration public-b3`は別volumeへのcopy、review済みCompose / source auth configのsnapshot、
+  exact b3 candidateのpublish、start / doctor、phase resumeを一つのtransactionとする。
+  人間sudo checkpointでplanのlive preflightとidentity reviewを終えるまでVPS runtimeは変更しない。
+
 ## 2026-07-27 catering VPS session handoff
 
 ### Git / deployment現在地

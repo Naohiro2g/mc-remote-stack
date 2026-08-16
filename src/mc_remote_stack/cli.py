@@ -19,7 +19,9 @@ from .artifacts import (
 from .auth_migration import (
     AuthMigrationContractError,
     apply_auth_enforcement_migration,
+    apply_public_b3_upgrade,
     plan_auth_enforcement_migration,
+    plan_public_b3_upgrade,
 )
 from .backup import (
     BackupTransferError,
@@ -830,6 +832,121 @@ def _cmd_auth_migration_apply(args: argparse.Namespace) -> int:
     return 0
 
 
+def _print_public_b3_plan(plan) -> None:
+    print(
+        f"PLAN migration=public-b3 deployment={plan.deployment} "
+        f"environment={plan.environment} context={plan.docker_context}"
+    )
+    print(
+        f"PLAN source-profile={plan.source_profile} source-lock={plan.source_lock_identity}"
+    )
+    print(
+        f"PLAN target-profile={plan.target_profile} target-lock={plan.target_lock_identity}"
+    )
+    print("PLAN release=public-web-paper@1->public-web-paper@2")
+    for role, source, target in plan.volume_migrations:
+        print(f"PLAN volume={role}:{source}->{target}")
+    for path, sha256 in zip(
+        plan.preserved_compose_files,
+        plan.preserved_compose_sha256,
+        strict=True,
+    ):
+        print(f"PLAN preserve-compose={path} sha256={sha256}")
+    if plan.auth_config_root is not None:
+        print(f"PLAN auth-config-root={plan.auth_config_root}")
+        print(f"PLAN preserved-composition={plan.preserved_composition_identity}")
+    print("PLAN failure-policy=retain-source-volumes-and-resume-target")
+
+
+def _cmd_public_b3_plan(args: argparse.Namespace) -> int:
+    project = Path(args.project)
+    volumes, status = _migration_target_volumes(
+        args.target_volume,
+        operation="migration public-b3 plan",
+        project=project.resolve(),
+    )
+    if volumes is None:
+        return status
+    try:
+        plan = plan_public_b3_upgrade(
+            project,
+            Path(args.output),
+            docker_context=args.docker_context,
+            target_volumes=volumes,
+            preserved_compose_files=tuple(Path(path) for path in args.preserve_compose_file),
+            auth_config_root=(Path(args.auth_config_root) if args.auth_config_root else None),
+            data_root=_preset_data_root(),
+            allow_unverified=args.allow_unverified,
+            allow_eol=args.allow_eol,
+        )
+    except (
+        AuthMigrationContractError,
+        PresetDataError,
+        ProjectOrderError,
+        RenderContractError,
+        ResolutionError,
+    ) as exc:
+        return _print_structured_failure("migration public-b3 plan", exc)
+    except OSError as exc:
+        print(f"FAIL migration public-b3 plan: {exc}")
+        return 2
+    _print_public_b3_plan(plan)
+    return 0
+
+
+def _cmd_public_b3_apply(args: argparse.Namespace) -> int:
+    project = Path(args.project)
+    volumes, status = _migration_target_volumes(
+        args.target_volume,
+        operation="migration public-b3 apply",
+        project=project.resolve(),
+    )
+    if volumes is None:
+        return status
+    try:
+        result = apply_public_b3_upgrade(
+            project,
+            Path(args.output),
+            docker_context=args.docker_context,
+            target_volumes=volumes,
+            preserved_compose_files=tuple(Path(path) for path in args.preserve_compose_file),
+            auth_config_root=(Path(args.auth_config_root) if args.auth_config_root else None),
+            expected_source_lock_identity=args.expected_source_lock_identity,
+            expected_target_lock_identity=args.expected_target_lock_identity,
+            expected_preserved_composition_identity=(
+                args.expected_preserved_composition_identity
+            ),
+            data_root=_preset_data_root(),
+            confirmed=args.yes,
+            allow_unverified=args.allow_unverified,
+            allow_eol=args.allow_eol,
+            wait_timeout=args.wait_timeout,
+            progress=lambda step: print(
+                f"PROGRESS migration public-b3 step={step}",
+                flush=True,
+            ),
+        )
+    except (
+        AuthMigrationContractError,
+        PresetDataError,
+        ProjectOrderError,
+        RenderContractError,
+        ResolutionError,
+    ) as exc:
+        return _print_structured_failure("migration public-b3 apply", exc)
+    except OSError as exc:
+        print(f"FAIL migration public-b3 apply: {exc}")
+        return 2
+    print(
+        f"OK migration public-b3 status={result.status} "
+        f"source-lock={result.source_lock_identity} "
+        f"target-lock={result.target_lock_identity} phase={result.phase}"
+    )
+    if args.allow_unverified:
+        print("WARN migration used the one-shot unverified acknowledgement")
+    return 0
+
+
 def _cmd_doctor(args: argparse.Namespace) -> int:
     project_path = Path(args.project)
     if not _uses_toml_project(project_path):
@@ -1415,6 +1532,37 @@ def build_parser() -> argparse.ArgumentParser:
             action_parser.set_defaults(handler=_cmd_auth_migration_apply)
         else:
             action_parser.set_defaults(handler=_cmd_auth_migration_plan)
+
+    public_b3_parser = migration_subparsers.add_parser(
+        "public-b3",
+        help="upgrade the exact public b2 deployment to the b3 compatibility set",
+    )
+    public_b3_subparsers = public_b3_parser.add_subparsers(
+        dest="public_b3_command",
+        required=True,
+    )
+    for action in ("plan", "apply"):
+        action_parser = public_b3_subparsers.add_parser(
+            action,
+            help=f"{action} the exact public b2-to-b3 deployed-state migration",
+        )
+        action_parser.add_argument("--project", required=True)
+        action_parser.add_argument("--output", required=True)
+        action_parser.add_argument("--docker-context", required=True)
+        action_parser.add_argument("--target-volume", action="append", required=True)
+        action_parser.add_argument("--preserve-compose-file", action="append", default=[])
+        action_parser.add_argument("--auth-config-root")
+        action_parser.add_argument("--allow-unverified", action="store_true")
+        action_parser.add_argument("--allow-eol", action="store_true")
+        if action == "apply":
+            action_parser.add_argument("--expected-source-lock-identity", required=True)
+            action_parser.add_argument("--expected-target-lock-identity", required=True)
+            action_parser.add_argument("--expected-preserved-composition-identity")
+            action_parser.add_argument("--wait-timeout", type=int, default=300)
+            action_parser.add_argument("--yes", action="store_true")
+            action_parser.set_defaults(handler=_cmd_public_b3_apply)
+        else:
+            action_parser.set_defaults(handler=_cmd_public_b3_plan)
 
     doctor_parser = subparsers.add_parser(
         "doctor",

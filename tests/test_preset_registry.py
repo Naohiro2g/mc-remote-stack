@@ -756,3 +756,47 @@ def test_bundled_b3_preset_is_exact_unverified_and_credential_profile_only() -> 
     assert catalog_entry["compatibility_status"] == "unverified"
     assert catalog_entry["compatibility_records"] == []
     verify_preset_catalog()
+
+
+def test_bundled_public_b3_profile_and_preset_are_session_only() -> None:
+    profile = load_profile("vps-server@6")
+    preset = load_preset("public-web-paper@2")
+
+    assert profile.data["renderer"] == {"name": "compose", "revision": "8"}
+    assert "mcremote-session-only" in profile.data["capabilities"]["provided"]
+    assert "credential-rollback-separated" not in profile.data["capabilities"][
+        "provided"
+    ]
+    assert profile.data["volume_roles"] == [
+        {"id": "minecraft-data", "kind": "world"},
+        {"id": "caddy-data", "kind": "runtime-data"},
+        {"id": "caddy-config", "kind": "runtime-data"},
+    ]
+    assert "mcremote-session-only" in preset.data["requirements"][
+        "profile_capabilities"
+    ]
+    artifacts = {item["id"]: item for item in preset.data["artifacts"]}
+    assert artifacts["scratch-image"]["version"] == (
+        "sha-3f1a10a366bfbe76e32b5a31c54da19eddd56e56"
+    )
+    assert artifacts["bridge-image"]["version"] == (
+        "sha-3f1a10a366bfbe76e32b5a31c54da19eddd56e56"
+    )
+    assert artifacts["mcremote-jar"] == {
+        "id": "mcremote-jar",
+        "kind": "https-file",
+        "version": "2100.0.0b3",
+        "filename": "mc-remote-1.21.11-2100.0.0b3.jar",
+        "sha256": "aeb190705bd9957ce73557dc1be0fe15efe7250ba9bc688945e6f537e00ef78e",
+        "origin": (
+            "https://github.com/Naohiro2g/McRemote/releases/download/"
+            "v1.21.11-2100.0.0b3/mc-remote-1.21.11-2100.0.0b3.jar"
+        ),
+    }
+    catalog = load_preset_catalog()["preset_catalog"]["presets"]
+    catalog_entry = next(
+        item for item in catalog if item["ref"] == "public-web-paper@2"
+    )
+    assert catalog_entry["compatibility_status"] == "unverified"
+    assert catalog_entry["compatibility_records"] == []
+    verify_preset_catalog()

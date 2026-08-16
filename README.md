@@ -20,7 +20,7 @@ The project is intentionally separate from:
 - [Catering-type validation roadmap (Japanese)](docs/catering-type-validation-roadmap_ja.md)
 - [Fresh-host bootstrap (Japanese)](docs/fresh-host-bootstrap-guide_ja.md)
 - [Public VPS bootstrap (Japanese)](docs/public-vps-bootstrap-guide_ja.md):
-  `vps-server@5` discovery, exact multi-service plan/apply, public doctor,
+  `vps-server@6` b3 discovery, exact multi-service plan/apply, public doctor,
   existing-host cutover, and the remaining readiness phases
 - [Home private alpha validation (Japanese)](docs/home-alpha-validation-guide_ja.md)
 - [Wake-on-LAN optional operation field note (Japanese)](docs/wake-on-lan-field-note_ja.md):
@@ -164,8 +164,9 @@ do not copy the `home-beta` directory or lock.
 
 ## Public VPS beta (new TOML vertical slice)
 
-`vps-server@5` is the current catering-style VPS profile. It bootstraps exact
-`public-web-paper@1` Caddy, Scratch, Bridge, Minecraft, Paper, and McRemote artifacts.
+`vps-server@6` is the current catering-style VPS profile for a new b3 bootstrap. It
+bootstraps exact `public-web-paper@2` Caddy, Scratch, Bridge, Minecraft, Paper, and
+McRemote artifacts while keeping b3 authentication session-only.
 Caddy alone joins the public edge; backend services remain on an internal app network.
 
 The host firewall, provider firewall, and DNS remain explicit human checkpoints outside
@@ -175,6 +176,9 @@ against its local Docker context. A failed apply removes the new containers but 
 the managed world volume. `doctor` checks the public bind, current lock and render,
 managed multi-service runtime, and enforced authentication without mutation.
 External HTTPS/WSS readiness and the content-addressed homepage remain later claims.
+An existing `vps-server@5` / `public-web-paper@1` runtime must not be updated with the
+bootstrap path; its recovery Compose files, working directory, volumes, and mounts
+require a dedicated reviewed upgrade transaction.
 
 ## Legacy `official-vps` vertical slice (regression)
 
