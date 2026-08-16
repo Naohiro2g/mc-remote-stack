@@ -358,7 +358,7 @@ def _build_candidate(
     _copy_project_source(project_root, destination, output)
     update_order_scalar(destination, ("deployment", "profile"), target_profile)
     if target_preset is not None:
-        update_order_scalar(destination, ("deployment", "preset"), target_preset)
+        update_order_scalar(destination, ("environment", "preset"), target_preset)
     for role, identity in sorted(target_volumes.items()):
         update_order_volume_identity(destination, role, identity)
     resolve_project(

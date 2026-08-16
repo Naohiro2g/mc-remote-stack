@@ -1,3 +1,4 @@
+import shutil
 from dataclasses import FrozenInstanceError
 from pathlib import Path
 
@@ -16,6 +17,7 @@ from mc_remote_stack.auth_migration import (
     _validate_migration_candidate,
 )
 from mc_remote_stack.cli import main
+from mc_remote_stack.toml_project import init_toml_project, load_order
 
 
 def _release_lock(*, target: bool = False) -> dict:
@@ -129,11 +131,74 @@ def test_public_b3_candidate_updates_profile_preset_and_new_volumes(
 
     assert updates == [
         (("deployment", "profile"), "vps-server@6"),
-        (("deployment", "preset"), "public-web-paper@2"),
+        (("environment", "preset"), "public-web-paper@2"),
     ]
     assert volume_updates == [
         ("minecraft-data", "official-public-beta-b3-minecraft-data")
     ]
+
+
+def test_public_b3_candidate_updates_preset_in_real_order(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = init_toml_project(
+        tmp_path / "source",
+        deployment_name="official-public-beta",
+        profile="vps-server@5",
+        environment_identity="official-public-beta",
+        channel="beta",
+        exposure="public",
+        purpose="integration",
+        preset="public-web-paper@1",
+        artifact_store=str(tmp_path / "artifacts"),
+        runtime_volumes={
+            "minecraft-data": "source-minecraft-data",
+            "caddy-data": "source-caddy-data",
+            "caddy-config": "source-caddy-config",
+        },
+        world_identity="official-public-beta-world",
+        bind_address="0.0.0.0",
+        java_port=25565,
+        mcremote_port=25575,
+        minecraft_eula=True,
+    )
+    candidate = tmp_path / "candidate"
+    monkeypatch.setattr(
+        auth_migration,
+        "_copy_project_source",
+        lambda source_root, destination, _output: shutil.copytree(
+            source_root, destination
+        ),
+    )
+    monkeypatch.setattr(auth_migration, "resolve_project", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(auth_migration, "render_toml_project", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        auth_migration,
+        "verify_toml_render_output",
+        lambda *_args, **_kwargs: type("Verification", (), {"lock": {}})(),
+    )
+
+    _build_candidate(
+        source.root,
+        source.root / "generated",
+        candidate,
+        target_profile="vps-server@6",
+        target_preset="public-web-paper@2",
+        target_volumes={
+            "minecraft-data": "target-minecraft-data",
+            "caddy-data": "target-caddy-data",
+            "caddy-config": "target-caddy-config",
+        },
+        data_root=tmp_path,
+        allow_unverified=True,
+        allow_eol=False,
+        resolved_at="2026-08-16T00:00:00Z",
+    )
+
+    order = load_order(candidate).order
+    assert order["deployment"]["profile"] == "vps-server@6"
+    assert order["environment"]["preset"] == "public-web-paper@2"
 
 
 def test_migration_spec_is_immutable() -> None:
