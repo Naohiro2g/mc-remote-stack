@@ -743,7 +743,9 @@ def test_bundled_b3_preset_is_exact_unverified_and_credential_profile_only() -> 
             "v1.21.11-2100.0.0b3/mc-remote-1.21.11-2100.0.0b3.jar"
         ),
     }
-    assert policy["presets"][-1] == {
+    assert next(
+        entry for entry in policy["presets"] if entry["ref"] == "mcremote-paper@3"
+    ) == {
         "ref": "mcremote-paper@3",
         "status": "active",
         "available_since": "2026-08-07",
@@ -752,6 +754,47 @@ def test_bundled_b3_preset_is_exact_unverified_and_credential_profile_only() -> 
         entry
         for entry in catalog["preset_catalog"]["presets"]
         if entry["ref"] == "mcremote-paper@3"
+    )
+    assert catalog_entry["compatibility_status"] == "unverified"
+    assert catalog_entry["compatibility_records"] == []
+    verify_preset_catalog()
+
+
+def test_bundled_b4_home_alpha_preset_is_exact_unverified_candidate() -> None:
+    policy = load_catalog_policy()
+    catalog = load_preset_catalog()
+    b2 = load_preset("mcremote-paper@2")
+    b4 = load_preset("mcremote-paper@4")
+
+    assert b4.data["requirements"] == {
+        "profile_capabilities": ["compose", "paper", "persistent-world"],
+        "allowed_channels": ["alpha"],
+        "required_claims": ["profile-render", "protocol-hello"],
+    }
+    assert b4.data["components"] == b2.data["components"]
+    assert b4.data["artifacts"][:2] == b2.data["artifacts"][:2]
+    assert b4.data["artifacts"][2] == {
+        "id": "mcremote-jar",
+        "kind": "https-file",
+        "version": "2100.0.0b4",
+        "filename": "mc-remote-1.21.11-2100.0.0b4.jar",
+        "sha256": "ab3b87c38b6876ec4ba26112eff35d7cb016395a1dae1661578fd3690e1dbc46",
+        "origin": (
+            "https://github.com/Naohiro2g/McRemote/releases/download/"
+            "v1.21.11-2100.0.0b4/mc-remote-1.21.11-2100.0.0b4.jar"
+        ),
+    }
+    assert next(
+        entry for entry in policy["presets"] if entry["ref"] == "mcremote-paper@4"
+    ) == {
+        "ref": "mcremote-paper@4",
+        "status": "active",
+        "available_since": "2026-08-17",
+    }
+    catalog_entry = next(
+        entry
+        for entry in catalog["preset_catalog"]["presets"]
+        if entry["ref"] == "mcremote-paper@4"
     )
     assert catalog_entry["compatibility_status"] == "unverified"
     assert catalog_entry["compatibility_records"] == []

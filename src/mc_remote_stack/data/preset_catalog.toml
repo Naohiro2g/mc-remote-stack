@@ -3,7 +3,7 @@ schema_version = 1
 [preset_catalog]
 generator = "mcrctl-preset-catalog-v1"
 canonicalization = "jcs-rfc8785-v1"
-source_sha256 = "ca0d9a1edb47d7ba01cfa67b0a881a645cdeecc4b8e4cd7bc69690ec5da45d35"
+source_sha256 = "cd6f9f56c5e060c2076cbf766721f71b29bc24e3bb92ee848e2a9e5a997f60bd"
 
 [[preset_catalog.presets]]
 ref = "mcremote-paper@1"
@@ -34,6 +34,17 @@ description = "McRemote b3 catalog and rollback-separated credential integration
 status = "active"
 available_since = "2026-08-07"
 required_profile_capabilities = ["compose", "credential-rollback-separated", "paper", "persistent-world"]
+allowed_channels = ["alpha"]
+compatibility_status = "unverified"
+compatibility_records = []
+
+[[preset_catalog.presets]]
+ref = "mcremote-paper@4"
+content_sha256 = "26b0ea1bcb79083065fdd5e54c696b16b54be9cc52c655a0094f8738673b3b2b"
+description = "Exact unreleased b4 plugin candidate for home alpha compatibility validation"
+status = "active"
+available_since = "2026-08-17"
+required_profile_capabilities = ["compose", "paper", "persistent-world"]
 allowed_channels = ["alpha"]
 compatibility_status = "unverified"
 compatibility_records = []
