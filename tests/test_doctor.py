@@ -9,6 +9,7 @@ from mc_remote_stack.doctor import (
     ProtocolHelloResult,
     TomlDoctorResult,
     _auth_enforcement_required,
+    _validate_container,
     doctor_toml_project,
     probe_protocol_hello,
 )
@@ -505,6 +506,54 @@ def test_doctor_rejects_live_port_drift_before_protocol_probe(tmp_path: Path) ->
         )
 
     assert exc_info.value.reason == "doctor_network_mismatch"
+
+
+def test_doctor_accepts_public_minecraft_ports_from_compose_renderer_8(
+    tmp_path: Path,
+) -> None:
+    output = tmp_path / "generated"
+    output.mkdir()
+    lock = {
+        "deployment": {"name": "official-public-beta"},
+        "environment": {"identity": "official-public-beta"},
+        "world": {"identity": "official-public-beta-world"},
+        "lock_identity": "sha256:" + "1" * 64,
+        "render_plan": {"adapter_revision": "8"},
+        "network": {
+            "bind_address": "0.0.0.0",
+            "java_port": 25565,
+            "mcremote_port": 25575,
+        },
+    }
+    record = {
+        "Config": {
+            "Labels": {
+                "com.docker.compose.project": "official-public-beta",
+                "com.docker.compose.service": "minecraft",
+                "com.docker.compose.project.config_files": str(
+                    output / "compose.yaml"
+                ),
+                "com.docker.compose.project.working_dir": str(output),
+                "io.mc-remote.deployment": "official-public-beta",
+                "io.mc-remote.environment": "official-public-beta",
+                "io.mc-remote.world": "official-public-beta-world",
+                "io.mc-remote.lock": lock["lock_identity"],
+            }
+        },
+        "State": {"Running": True, "Health": {"Status": "healthy"}},
+        "NetworkSettings": {
+            "Ports": {
+                "25565/tcp": [{"HostIp": "0.0.0.0", "HostPort": "25565"}],
+                "19132/udp": [{"HostIp": "0.0.0.0", "HostPort": "25565"}],
+                "25575/tcp": [{"HostIp": "0.0.0.0", "HostPort": "25575"}],
+            }
+        },
+    }
+
+    assert _validate_container(record, lock, {"minecraft"}, output) == (
+        "minecraft",
+        "current",
+    )
 
 
 def test_doctor_rejects_noncurrent_render_before_contacting_docker(tmp_path: Path) -> None:
