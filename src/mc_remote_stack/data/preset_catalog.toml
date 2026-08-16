@@ -3,7 +3,7 @@ schema_version = 1
 [preset_catalog]
 generator = "mcrctl-preset-catalog-v1"
 canonicalization = "jcs-rfc8785-v1"
-source_sha256 = "eb89b6b9b71f7af0366e9885d9350cfc4e8fddde498f4d58ee86a0b08a6709d9"
+source_sha256 = "9b80d42e78ae9f42d108e9239e6ea839b0e31fab526395b07207c8e84c7fabe4"
 
 [[preset_catalog.presets]]
 ref = "mcremote-paper@1"
@@ -42,6 +42,17 @@ compatibility_records = []
 ref = "mcremote-paper@4"
 content_sha256 = "26b0ea1bcb79083065fdd5e54c696b16b54be9cc52c655a0094f8738673b3b2b"
 description = "Exact unreleased b4 plugin candidate for home alpha compatibility validation"
+status = "active"
+available_since = "2026-08-17"
+required_profile_capabilities = ["compose", "paper", "persistent-world"]
+allowed_channels = ["alpha"]
+compatibility_status = "unverified"
+compatibility_records = []
+
+[[preset_catalog.presets]]
+ref = "mcremote-paper@5"
+content_sha256 = "8e57c5cbf2ad94151c6f7b49d3784adfab43376c938d7e0c60616a0a2f186c10"
+description = "Exact unreleased b4 auth-close fix candidate for home alpha compatibility validation"
 status = "active"
 available_since = "2026-08-17"
 required_profile_capabilities = ["compose", "paper", "persistent-world"]

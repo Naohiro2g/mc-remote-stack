@@ -801,6 +801,46 @@ def test_bundled_b4_home_alpha_preset_is_exact_unverified_candidate() -> None:
     verify_preset_catalog()
 
 
+def test_bundled_b4_auth_close_fix_is_a_new_exact_unverified_candidate() -> None:
+    policy = load_catalog_policy()
+    catalog = load_preset_catalog()
+    old_b4 = load_preset("mcremote-paper@4")
+    fixed_b4 = load_preset("mcremote-paper@5")
+
+    assert fixed_b4.data["requirements"] == old_b4.data["requirements"]
+    assert fixed_b4.data["components"] == old_b4.data["components"]
+    assert fixed_b4.data["artifacts"][:2] == old_b4.data["artifacts"][:2]
+    assert old_b4.data["artifacts"][2]["sha256"] == (
+        "ab3b87c38b6876ec4ba26112eff35d7cb016395a1dae1661578fd3690e1dbc46"
+    )
+    assert fixed_b4.data["artifacts"][2] == {
+        "id": "mcremote-jar",
+        "kind": "https-file",
+        "version": "2100.0.0b4",
+        "filename": "mc-remote-1.21.11-2100.0.0b4.jar",
+        "sha256": "f902ed360ac1674143d8e79a49c8e109968f2c38dc36656c91a50dec89082aa8",
+        "origin": (
+            "https://github.com/Naohiro2g/McRemote/releases/download/"
+            "v1.21.11-2100.0.0b4/mc-remote-1.21.11-2100.0.0b4.jar"
+        ),
+    }
+    assert next(
+        entry for entry in policy["presets"] if entry["ref"] == "mcremote-paper@5"
+    ) == {
+        "ref": "mcremote-paper@5",
+        "status": "active",
+        "available_since": "2026-08-17",
+    }
+    catalog_entry = next(
+        entry
+        for entry in catalog["preset_catalog"]["presets"]
+        if entry["ref"] == "mcremote-paper@5"
+    )
+    assert catalog_entry["compatibility_status"] == "unverified"
+    assert catalog_entry["compatibility_records"] == []
+    verify_preset_catalog()
+
+
 def test_bundled_home_auth_b3_preset_is_exact_jar_only_rollback_target() -> None:
     policy = load_catalog_policy()
     catalog = load_preset_catalog()
