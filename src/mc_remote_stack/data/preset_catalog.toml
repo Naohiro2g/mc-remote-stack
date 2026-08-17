@@ -3,7 +3,7 @@ schema_version = 1
 [preset_catalog]
 generator = "mcrctl-preset-catalog-v1"
 canonicalization = "jcs-rfc8785-v1"
-source_sha256 = "9b80d42e78ae9f42d108e9239e6ea839b0e31fab526395b07207c8e84c7fabe4"
+source_sha256 = "c4103b708c4ef796c2fb34ae096b6bc7dea3f87eb7dbb17ecf81cb7ed9c04e09"
 
 [[preset_catalog.presets]]
 ref = "mcremote-paper@1"
@@ -56,6 +56,17 @@ description = "Exact unreleased b4 auth-close fix candidate for home alpha compa
 status = "active"
 available_since = "2026-08-17"
 required_profile_capabilities = ["compose", "paper", "persistent-world"]
+allowed_channels = ["alpha"]
+compatibility_status = "unverified"
+compatibility_records = []
+
+[[preset_catalog.presets]]
+ref = "mcremote-paper@6"
+content_sha256 = "737bba7b6ed9659034a732de8cf9ff73d41e129243671f2e24f046b3de2647e9"
+description = "Exact unreleased b4 session-token persistence candidate for credential-separated home alpha validation"
+status = "active"
+available_since = "2026-08-18"
+required_profile_capabilities = ["compose", "credential-rollback-separated", "paper", "persistent-world"]
 allowed_channels = ["alpha"]
 compatibility_status = "unverified"
 compatibility_records = []
