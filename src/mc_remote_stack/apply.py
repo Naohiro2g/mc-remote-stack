@@ -388,10 +388,25 @@ def _inspect_managed_volume(
         reason="bootstrap_volume_unmanaged",
         path=volume,
     )
+    labels = record.get("Labels")
+    expected = _expected_volume_labels(lock)
+    stable_labels = {
+        key: value
+        for key, value in expected.items()
+        if key != "io.mc-remote.created-by-lock"
+    }
     if (
         record.get("Name") != volume
         or record.get("Driver") != "local"
-        or record.get("Labels") != _expected_volume_labels(lock)
+        or not isinstance(labels, dict)
+        or set(labels) != set(expected)
+        or any(labels.get(key) != value for key, value in stable_labels.items())
+        or not isinstance(labels.get("io.mc-remote.created-by-lock"), str)
+        or re.fullmatch(
+            r"sha256:[0-9a-f]{64}",
+            labels["io.mc-remote.created-by-lock"],
+        )
+        is None
     ):
         _fail(
             "bootstrap_volume_unmanaged",
