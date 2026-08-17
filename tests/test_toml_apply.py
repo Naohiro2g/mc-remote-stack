@@ -166,6 +166,22 @@ def _prepared_b3_credential_project(
     return project, data_root, output, load_lock(project, data_root=data_root)
 
 
+def _prepared_b4_persistent_credential_project(
+    tmp_path: Path,
+) -> tuple[Path, Path, Path, dict]:
+    project, data_root, _ = _render_fixture(
+        tmp_path,
+        deployment_name="home-alpha",
+        identity="home-alpha",
+        channel="alpha",
+        preset_revision="6",
+        profile_revision="3",
+    )
+    output = project / "generated"
+    render_toml_project(project, output, data_root=data_root)
+    return project, data_root, output, load_lock(project, data_root=data_root)
+
+
 def _prepared_public_project(tmp_path: Path) -> tuple[Path, Path, Path, dict]:
     project, data_root, _ = _render_fixture(
         tmp_path,
@@ -277,6 +293,28 @@ def test_b3_credential_alpha_bootstrap_contract_reaches_docker_preflight(
     tmp_path: Path,
 ) -> None:
     project, data_root, output, lock = _prepared_b3_credential_project(tmp_path)
+    runner = FakeDocker({})
+
+    with pytest.raises(AssertionError, match="docker.*context.*inspect"):
+        apply_toml_project(
+            project,
+            output,
+            expected_lock_identity=lock["lock_identity"],
+            docker_context="default",
+            data_root=data_root,
+            bootstrap=True,
+            confirmed=True,
+            allow_unverified=True,
+            runner=runner,
+        )
+
+
+def test_b4_persistent_credential_bootstrap_contract_reaches_docker_preflight(
+    tmp_path: Path,
+) -> None:
+    project, data_root, output, lock = _prepared_b4_persistent_credential_project(
+        tmp_path
+    )
     runner = FakeDocker({})
 
     with pytest.raises(AssertionError, match="docker.*context.*inspect"):
