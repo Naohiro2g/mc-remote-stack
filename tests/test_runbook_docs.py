@@ -91,3 +91,19 @@ def test_public_b3_runbook_reuses_exact_runtime_compose_provenance() -> None:
         '--preserve-compose-file "$MC_REMOTE_PROJECT/recovery/'
         'compose.homepage.yaml"'
     ) not in section
+
+
+def test_readmes_report_the_current_b4_credential_alpha_boundary() -> None:
+    japanese = (REPO_ROOT / "README_ja.md").read_text(encoding="utf-8")
+    english = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+
+    for readme in (japanese, english):
+        assert "mcremote-paper@6" in readme
+        assert (
+            "331633ef15a729658496e89fe49cb8a5eb5ebcb2ec86937b7e5313528d7ec997"
+            in readme
+        )
+        assert "doctor_credential_health_unsupported" in readme
+
+    assert "b4利用者機能を律速しない" in japanese
+    assert "does not block the b4 user-facing feature gate" in english

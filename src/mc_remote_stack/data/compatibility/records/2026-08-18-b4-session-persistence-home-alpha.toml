@@ -1,0 +1,45 @@
+schema_version = 1
+
+[record]
+id = "2026-08-18-b4-session-persistence-home-alpha"
+test_class = "live-human"
+result = "pass"
+verified_at = "2026-08-18T17:25:29Z"
+
+[subject]
+preset_ref = "mcremote-paper@6"
+preset_sha256 = "737bba7b6ed9659034a732de8cf9ff73d41e129243671f2e24f046b3de2647e9"
+profile_ref = "home-server@3"
+profile_sha256 = "a1a4dcf8b2100cddecc4ba7dd1a08d61d0d412f7a6bf0a9f8e714dbc318c6ffb"
+component_set_sha256 = "41998cf7b3975db3e521aa3dce58866b40c330bec89d7fdac75196138c8ef385"
+
+[[claims]]
+id = "profile-render"
+constraint = "all"
+
+[[claims]]
+id = "protocol-hello"
+constraint = "all"
+
+[[evidence]]
+repository = "Naohiro2g/mc-remote-knowledge"
+commit = "4afd05337e6fcbdb1898ae4d190f5d50fe304502"
+path = "14-evidence/records/2026-08-18-b4-session-persistence-home-alpha_ja.md"
+
+[[evidence]]
+repository = "Naohiro2g/mc-remote-knowledge"
+commit = "4afd05337e6fcbdb1898ae4d190f5d50fe304502"
+path = "14-evidence/artifacts/2026-08-18-b4-session-persistence-home-alpha/live-auto-summary.txt"
+artifact_sha256 = "acab915cb9120fb04161529bb4d072569daf9f7805191352cf1aec6a4a6b7ff1"
+
+[[evidence]]
+repository = "Naohiro2g/mc-remote-knowledge"
+commit = "4afd05337e6fcbdb1898ae4d190f5d50fe304502"
+path = "14-evidence/artifacts/2026-08-18-b4-session-persistence-home-alpha/live-human-summary.txt"
+artifact_sha256 = "5ed6ab907f90043fff5be0aa1664326bc641d7e07dc7e4efcbb29733cfc7e7f9"
+
+[[evidence]]
+repository = "Naohiro2g/mc-remote-knowledge"
+commit = "4afd05337e6fcbdb1898ae4d190f5d50fe304502"
+path = "14-evidence/artifacts/2026-08-18-b4-session-persistence-home-alpha/session_persistence_probe.py"
+artifact_sha256 = "1f027f64f6470b77533eae83c1a9372944cc95017e4e113bd2f6de85ee401801"

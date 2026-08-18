@@ -335,14 +335,23 @@ age-encrypted ciphertext; keep plaintext retention, recipient access, and the ag
 identity under explicit operator control. Archive inclusion does not make plugin data
 part of the world-restore contract.
 
-The staged `home-server@3` / `compose@5` profile for long-lived credentials mounts the
-credential snapshot and revocation authority in independent volumes outside `/data`.
-This excludes both from world restore and an archive limited to `/data`. The profile,
-renderer, mount-topology checks, and deterministic restore tests are implemented, but the exact
-b3 preset, machine-readable plugin health, bootstrap transaction, and cross-repository
-live rollback evidence are not. Doctor currently fails closed after checking the mounts
-because credential health is unsupported. Live apply and public-default gates therefore
-remain closed; do not operate this profile with the current b2 preset.
+The credential-separated `home-server@3` / `compose@5` profile mounts the credential
+snapshot and revocation authority in independent volumes outside `/data`. This excludes
+both from world restore and an archive limited to `/data`. The exact b3 preset and the
+isolated-alpha `mcremote-paper@6` candidate with persistent session tokens are implemented.
+The exact `@6` McRemote JAR SHA-256 is
+`331633ef15a729658496e89fe49cb8a5eb5ebcb2ec86937b7e5313528d7ec997`.
+Controlled bootstrap is limited to the `alpha` / `isolated` / `integration` combination.
+Home-alpha validation covered fresh credential bootstrap, session reuse after restarting the
+same b4 runtime, and replaying saved Scratch and Python building code on a fresh world after
+new pairing.
+
+The nonce-bound machine-readable plugin checkpoint and doctor consumer, general bootstrap
+and reset transactions, and the public long-lived-credential gate remain a later slice.
+Doctor currently fails closed with `doctor_credential_health_unsupported` after validating
+the mount topology. This does not approve the profile as a public default, but the separate
+credential-lifecycle work does not block the b4 user-facing feature gate, in accordance with
+the knowledge authentication roadmap.
 
 Classify explicit runtime dependency downloads and update checks from a startup log
 without reproducing raw log lines or URL paths:
