@@ -326,12 +326,19 @@ stateである。transfer adapterがoff-hostへ送るのはage暗号文だけと
 access、age identityをoperatorが明示管理する。archiveに含まれることは、plugin dataがworld restore
 契約へ入ることを意味しない。
 
-long-lived credential向けの`home-server@3` / `compose@5`は、credential snapshotとrevocation
+credentialをworldから分離する`home-server@3` / `compose@5`は、credential snapshotとrevocation
 authorityをそれぞれ`/data`外の独立volumeへmountする。これによりworld restoreと`/data`だけのarchive
-から両方を除外する。profile、render、mount topology検査、deterministic restore試験までは実装済みだが、
-exact b3 preset、pluginの機械可読health、bootstrap transaction、cross-repo live rollback evidenceは
-未完了である。現時点のdoctorはmount検査後にcredential health未対応としてfail closedする。このため
-live applyと公開既定化のgateは閉じたままであり、現行b2 presetと組み合わせて運用してはならない。
+から両方を除外する。exact b3 presetと、session token永続化を含むisolated alpha用
+`mcremote-paper@6`は実装済みである。`@6`のMcRemote JAR SHA-256は
+`331633ef15a729658496e89fe49cb8a5eb5ebcb2ec86937b7e5313528d7ec997`で、controlled bootstrapは
+`alpha` / `isolated` / `integration`の組合せだけを許す。home-alphaではfresh credential bootstrap、
+同一b4再起動後のsession再利用、空world・新規pairingでのScratch／Python建築コード再実行を確認した。
+
+pluginのnonce付き機械可読checkpointとそのdoctor consumer、一般向けbootstrap／reset transaction、
+long-lived credential公開gateは後続sliceである。現時点のdoctorはmount topology検査後に
+`doctor_credential_health_unsupported`でfail closedする。これはunsupportedを健康と誤認しない境界であり、
+一般profileの公開既定化を承認するものではない。一方、knowledgeのauthentication roadmapどおり、
+この後続credential-lifecycle sliceでb4利用者機能を律速しない。
 
 起動logに明示されたruntime dependency downloadとupdate checkを、raw lineやURL pathを
 再出力せず分類するには、次を実行する。

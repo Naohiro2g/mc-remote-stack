@@ -2,6 +2,28 @@
 
 確定前または別sliceへ送る作業だけを置く。private host名、IP、credential、account情報は書かない。
 
+## 2026-08-18 b4 code-first recovery gate（knowledge着地待ち）
+
+- [x] knowledge remote `main` commit `af81126df519d6b02341e9127fb0bd0402c9fac7`を参照した。
+  `00-hub/authentication-roadmap_ja.md`はcheckpoint／doctor等のcredential-lifecycle sliceでb4利用者機能を
+  律速しない。一方、同commitの`00-hub/release-gate-notes_ja.md`は2026-08-17 home-alpha記録でそれらを
+  b4 blockerとして残しており、横断決定による整合が必要である。
+- [x] 人間決定として、McRemoteで既定に保護する対象を利用者が書いた建築コードとした。Minecraft world、
+  接続、pairing、session token、build state、WireScope状態は、別の保護契約を明示しない限り再生成可能な
+  runtime stateとする。完全rollbackを先に要求せず、追加の手当で何が救われ、手当なしで何に困るかを具体化する。
+- [x] exact b4の別deploymentを新規world／credential volumesで構築し、旧world bytes、snapshot、authority、
+  tokenをコピーせず、plugin所有consoleからbootstrapした。lockは
+  `sha256:e037b47824a1062804d7db67fdb9fc3cf0c16700ff9d24400be4d42ebc00bffa`。
+- [x] Scratch `.sb3`とPython `.py`を保存対象として固定し、それぞれ新規pairing後に再実行した。両方とも
+  clientまたは作品実行結果に加え、固定3点をserver consoleから独立照合してPASS。素材は
+  `handoff-materials/2026-08-18-b4-code-preservation-recovery/`。
+- [x] 最終candidate setのremote commitとScratch CI artifact metadataをGitHub APIで再確認した。
+- [ ] knowledge側で横断決定、release-gate改訂、正式evidence record／artifactをauthoringする。着地確認OKまでは
+  Stack catalogのcompatibilityを`verified`へ変更せず、b4全体をGREENと自己判定しない。
+- [ ] nonce付きcheckpoint／doctor、一般bootstrap／reset、long-lived公開gateはpost-b4 credential-lifecycle
+  sliceとして維持する。`mcremote-paper-auth-b3@1`のcredential downgrade不成立は観測記録として残すが、
+  建築コード保護を目的とするb4 blockerにはしない方針をknowledgeへ搬送する。
+
 ## 2026-08-07 b3 milestone close — McRemote協調結果 [→DEC 2026-08-07-01]
 
 - [x] knowledge remote `main` commit `7476a8cbf29d08663b075f5ce3517a03a142bbca`の最新dev agent
