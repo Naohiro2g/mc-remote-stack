@@ -3,7 +3,7 @@ schema_version = 1
 [preset_catalog]
 generator = "mcrctl-preset-catalog-v1"
 canonicalization = "jcs-rfc8785-v1"
-source_sha256 = "c4103b708c4ef796c2fb34ae096b6bc7dea3f87eb7dbb17ecf81cb7ed9c04e09"
+source_sha256 = "c5593d20011f0a05374e495c4bc96b31075da6a78af9dc9bdf6ebc12322464b9"
 
 [[preset_catalog.presets]]
 ref = "mcremote-paper@1"
@@ -68,8 +68,8 @@ status = "active"
 available_since = "2026-08-18"
 required_profile_capabilities = ["compose", "credential-rollback-separated", "paper", "persistent-world"]
 allowed_channels = ["alpha"]
-compatibility_status = "unverified"
-compatibility_records = []
+compatibility_status = "verified"
+compatibility_records = ["2026-08-18-b4-code-preservation-recovery-live-human", "2026-08-18-b4-session-persistence-home-alpha"]
 
 [[preset_catalog.presets]]
 ref = "mcremote-paper-auth-b3@1"

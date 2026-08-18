@@ -2,7 +2,7 @@
 
 確定前または別sliceへ送る作業だけを置く。private host名、IP、credential、account情報は書かない。
 
-## 2026-08-18 b4 code-first recovery gate（knowledge着地待ち）
+## 2026-08-18 b4 code-first recovery gate [→DEC 2026-08-18-01]
 
 - [x] knowledge remote `main` commit `af81126df519d6b02341e9127fb0bd0402c9fac7`を参照した。
   `00-hub/authentication-roadmap_ja.md`はcheckpoint／doctor等のcredential-lifecycle sliceでb4利用者機能を
@@ -18,11 +18,17 @@
   clientまたは作品実行結果に加え、固定3点をserver consoleから独立照合してPASS。素材は
   `handoff-materials/2026-08-18-b4-code-preservation-recovery/`。
 - [x] 最終candidate setのremote commitとScratch CI artifact metadataをGitHub APIで再確認した。
-- [ ] knowledge側で横断決定、release-gate改訂、正式evidence record／artifactをauthoringする。着地確認OKまでは
-  Stack catalogのcompatibilityを`verified`へ変更せず、b4全体をGREENと自己判定しない。
-- [ ] nonce付きcheckpoint／doctor、一般bootstrap／reset、long-lived公開gateはpost-b4 credential-lifecycle
+- [x] knowledge commit `a736a1b80bbf838dbbab20fc0c9e4581bee0af80`で`2026-08-18-01`とb4横断
+  release gateの`CLOSED`へ着地した。後続knowledge mainでも決定文、旧FAIL観測、exact set、deferred境界を維持し、
+  `14-evidence/records/2026-08-18-b4-session-persistence-home-alpha_ja.md`と
+  `14-evidence/records/2026-08-18-b4-code-preservation-recovery-live-human_ja.md`、対応artifactを正式化した。
+  Stackの元搬送票、SHA、lock、PASS／FAIL、non-claimと一致するため着地確認OK。
+- [x] `mcremote-paper@6`へ上記2件のformal evidenceをimmutable compatibility recordとして登録し、
+  generated preset catalogを`compatibility_status = "verified"`へ更新した。旧`@4`／`@5`や
+  `mcremote-paper-auth-b3@1`のunverified状態は変更していない。
+- [→DEC 2026-08-18-01] nonce付きcheckpoint／doctor、一般bootstrap／reset、long-lived公開gateはpost-b4 credential-lifecycle
   sliceとして維持する。`mcremote-paper-auth-b3@1`のcredential downgrade不成立は観測記録として残すが、
-  建築コード保護を目的とするb4 blockerにはしない方針をknowledgeへ搬送する。
+  建築コード保護を目的とするb4 blockerにはしない。
 
 ## 2026-08-07 b3 milestone close — McRemote協調結果 [→DEC 2026-08-07-01]
 

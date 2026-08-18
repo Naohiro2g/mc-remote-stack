@@ -882,8 +882,11 @@ def test_bundled_b4_session_persistence_fix_requires_credential_profile() -> Non
         for entry in catalog["preset_catalog"]["presets"]
         if entry["ref"] == "mcremote-paper@6"
     )
-    assert catalog_entry["compatibility_status"] == "unverified"
-    assert catalog_entry["compatibility_records"] == []
+    assert catalog_entry["compatibility_status"] == "verified"
+    assert catalog_entry["compatibility_records"] == [
+        "2026-08-18-b4-code-preservation-recovery-live-human",
+        "2026-08-18-b4-session-persistence-home-alpha",
+    ]
     verify_preset_catalog()
 
 
