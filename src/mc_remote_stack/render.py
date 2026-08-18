@@ -898,6 +898,61 @@ def _compose_v8(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str]]:
     return compose, rendered_files
 
 
+def _compose_v9(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str]]:
+    compose, rendered_files = _compose_v8(lock)
+    runtime_path = "runtime/scratch.json"
+    try:
+        runtime_config = json.loads(rendered_files[runtime_path])
+    except (KeyError, TypeError, json.JSONDecodeError) as exc:
+        _render_fail(
+            "scratch_runtime_config_invalid",
+            runtime_path,
+            f"compose@9 requires one valid Scratch runtime JSON document: {exc}",
+        )
+    if not isinstance(runtime_config, dict):
+        _render_fail(
+            "scratch_runtime_config_invalid",
+            runtime_path,
+            "Scratch runtime config must be a JSON object",
+        )
+    targets = runtime_config.get("connection_targets")
+    if not isinstance(targets, list) or not targets:
+        _render_fail(
+            "scratch_runtime_config_invalid",
+            f"{runtime_path}.connection_targets",
+            "compose@9 requires a non-empty connection_targets array",
+        )
+    sandboxes = {
+        target.get("sandbox")
+        for target in targets
+        if isinstance(target, dict) and isinstance(target.get("sandbox"), str)
+    }
+    if runtime_config.get("default_sandbox") not in sandboxes:
+        _render_fail(
+            "scratch_runtime_config_invalid",
+            f"{runtime_path}.default_sandbox",
+            "default_sandbox must be listed in connection_targets",
+        )
+    runtime_config["notices"] = (
+        [
+            {
+                "heading": "公開ベータ環境",
+                "body": "このエディターは公開ベータ版です。動作や仕様が変更されることがあります。",
+            }
+        ]
+        if lock["environment"]["channel"] == "beta"
+        else []
+    )
+    rendered_files[runtime_path] = (
+        json.dumps(runtime_config, ensure_ascii=False, indent=2) + "\n"
+    )
+    rendered_files = {
+        relative: content.replace("compose@8", "compose@9")
+        for relative, content in rendered_files.items()
+    }
+    return compose, rendered_files
+
+
 def _write_synced(path: Path, content: bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("wb") as stream:
@@ -1148,6 +1203,15 @@ def _stage_compose_v8(lock: dict[str, Any], staging: Path) -> tuple[str, ...]:
     )
 
 
+def _stage_compose_v9(lock: dict[str, Any], staging: Path) -> tuple[str, ...]:
+    return _stage_auth_enforced_compose(
+        lock,
+        staging,
+        revision="9",
+        renderer=_compose_v9,
+    )
+
+
 def _stage_current(lock: dict[str, Any], staging: Path) -> tuple[str, ...]:
     revision = lock["render_plan"]["adapter_revision"]
     if revision == "1":
@@ -1166,6 +1230,8 @@ def _stage_current(lock: dict[str, Any], staging: Path) -> tuple[str, ...]:
         return _stage_compose_v7(lock, staging)
     if revision == "8":
         return _stage_compose_v8(lock, staging)
+    if revision == "9":
+        return _stage_compose_v9(lock, staging)
     _render_fail("unsupported_renderer", "render_plan", f"unsupported renderer: compose@{revision}")
 
 
@@ -1211,7 +1277,7 @@ def _load_managed_manifest(output: Path) -> dict[str, Any] | None:
         }
         or manifest.get("schema_version") != 1
         or manifest.get("adapter") != "compose"
-        or manifest.get("adapter_revision") not in {"1", "2", "3", "4", "5", "6", "7", "8"}
+        or manifest.get("adapter_revision") not in {"1", "2", "3", "4", "5", "6", "7", "8", "9"}
         or not isinstance(manifest.get("files"), list)
     ):
         _render_fail("render_output_tampered", manifest_path, "managed render manifest shape is invalid")
@@ -1340,7 +1406,7 @@ def _load_current_toml_render_lock(
         lock = load_lock(project_root, data_root=data_root)
     adapter = lock["render_plan"]["adapter"]
     adapter_revision = lock["render_plan"]["adapter_revision"]
-    if adapter != "compose" or adapter_revision not in {"1", "2", "3", "4", "5", "6", "7", "8"}:
+    if adapter != "compose" or adapter_revision not in {"1", "2", "3", "4", "5", "6", "7", "8", "9"}:
         _render_fail(
             "unsupported_renderer",
             "render_plan",

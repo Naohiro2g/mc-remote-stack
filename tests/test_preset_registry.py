@@ -800,3 +800,15 @@ def test_bundled_public_b3_profile_and_preset_are_session_only() -> None:
     assert catalog_entry["compatibility_status"] == "unverified"
     assert catalog_entry["compatibility_records"] == []
     verify_preset_catalog()
+
+
+def test_bundled_public_b3_runtime_config_profile_is_fail_closed() -> None:
+    profile = load_profile("vps-server@7")
+
+    assert profile.data["renderer"] == {"name": "compose", "revision": "9"}
+    roles = {item["id"]: item for item in profile.data["operator_input_roles"]}
+    assert roles["connection-targets"] == {
+        "id": "connection-targets",
+        "adapter": "connection-targets@1",
+        "required": True,
+    }

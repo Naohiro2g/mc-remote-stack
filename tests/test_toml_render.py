@@ -894,7 +894,104 @@ def test_compose_v8_keeps_b3_public_beta_session_only(
     assert manifest["adapter_revision"] == "8"
 
 
-def test_compose_v2_projects_connection_targets_and_shared_bridge_allowlist(
+def test_compose_v9_requires_explicit_scratch_target_and_emits_beta_notice(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    base_runtime = {
+        "bridge_url": "wss://bridge-beta.mc-remote.example",
+        "default_sandbox": "sb-beta.mc-remote.example",
+        "connection_targets": [
+            {
+                "id": "beta",
+                "label": "公開ベータ",
+                "sandbox": "sb-beta.mc-remote.example",
+            }
+        ],
+        "connection_enabled": True,
+        "release_identity": "scratch-b3",
+    }
+    monkeypatch.setattr(
+        render_module,
+        "_compose_v8",
+        lambda _lock: (
+            {"services": {}},
+            {"runtime/scratch.json": json.dumps(base_runtime, ensure_ascii=False) + "\n"},
+        ),
+    )
+
+    _compose, rendered_files = render_module._compose_v9(
+        {"environment": {"channel": "beta"}}
+    )
+    runtime = json.loads(rendered_files["runtime/scratch.json"])
+
+    assert runtime["connection_targets"] == base_runtime["connection_targets"]
+    assert runtime["default_sandbox"] == "sb-beta.mc-remote.example"
+    assert runtime["notices"] == [
+        {
+            "heading": "公開ベータ環境",
+            "body": "このエディターは公開ベータ版です。動作や仕様が変更されることがあります。",
+        }
+    ]
+
+
+def test_compose_v9_rejects_missing_connection_targets(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime = {
+        "bridge_url": "wss://bridge-beta.mc-remote.example",
+        "default_sandbox": "sb-beta.mc-remote.example",
+        "connection_enabled": True,
+        "release_identity": "scratch-b3",
+    }
+    monkeypatch.setattr(
+        render_module,
+        "_compose_v8",
+        lambda _lock: (
+            {"services": {}},
+            {"runtime/scratch.json": json.dumps(runtime) + "\n"},
+        ),
+    )
+
+    with pytest.raises(render_module.RenderContractError) as exc_info:
+        render_module._compose_v9({"environment": {"channel": "beta"}})
+
+    assert exc_info.value.reason == "scratch_runtime_config_invalid"
+    assert exc_info.value.path == "runtime/scratch.json.connection_targets"
+
+
+def test_compose_v9_rejects_default_outside_connection_targets(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime = {
+        "bridge_url": "wss://bridge-beta.mc-remote.example",
+        "default_sandbox": "sb-beta.mc-remote.example",
+        "connection_targets": [
+            {
+                "id": "stable",
+                "label": "安定版",
+                "sandbox": "sb.mc-remote.example",
+            }
+        ],
+        "connection_enabled": True,
+        "release_identity": "scratch-b3",
+    }
+    monkeypatch.setattr(
+        render_module,
+        "_compose_v8",
+        lambda _lock: (
+            {"services": {}},
+            {"runtime/scratch.json": json.dumps(runtime, ensure_ascii=False) + "\n"},
+        ),
+    )
+
+    with pytest.raises(render_module.RenderContractError) as exc_info:
+        render_module._compose_v9({"environment": {"channel": "beta"}})
+
+    assert exc_info.value.reason == "scratch_runtime_config_invalid"
+    assert exc_info.value.path == "runtime/scratch.json.default_sandbox"
+
+
+def test_compose_v9_projects_required_targets_notice_and_shared_bridge_allowlist(
     tmp_path: Path,
 ) -> None:
     data_root = files("mc_remote_stack").joinpath("data")
@@ -902,12 +999,12 @@ def test_compose_v2_projects_connection_targets_and_shared_bridge_allowlist(
     project = init_toml_project(
         tmp_path / "official-public-beta",
         deployment_name="official-public-beta",
-        profile="vps-server@4",
+        profile="vps-server@7",
         environment_identity="official-public-beta",
         channel="beta",
         exposure="public",
         purpose="integration",
-        preset="public-web-paper@1",
+        preset="public-web-paper@2",
         artifact_store=str(artifact_store),
         runtime_volumes={
             "minecraft-data": "official-public-beta-minecraft-data",
@@ -932,11 +1029,6 @@ path = "operator/public-routes/routes.toml"
 role = "minecraft-server"
 adapter = "minecraft-server@1"
 path = "operator/minecraft-server/server.toml"
-
-[[operator_inputs]]
-role = "connection-targets"
-adapter = "connection-targets@1"
-path = "operator/connection-targets/targets.toml"
 """,
         encoding="utf-8",
     )
@@ -977,6 +1069,27 @@ white_list = false
 """.lstrip(),
         encoding="utf-8",
     )
+    _acknowledge(project.root, "unverified")
+    with pytest.raises(ResolutionError) as exc_info:
+        resolve_project(
+            project.root,
+            data_root=data_root,
+            allow_unverified=True,
+            resolved_at=FIRST_RESOLVED_AT,
+        )
+    assert exc_info.value.reason == "operator_input_required"
+    assert "connection-targets" in str(exc_info.value)
+
+    project.order.write_text(
+        project.order.read_text(encoding="utf-8")
+        + """
+[[operator_inputs]]
+role = "connection-targets"
+adapter = "connection-targets@1"
+path = "operator/connection-targets/targets.toml"
+""",
+        encoding="utf-8",
+    )
     targets = project.root / "operator" / "connection-targets" / "targets.toml"
     targets.parent.mkdir(parents=True)
     targets.write_text(
@@ -993,7 +1106,6 @@ sandbox = "beta.sb.mc-remote.example"
 """.lstrip(),
         encoding="utf-8",
     )
-    _acknowledge(project.root, "unverified")
     resolve_project(
         project.root,
         data_root=data_root,
@@ -1013,7 +1125,7 @@ sandbox = "beta.sb.mc-remote.example"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(content)
 
-    _, rendered_files = render_module._compose_v4(lock)
+    _, rendered_files = render_module._compose_v9(lock)
 
     runtime_config = json.loads(rendered_files["runtime/scratch.json"])
     assert runtime_config["connection_targets"] == [
@@ -1021,8 +1133,23 @@ sandbox = "beta.sb.mc-remote.example"
         {"id": "beta", "label": "Beta", "sandbox": "beta.sb.mc-remote.example"},
     ]
     assert runtime_config["default_sandbox"] == "sb.mc-remote.example"
+    assert runtime_config["notices"] == [
+        {
+            "heading": "公開ベータ環境",
+            "body": "このエディターは公開ベータ版です。動作や仕様が変更されることがあります。",
+        }
+    ]
 
-    compose, _ = render_module._compose_v4(lock)
+    compose, _ = render_module._compose_v9(lock)
     assert compose["services"]["bridge"]["environment"]["BRIDGE_SANDBOX_ALLOWLIST"] == (
         "beta.sb.mc-remote.example,sb.mc-remote.example"
     )
+
+    staging = tmp_path / "compose-v9-staging"
+    staging.mkdir()
+    rendered_paths = render_module._stage_compose_v9(lock, staging)
+    manifest = json.loads(
+        (staging / "render-manifest.json").read_text(encoding="utf-8")
+    )
+    assert "runtime/scratch.json" in rendered_paths
+    assert manifest["adapter_revision"] == "9"

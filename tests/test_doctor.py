@@ -12,6 +12,8 @@ from mc_remote_stack.doctor import (
     _validate_container,
     doctor_toml_project,
     probe_protocol_hello,
+    probe_scratch_runtime_config,
+    validate_scratch_runtime_config,
 )
 
 from .test_toml_apply import (
@@ -222,6 +224,81 @@ def test_doctor_checks_current_render_runtime_and_protocol_without_mutation(
     ]
     mutation_words = {"pull", "up", "down", "create", "rm", "start", "stop", "restart"}
     assert all(not mutation_words.intersection(command) for command, _ in runner.calls)
+
+
+def test_doctor_rejects_live_scratch_runtime_without_connection_targets() -> None:
+    expected = {
+        "bridge_url": "wss://bridge-beta.mc-remote.example",
+        "default_sandbox": "sb-beta.mc-remote.example",
+        "connection_targets": [
+            {
+                "id": "beta",
+                "label": "公開ベータ",
+                "sandbox": "sb-beta.mc-remote.example",
+            }
+        ],
+        "connection_enabled": True,
+        "release_identity": "scratch-b3",
+        "notices": [
+            {
+                "heading": "公開ベータ環境",
+                "body": "このエディターは公開ベータ版です。動作や仕様が変更されることがあります。",
+            }
+        ],
+    }
+    observed = dict(expected)
+    observed.pop("connection_targets")
+
+    with pytest.raises(DoctorContractError) as exc_info:
+        validate_scratch_runtime_config(
+            observed,
+            expected=expected,
+            channel="beta",
+        )
+
+    assert exc_info.value.reason == "doctor_scratch_runtime_invalid"
+    assert exc_info.value.path == "scratch.runtime.connection_targets"
+
+
+def test_doctor_fetches_public_scratch_runtime_without_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload = {
+        "connection_targets": [
+            {"id": "beta", "label": "公開ベータ", "sandbox": "sb-beta.example"}
+        ]
+    }
+    received: dict[str, object] = {}
+
+    class Response:
+        def __enter__(self) -> "Response":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def read(self, size: int) -> bytes:
+            received["size"] = size
+            return json.dumps(payload, ensure_ascii=False).encode()
+
+    def fake_urlopen(request: object, timeout: int) -> Response:
+        received["request"] = request
+        received["timeout"] = timeout
+        return Response()
+
+    monkeypatch.setattr("mc_remote_stack.doctor.urlopen", fake_urlopen)
+
+    assert probe_scratch_runtime_config(
+        "https://scratch-beta.example/mc-remote-runtime-config.json",
+        5,
+    ) == payload
+    assert received["timeout"] == 5
+    assert received["size"] == 64 * 1024 + 1
+    request = received["request"]
+    assert request.full_url == (
+        "https://scratch-beta.example/mc-remote-runtime-config.json"
+    )
+    assert request.headers.get("Authorization") is None
 
 
 def test_doctor_checks_mounts_then_requires_credential_health_projection(
@@ -771,6 +848,7 @@ def test_cli_doctor_uses_simple_local_defaults_and_does_not_echo_secrets(
             protocol="21.0.0",
             minecraft_version="1.21.11",
             compatibility_status="unverified",
+            scratch_runtime_status="current",
         )
 
     monkeypatch.setattr("mc_remote_stack.cli.doctor_toml_project", fake_doctor)
@@ -786,6 +864,7 @@ def test_cli_doctor_uses_simple_local_defaults_and_does_not_echo_secrets(
     assert "render=current" in output
     assert "OK doctor network=loopback bind=127.0.0.1 java-port=25565 mcremote-port=25575" in output
     assert "OK doctor protocol=21.0.0 mc-version=1.21.11 auth=not-required" in output
+    assert "OK doctor scratch-runtime=current" in output
     assert "WARN doctor compatibility=unverified" in output
     assert "token" not in output
     assert "session" not in output

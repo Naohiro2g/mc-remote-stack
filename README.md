@@ -197,6 +197,11 @@ uv run mcrctl render --project ./deployment --output ./deployment/generated
 
 The `official-vps` preset includes an optional `beta` instance. Setting `beta.enabled: true` renders a `minecraft-beta` service with independent data, backup, OCI image, Paper, and plugin locks. Stable and beta both use the standard `25565/tcp+udp` and `25575/tcp` ports and therefore run exclusively. The stable public names are unsuffixed (`scratch.mc-remote.com`, `bridge.mc-remote.com`, and `sb.mc-remote.com`); beta uses the `-beta` suffix.
 
+The current public-beta TOML path uses `vps-server@7`. It requires a non-empty Scratch
+`connection_targets` projection, lists `sb-beta.mc-remote.com` as the beta default, and emits a
+public-beta notice. Resolve, render, and doctor fail closed when the target contract is missing or
+the default is absent from the list.
+
 `minecraft-stable` and `minecraft-beta` belong to separate Compose profiles, so an ordinary `docker compose up` starts neither Minecraft channel. On a 6 GB VPS, do not run stable and beta together. Use the generated exclusive switch operations, which announce the change, run `save-all flush`, stop gracefully, check the standard ports, and restore the previous instance on failure:
 
 ```sh
