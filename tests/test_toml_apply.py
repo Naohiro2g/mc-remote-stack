@@ -225,8 +225,8 @@ def test_legacy_home_beta_bootstrap_contract_is_rejected(tmp_path: Path) -> None
 
 def test_current_public_vps_bootstrap_contract_is_supported(tmp_path: Path) -> None:
     _project, _data_root, _output, lock = _prepared_public_project(tmp_path)
-    lock["input"]["profile"]["ref"] = "vps-server@5"
-    lock["input"]["preset"]["ref"] = "public-web-paper@1"
+    lock["input"]["profile"]["ref"] = "vps-server@7"
+    lock["input"]["preset"]["ref"] = "public-web-paper@2"
 
     _validate_bootstrap_contract(
         lock,

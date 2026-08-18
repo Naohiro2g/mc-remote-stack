@@ -199,6 +199,10 @@ deploymentには使わず、bootstrap applyも受理しない。
 
 `official-vps`には任意の`staging` instanceを用意している。`staging.enabled: true`にすると、本番とは別のdata、backup、OCI image、Paper、plugin lockを持つ`minecraft-dev` serviceを生成する。本番は`25565/tcp・udp`と`25575/tcp`、stagingは`25566/tcp・udp`と`25576/tcp`を使う。Scratch stableの既定接続先は`sb.mc-remote.com`、Scratch devは`sb-dev.mc-remote.com`となる。
 
+現行の公開beta TOML経路は`vps-server@7`を使い、Scratch runtimeの非空`connection_targets`を
+必須にする。betaのdefaultは`sb-beta.mc-remote.com`で、公開ベータnoticeもruntime configへ投影する。
+欠落やdefault不包含はresolve / render / doctorでfail closedになる。
+
 `minecraft-dev`にはComposeの`staging` profileが付くため、通常の`docker compose up`では起動しない。6GB VPSではprod/devを同時起動せず、生成された排他切替scriptを使う。scriptは1分前から告知し、`save-all flush`、graceful stop、接続確認を行い、失敗時は元のinstanceへ戻す。
 
 ```sh

@@ -999,6 +999,8 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
         )
     else:
         print("OK doctor protocol=responsive auth=required")
+    if result.scratch_runtime_status == "current":
+        print("OK doctor scratch-runtime=current")
     if result.compatibility_status == "unverified":
         print("WARN doctor compatibility=unverified")
     return 0

@@ -10,11 +10,18 @@ from importlib.resources.abc import Traversable
 from ipaddress import ip_address
 from pathlib import Path
 from typing import Any, Protocol
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 from .apply import DOCKER_CONTEXT, compose_render_status
-from .render import RenderContractError, verify_toml_render_output
+from .render import (
+    RenderContractError,
+    _locked_public_routes,
+    verify_toml_render_output,
+)
 
 MAX_HELLO_BYTES = 64 * 1024
+MAX_SCRATCH_RUNTIME_BYTES = 64 * 1024
 MCREMOTE_B2_SHA256 = "ad2674fa93645cc3c4c0d2b6aa5b37f11a8f9519162f61ac00b8be7122b023c7"
 
 
@@ -67,6 +74,7 @@ class TomlDoctorResult:
     protocol: str | None
     minecraft_version: str | None
     compatibility_status: str
+    scratch_runtime_status: str = "not-applicable"
 
 
 class DoctorContractError(ValueError):
@@ -114,6 +122,121 @@ def _run(
     if result.returncode != 0:
         _fail(reason, path, f"Docker command failed with exit status {result.returncode}")
     return result
+
+
+def probe_scratch_runtime_config(url: str, timeout: int) -> object:
+    """Fetch one public Scratch runtime document without browser credentials."""
+
+    request = Request(
+        url,
+        headers={
+            "Accept": "application/json",
+            "User-Agent": "mcrctl-doctor/1",
+        },
+    )
+    try:
+        with urlopen(request, timeout=timeout) as response:
+            source = response.read(MAX_SCRATCH_RUNTIME_BYTES + 1)
+    except (HTTPError, URLError, TimeoutError, OSError) as exc:
+        _fail(
+            "doctor_scratch_runtime_unavailable",
+            url,
+            f"cannot fetch the public Scratch runtime config: {exc}",
+        )
+    if len(source) > MAX_SCRATCH_RUNTIME_BYTES:
+        _fail(
+            "doctor_scratch_runtime_invalid",
+            url,
+            "Scratch runtime config exceeded the 64 KiB limit",
+        )
+    try:
+        return json.loads(source)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        _fail(
+            "doctor_scratch_runtime_invalid",
+            url,
+            f"Scratch runtime config is not valid UTF-8 JSON: {exc}",
+        )
+
+
+def validate_scratch_runtime_config(
+    observed: object,
+    *,
+    expected: dict[str, Any],
+) -> None:
+    """Validate the live Scratch route contract before exact desired-state comparison."""
+
+    if not isinstance(observed, dict):
+        _fail(
+            "doctor_scratch_runtime_invalid",
+            "scratch.runtime",
+            "runtime config must be a JSON object",
+        )
+    targets = observed.get("connection_targets")
+    if not isinstance(targets, list) or not targets:
+        _fail(
+            "doctor_scratch_runtime_invalid",
+            "scratch.runtime.connection_targets",
+            "connection_targets must be a non-empty array",
+        )
+    sandboxes: set[str] = set()
+    ids: set[str] = set()
+    for index, target in enumerate(targets):
+        if not isinstance(target, dict) or set(target) != {"id", "label", "sandbox"}:
+            _fail(
+                "doctor_scratch_runtime_invalid",
+                f"scratch.runtime.connection_targets[{index}]",
+                "target must contain exactly id, label, and sandbox",
+            )
+        if any(not isinstance(target[key], str) or not target[key].strip() for key in target):
+            _fail(
+                "doctor_scratch_runtime_invalid",
+                f"scratch.runtime.connection_targets[{index}]",
+                "target fields must be non-empty strings",
+            )
+        if target["id"] in ids or target["sandbox"] in sandboxes:
+            _fail(
+                "doctor_scratch_runtime_invalid",
+                f"scratch.runtime.connection_targets[{index}]",
+                "target ids and sandbox values must be unique",
+            )
+        ids.add(target["id"])
+        sandboxes.add(target["sandbox"])
+    if observed.get("default_sandbox") not in sandboxes:
+        _fail(
+            "doctor_scratch_runtime_invalid",
+            "scratch.runtime.default_sandbox",
+            "default_sandbox must be listed in connection_targets",
+        )
+    notices = observed.get("notices")
+    if not isinstance(notices, list):
+        _fail(
+            "doctor_scratch_runtime_invalid",
+            "scratch.runtime.notices",
+            "runtime config requires a notices array",
+        )
+    for index, notice in enumerate(notices):
+        if not isinstance(notice, dict) or not {"heading", "body"} <= set(notice):
+            _fail(
+                "doctor_scratch_runtime_invalid",
+                f"scratch.runtime.notices[{index}]",
+                "notice requires heading and body",
+            )
+        if any(
+            not isinstance(notice[key], str) or not notice[key].strip()
+            for key in ("heading", "body")
+        ):
+            _fail(
+                "doctor_scratch_runtime_invalid",
+                f"scratch.runtime.notices[{index}]",
+                "notice heading and body must be non-empty strings",
+            )
+    if observed != expected:
+        _fail(
+            "doctor_scratch_runtime_mismatch",
+            "scratch.runtime",
+            "public Scratch runtime config does not match the current canonical render",
+        )
 
 
 def _nonempty_lines(result: subprocess.CompletedProcess[str]) -> list[str]:
@@ -354,7 +477,7 @@ def _validate_container(
                 }
             ],
         }
-        if lock["render_plan"]["adapter_revision"] in {"2", "3", "4", "7", "8"}:
+        if lock["render_plan"]["adapter_revision"] in {"2", "3", "4", "7", "8", "9"}:
             expected_ports["19132/udp"] = [
                 {
                     "HostIp": address,
@@ -531,6 +654,7 @@ def doctor_toml_project(
     timeout: int = 5,
     runner: CommandRunner = _default_runner,
     hello_probe=probe_protocol_hello,
+    scratch_runtime_probe=probe_scratch_runtime_config,
 ) -> TomlDoctorResult:
     """Check one current Compose runtime without mutating host state."""
 
@@ -691,6 +815,28 @@ def doctor_toml_project(
         )
         _validate_volume(volume_record, volume, lock)
 
+    scratch_runtime_status = "not-applicable"
+    if lock["render_plan"]["adapter_revision"] == "9":
+        runtime_path = output / "runtime" / "scratch.json"
+        try:
+            expected_runtime = json.loads(runtime_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            _fail(
+                "doctor_scratch_runtime_invalid",
+                runtime_path,
+                f"cannot read canonical Scratch runtime config: {exc}",
+            )
+        routes = _locked_public_routes(lock)
+        scratch_runtime_url = (
+            f"https://{routes['scratch']}/mc-remote-runtime-config.json"
+        )
+        observed_runtime = scratch_runtime_probe(scratch_runtime_url, timeout)
+        validate_scratch_runtime_config(
+            observed_runtime,
+            expected=expected_runtime,
+        )
+        scratch_runtime_status = "current"
+
     if lock["render_plan"]["adapter_revision"] == "5":
         _fail(
             "doctor_credential_health_unsupported",
@@ -737,4 +883,5 @@ def doctor_toml_project(
         protocol=hello.protocol,
         minecraft_version=hello.minecraft_version,
         compatibility_status=lock["compatibility"]["status"],
+        scratch_runtime_status=scratch_runtime_status,
     )
