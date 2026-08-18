@@ -239,12 +239,7 @@ def test_doctor_rejects_live_scratch_runtime_without_connection_targets() -> Non
         ],
         "connection_enabled": True,
         "release_identity": "scratch-b3",
-        "notices": [
-            {
-                "heading": "公開ベータ環境",
-                "body": "このエディターは公開ベータ版です。動作や仕様が変更されることがあります。",
-            }
-        ],
+        "notices": [],
     }
     observed = dict(expected)
     observed.pop("connection_targets")
@@ -253,7 +248,6 @@ def test_doctor_rejects_live_scratch_runtime_without_connection_targets() -> Non
         validate_scratch_runtime_config(
             observed,
             expected=expected,
-            channel="beta",
         )
 
     assert exc_info.value.reason == "doctor_scratch_runtime_invalid"

@@ -199,8 +199,9 @@ The `official-vps` preset includes an optional `beta` instance. Setting `beta.en
 
 The current public-beta TOML path uses `vps-server@7`. It requires a non-empty Scratch
 `connection_targets` projection, lists `sb-beta.mc-remote.com` as the beta default, and emits a
-public-beta notice. Resolve, render, and doctor fail closed when the target contract is missing or
-the default is absent from the list.
+`notices` array. The array remains empty until the operator fixes the notice copy and URL. Resolve,
+render, and doctor fail closed when the target contract is missing, the default is absent from the
+list, or `notices` is not an array.
 
 `minecraft-stable` and `minecraft-beta` belong to separate Compose profiles, so an ordinary `docker compose up` starts neither Minecraft channel. On a 6 GB VPS, do not run stable and beta together. Use the generated exclusive switch operations, which announce the change, run `save-all flush`, stop gracefully, check the standard ports, and restore the previous instance on failure:
 

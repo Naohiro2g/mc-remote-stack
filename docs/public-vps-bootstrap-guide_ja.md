@@ -421,7 +421,8 @@ transaction phaseで記録する。限定的な追加Compose保存をcanonical m
 
 `vps-server@7` / `compose@9`では、Scratchを持つ公開profileの`connection-targets@1`を必須にする。
 未指定のorderはresolveで、空配列または`default_sandbox`を含まないlockはrenderで拒否する。beta channelの
-`runtime/scratch.json`には非空の`connection_targets`と公開ベータnoticeを必ず出す。
+`runtime/scratch.json`には非空の`connection_targets`と`notices`配列を必ず出す。noticeの文面とURLが
+未確定なら、`notices`は空配列とする。
 
 ```toml
 [[operator_inputs]]
@@ -440,7 +441,8 @@ sandbox = "sb-beta.mc-remote.com"
 公開betaのorderはprofileを`vps-server@7`へ進め、上記入力を追加してからresolve / renderする。
 同じCompose file集合でruntimeを再作成した後、doctorは
 `https://<scratch route>/mc-remote-runtime-config.json`を取得し、canonical renderとの完全一致、
-非空target、defaultの包含、beta noticeを確認する。成功時は`OK doctor scratch-runtime=current`を出す。
+非空target、defaultの包含、`notices`配列を確認する。noticeの文面とURLをoperatorが確定するまでは空配列を配信する。
+成功時は`OK doctor scratch-runtime=current`を出す。
 `default_sandbox`だけを配信してScratch内蔵stable fallbackへ委ねる構成は正常系にしない。
 
 ## 9. bootstrap apply

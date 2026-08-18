@@ -894,7 +894,7 @@ def test_compose_v8_keeps_b3_public_beta_session_only(
     assert manifest["adapter_revision"] == "8"
 
 
-def test_compose_v9_requires_explicit_scratch_target_and_emits_beta_notice(
+def test_compose_v9_requires_explicit_scratch_target_and_emits_empty_notices(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     base_runtime = {
@@ -926,12 +926,7 @@ def test_compose_v9_requires_explicit_scratch_target_and_emits_beta_notice(
 
     assert runtime["connection_targets"] == base_runtime["connection_targets"]
     assert runtime["default_sandbox"] == "sb-beta.mc-remote.example"
-    assert runtime["notices"] == [
-        {
-            "heading": "公開ベータ環境",
-            "body": "このエディターは公開ベータ版です。動作や仕様が変更されることがあります。",
-        }
-    ]
+    assert runtime["notices"] == []
 
 
 def test_compose_v9_rejects_missing_connection_targets(
@@ -1133,12 +1128,7 @@ sandbox = "beta.sb.mc-remote.example"
         {"id": "beta", "label": "Beta", "sandbox": "beta.sb.mc-remote.example"},
     ]
     assert runtime_config["default_sandbox"] == "sb.mc-remote.example"
-    assert runtime_config["notices"] == [
-        {
-            "heading": "公開ベータ環境",
-            "body": "このエディターは公開ベータ版です。動作や仕様が変更されることがあります。",
-        }
-    ]
+    assert runtime_config["notices"] == []
 
     compose, _ = render_module._compose_v9(lock)
     assert compose["services"]["bridge"]["environment"]["BRIDGE_SANDBOX_ALLOWLIST"] == (

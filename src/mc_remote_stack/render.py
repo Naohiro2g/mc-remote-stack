@@ -933,16 +933,7 @@ def _compose_v9(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str]]:
             f"{runtime_path}.default_sandbox",
             "default_sandbox must be listed in connection_targets",
         )
-    runtime_config["notices"] = (
-        [
-            {
-                "heading": "公開ベータ環境",
-                "body": "このエディターは公開ベータ版です。動作や仕様が変更されることがあります。",
-            }
-        ]
-        if lock["environment"]["channel"] == "beta"
-        else []
-    )
+    runtime_config["notices"] = []
     rendered_files[runtime_path] = (
         json.dumps(runtime_config, ensure_ascii=False, indent=2) + "\n"
     )

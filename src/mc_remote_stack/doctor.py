@@ -163,7 +163,6 @@ def validate_scratch_runtime_config(
     observed: object,
     *,
     expected: dict[str, Any],
-    channel: str,
 ) -> None:
     """Validate the live Scratch route contract before exact desired-state comparison."""
 
@@ -210,11 +209,11 @@ def validate_scratch_runtime_config(
             "default_sandbox must be listed in connection_targets",
         )
     notices = observed.get("notices")
-    if not isinstance(notices, list) or (channel == "beta" and not notices):
+    if not isinstance(notices, list):
         _fail(
             "doctor_scratch_runtime_invalid",
             "scratch.runtime.notices",
-            "beta runtime requires a non-empty notices array",
+            "runtime config requires a notices array",
         )
     for index, notice in enumerate(notices):
         if not isinstance(notice, dict) or not {"heading", "body"} <= set(notice):
@@ -835,7 +834,6 @@ def doctor_toml_project(
         validate_scratch_runtime_config(
             observed_runtime,
             expected=expected_runtime,
-            channel=lock["environment"]["channel"],
         )
         scratch_runtime_status = "current"
 
