@@ -743,7 +743,9 @@ def test_bundled_b3_preset_is_exact_unverified_and_credential_profile_only() -> 
             "v1.21.11-2100.0.0b3/mc-remote-1.21.11-2100.0.0b3.jar"
         ),
     }
-    assert policy["presets"][-1] == {
+    assert next(
+        entry for entry in policy["presets"] if entry["ref"] == "mcremote-paper@3"
+    ) == {
         "ref": "mcremote-paper@3",
         "status": "active",
         "available_since": "2026-08-07",
@@ -752,6 +754,175 @@ def test_bundled_b3_preset_is_exact_unverified_and_credential_profile_only() -> 
         entry
         for entry in catalog["preset_catalog"]["presets"]
         if entry["ref"] == "mcremote-paper@3"
+    )
+    assert catalog_entry["compatibility_status"] == "unverified"
+    assert catalog_entry["compatibility_records"] == []
+    verify_preset_catalog()
+
+
+def test_bundled_b4_home_alpha_preset_is_exact_unverified_candidate() -> None:
+    policy = load_catalog_policy()
+    catalog = load_preset_catalog()
+    b2 = load_preset("mcremote-paper@2")
+    b4 = load_preset("mcremote-paper@4")
+
+    assert b4.data["requirements"] == {
+        "profile_capabilities": ["compose", "paper", "persistent-world"],
+        "allowed_channels": ["alpha"],
+        "required_claims": ["profile-render", "protocol-hello"],
+    }
+    assert b4.data["components"] == b2.data["components"]
+    assert b4.data["artifacts"][:2] == b2.data["artifacts"][:2]
+    assert b4.data["artifacts"][2] == {
+        "id": "mcremote-jar",
+        "kind": "https-file",
+        "version": "2100.0.0b4",
+        "filename": "mc-remote-1.21.11-2100.0.0b4.jar",
+        "sha256": "ab3b87c38b6876ec4ba26112eff35d7cb016395a1dae1661578fd3690e1dbc46",
+        "origin": (
+            "https://github.com/Naohiro2g/McRemote/releases/download/"
+            "v1.21.11-2100.0.0b4/mc-remote-1.21.11-2100.0.0b4.jar"
+        ),
+    }
+    assert next(
+        entry for entry in policy["presets"] if entry["ref"] == "mcremote-paper@4"
+    ) == {
+        "ref": "mcremote-paper@4",
+        "status": "active",
+        "available_since": "2026-08-17",
+    }
+    catalog_entry = next(
+        entry
+        for entry in catalog["preset_catalog"]["presets"]
+        if entry["ref"] == "mcremote-paper@4"
+    )
+    assert catalog_entry["compatibility_status"] == "unverified"
+    assert catalog_entry["compatibility_records"] == []
+    verify_preset_catalog()
+
+
+def test_bundled_b4_auth_close_fix_is_a_new_exact_unverified_candidate() -> None:
+    policy = load_catalog_policy()
+    catalog = load_preset_catalog()
+    old_b4 = load_preset("mcremote-paper@4")
+    fixed_b4 = load_preset("mcremote-paper@5")
+
+    assert fixed_b4.data["requirements"] == old_b4.data["requirements"]
+    assert fixed_b4.data["components"] == old_b4.data["components"]
+    assert fixed_b4.data["artifacts"][:2] == old_b4.data["artifacts"][:2]
+    assert old_b4.data["artifacts"][2]["sha256"] == (
+        "ab3b87c38b6876ec4ba26112eff35d7cb016395a1dae1661578fd3690e1dbc46"
+    )
+    assert fixed_b4.data["artifacts"][2] == {
+        "id": "mcremote-jar",
+        "kind": "https-file",
+        "version": "2100.0.0b4",
+        "filename": "mc-remote-1.21.11-2100.0.0b4.jar",
+        "sha256": "f902ed360ac1674143d8e79a49c8e109968f2c38dc36656c91a50dec89082aa8",
+        "origin": (
+            "https://github.com/Naohiro2g/McRemote/releases/download/"
+            "v1.21.11-2100.0.0b4/mc-remote-1.21.11-2100.0.0b4.jar"
+        ),
+    }
+    assert next(
+        entry for entry in policy["presets"] if entry["ref"] == "mcremote-paper@5"
+    ) == {
+        "ref": "mcremote-paper@5",
+        "status": "active",
+        "available_since": "2026-08-17",
+    }
+    catalog_entry = next(
+        entry
+        for entry in catalog["preset_catalog"]["presets"]
+        if entry["ref"] == "mcremote-paper@5"
+    )
+    assert catalog_entry["compatibility_status"] == "unverified"
+    assert catalog_entry["compatibility_records"] == []
+    verify_preset_catalog()
+
+
+def test_bundled_b4_session_persistence_fix_requires_credential_profile() -> None:
+    policy = load_catalog_policy()
+    catalog = load_preset_catalog()
+    old_b4 = load_preset("mcremote-paper@5")
+    fixed_b4 = load_preset("mcremote-paper@6")
+
+    assert fixed_b4.data["requirements"] == {
+        "profile_capabilities": [
+            "compose",
+            "paper",
+            "persistent-world",
+            "credential-rollback-separated",
+        ],
+        "allowed_channels": ["alpha"],
+        "required_claims": ["profile-render", "protocol-hello"],
+    }
+    assert fixed_b4.data["components"] == old_b4.data["components"]
+    assert fixed_b4.data["artifacts"][:2] == old_b4.data["artifacts"][:2]
+    assert fixed_b4.data["artifacts"][2] == {
+        "id": "mcremote-jar",
+        "kind": "https-file",
+        "version": "2100.0.0b4",
+        "filename": "mc-remote-1.21.11-2100.0.0b4.jar",
+        "sha256": "331633ef15a729658496e89fe49cb8a5eb5ebcb2ec86937b7e5313528d7ec997",
+        "origin": (
+            "https://github.com/Naohiro2g/McRemote/releases/download/"
+            "v1.21.11-2100.0.0b4/mc-remote-1.21.11-2100.0.0b4.jar"
+        ),
+    }
+    assert next(
+        entry for entry in policy["presets"] if entry["ref"] == "mcremote-paper@6"
+    ) == {
+        "ref": "mcremote-paper@6",
+        "status": "active",
+        "available_since": "2026-08-18",
+    }
+    catalog_entry = next(
+        entry
+        for entry in catalog["preset_catalog"]["presets"]
+        if entry["ref"] == "mcremote-paper@6"
+    )
+    assert catalog_entry["compatibility_status"] == "verified"
+    assert catalog_entry["compatibility_records"] == [
+        "2026-08-18-b4-code-preservation-recovery-live-human",
+        "2026-08-18-b4-session-persistence-home-alpha",
+    ]
+    verify_preset_catalog()
+
+
+def test_bundled_home_auth_b3_preset_is_exact_jar_only_rollback_target() -> None:
+    policy = load_catalog_policy()
+    catalog = load_preset_catalog()
+    b4 = load_preset("mcremote-paper@4")
+    rollback = load_preset("mcremote-paper-auth-b3@1")
+
+    assert rollback.data["requirements"] == b4.data["requirements"]
+    assert rollback.data["components"] == b4.data["components"]
+    assert rollback.data["artifacts"][:2] == b4.data["artifacts"][:2]
+    assert rollback.data["artifacts"][2] == {
+        "id": "mcremote-jar",
+        "kind": "https-file",
+        "version": "2100.0.0b3",
+        "filename": "mc-remote-1.21.11-2100.0.0b3.jar",
+        "sha256": "aeb190705bd9957ce73557dc1be0fe15efe7250ba9bc688945e6f537e00ef78e",
+        "origin": (
+            "https://github.com/Naohiro2g/McRemote/releases/download/"
+            "v1.21.11-2100.0.0b3/mc-remote-1.21.11-2100.0.0b3.jar"
+        ),
+    }
+    assert next(
+        entry
+        for entry in policy["presets"]
+        if entry["ref"] == "mcremote-paper-auth-b3@1"
+    ) == {
+        "ref": "mcremote-paper-auth-b3@1",
+        "status": "active",
+        "available_since": "2026-08-17",
+    }
+    catalog_entry = next(
+        entry
+        for entry in catalog["preset_catalog"]["presets"]
+        if entry["ref"] == "mcremote-paper-auth-b3@1"
     )
     assert catalog_entry["compatibility_status"] == "unverified"
     assert catalog_entry["compatibility_records"] == []
@@ -812,3 +983,35 @@ def test_bundled_public_b3_runtime_config_profile_is_fail_closed() -> None:
         "adapter": "connection-targets@1",
         "required": True,
     }
+
+
+def test_bundled_public_b4_profile_and_preset_are_exact_session_only() -> None:
+    profile = load_profile("vps-server@8")
+    preset = load_preset("public-web-paper@3")
+
+    assert profile.data["renderer"] == {"name": "compose", "revision": "10"}
+    assert "mcremote-session-only" in profile.data["capabilities"]["provided"]
+    assert "credential-rollback-separated" not in profile.data["capabilities"][
+        "provided"
+    ]
+    roles = {item["id"]: item for item in profile.data["operator_input_roles"]}
+    assert roles["connection-targets"]["required"] is True
+
+    artifacts = {item["id"]: item for item in preset.data["artifacts"]}
+    assert artifacts["scratch-image"] == {
+        "id": "scratch-image",
+        "kind": "oci",
+        "version": "sha-1d2f18785d260564ad4bc30a26a45ef33fc813d6",
+        "locator": "ghcr.io/naohiro2g/mc-remote-scratch",
+        "digest": "sha256:6425f9ac2549c26440fb418868f2e0fdcc7ad817c1a7ae684142d9e0d879f09f",
+    }
+    assert artifacts["bridge-image"] == {
+        "id": "bridge-image",
+        "kind": "oci",
+        "version": "sha-1d2f18785d260564ad4bc30a26a45ef33fc813d6",
+        "locator": "ghcr.io/naohiro2g/mc-remote-bridge",
+        "digest": "sha256:4225408cf4e40eda8877b0e3cee08649dd53374144edb2910e9365c1544fa146",
+    }
+    assert artifacts["mcremote-jar"]["sha256"] == (
+        "331633ef15a729658496e89fe49cb8a5eb5ebcb2ec86937b7e5313528d7ec997"
+    )

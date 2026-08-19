@@ -10,6 +10,7 @@ from mc_remote_stack.doctor import (
     TomlDoctorResult,
     _auth_enforcement_required,
     _validate_container,
+    _validate_volume,
     doctor_toml_project,
     probe_protocol_hello,
     probe_scratch_runtime_config,
@@ -121,6 +122,41 @@ def _managed_volume(lock: dict, name: str = "home-beta-minecraft-data") -> dict:
             "io.mc-remote.created-by-lock": lock["lock_identity"],
         },
     }
+
+
+def test_doctor_accepts_managed_volume_created_by_an_earlier_lock() -> None:
+    lock = {
+        "lock_identity": f"sha256:{2:064x}",
+        "deployment": {"name": "home-alpha"},
+        "environment": {"identity": "home-alpha"},
+        "world": {"identity": "home-alpha-world"},
+    }
+    volume = _managed_volume(lock, "home-alpha-minecraft-data")
+    volume["Labels"]["io.mc-remote.created-by-lock"] = f"sha256:{1:064x}"
+
+    _validate_volume(volume, "home-alpha-minecraft-data", lock)
+
+
+@pytest.mark.parametrize("created_by_lock", [None, "", "sha256:not-a-digest"])
+def test_doctor_rejects_invalid_volume_creation_provenance(
+    created_by_lock: str | None,
+) -> None:
+    lock = {
+        "lock_identity": f"sha256:{2:064x}",
+        "deployment": {"name": "home-alpha"},
+        "environment": {"identity": "home-alpha"},
+        "world": {"identity": "home-alpha-world"},
+    }
+    volume = _managed_volume(lock, "home-alpha-minecraft-data")
+    if created_by_lock is None:
+        del volume["Labels"]["io.mc-remote.created-by-lock"]
+    else:
+        volume["Labels"]["io.mc-remote.created-by-lock"] = created_by_lock
+
+    with pytest.raises(DoctorContractError) as exc_info:
+        _validate_volume(volume, "home-alpha-minecraft-data", lock)
+
+    assert exc_info.value.reason == "doctor_volume_unmanaged"
 
 
 def _doctor_responses(output: Path, lock: dict, *, health: str = "healthy") -> dict:

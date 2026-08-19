@@ -21,6 +21,31 @@ status = "active"
 available_since = "2026-08-16"
 
 [[presets]]
+ref = "public-web-paper@3"
+status = "active"
+available_since = "2026-08-19"
+
+[[presets]]
 ref = "mcremote-paper@3"
 status = "active"
 available_since = "2026-08-07"
+
+[[presets]]
+ref = "mcremote-paper@4"
+status = "active"
+available_since = "2026-08-17"
+
+[[presets]]
+ref = "mcremote-paper@5"
+status = "active"
+available_since = "2026-08-17"
+
+[[presets]]
+ref = "mcremote-paper@6"
+status = "active"
+available_since = "2026-08-18"
+
+[[presets]]
+ref = "mcremote-paper-auth-b3@1"
+status = "active"
+available_since = "2026-08-17"

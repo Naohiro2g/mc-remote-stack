@@ -39,8 +39,22 @@ BOOTSTRAP_CONTRACTS = frozenset(
             "integration",
         ),
         (
+            "home-server@3",
+            "mcremote-paper@6",
+            "alpha",
+            "isolated",
+            "integration",
+        ),
+        (
             "vps-server@7",
             "public-web-paper@2",
+            "beta",
+            "public",
+            "integration",
+        ),
+        (
+            "vps-server@8",
+            "public-web-paper@3",
             "beta",
             "public",
             "integration",
@@ -381,10 +395,25 @@ def _inspect_managed_volume(
         reason="bootstrap_volume_unmanaged",
         path=volume,
     )
+    labels = record.get("Labels")
+    expected = _expected_volume_labels(lock)
+    stable_labels = {
+        key: value
+        for key, value in expected.items()
+        if key != "io.mc-remote.created-by-lock"
+    }
     if (
         record.get("Name") != volume
         or record.get("Driver") != "local"
-        or record.get("Labels") != _expected_volume_labels(lock)
+        or not isinstance(labels, dict)
+        or set(labels) != set(expected)
+        or any(labels.get(key) != value for key, value in stable_labels.items())
+        or not isinstance(labels.get("io.mc-remote.created-by-lock"), str)
+        or re.fullmatch(
+            r"sha256:[0-9a-f]{64}",
+            labels["io.mc-remote.created-by-lock"],
+        )
+        is None
     ):
         _fail(
             "bootstrap_volume_unmanaged",
@@ -511,7 +540,7 @@ def _check_ports(
 ) -> None:
     address = lock["network"]["bind_address"]
     ports = [lock["network"]["java_port"], lock["network"]["mcremote_port"]]
-    if lock["render_plan"]["adapter_revision"] in {"2", "3", "4", "7", "8", "9"}:
+    if lock["render_plan"]["adapter_revision"] in {"2", "3", "4", "7", "8", "9", "10"}:
         ports = [80, 443, *ports]
     for port in ports:
         published = _run(

@@ -3,7 +3,7 @@ schema_version = 1
 [preset_catalog]
 generator = "mcrctl-preset-catalog-v1"
 canonicalization = "jcs-rfc8785-v1"
-source_sha256 = "ca0d9a1edb47d7ba01cfa67b0a881a645cdeecc4b8e4cd7bc69690ec5da45d35"
+source_sha256 = "9b37c99dc06ccd21ad464ae8c2c4338c0d42bbe92d9efa37329c5c71bab6a883"
 
 [[preset_catalog.presets]]
 ref = "mcremote-paper@1"
@@ -39,6 +39,50 @@ compatibility_status = "unverified"
 compatibility_records = []
 
 [[preset_catalog.presets]]
+ref = "mcremote-paper@4"
+content_sha256 = "26b0ea1bcb79083065fdd5e54c696b16b54be9cc52c655a0094f8738673b3b2b"
+description = "Exact unreleased b4 plugin candidate for home alpha compatibility validation"
+status = "active"
+available_since = "2026-08-17"
+required_profile_capabilities = ["compose", "paper", "persistent-world"]
+allowed_channels = ["alpha"]
+compatibility_status = "unverified"
+compatibility_records = []
+
+[[preset_catalog.presets]]
+ref = "mcremote-paper@5"
+content_sha256 = "8e57c5cbf2ad94151c6f7b49d3784adfab43376c938d7e0c60616a0a2f186c10"
+description = "Exact unreleased b4 auth-close fix candidate for home alpha compatibility validation"
+status = "active"
+available_since = "2026-08-17"
+required_profile_capabilities = ["compose", "paper", "persistent-world"]
+allowed_channels = ["alpha"]
+compatibility_status = "unverified"
+compatibility_records = []
+
+[[preset_catalog.presets]]
+ref = "mcremote-paper@6"
+content_sha256 = "737bba7b6ed9659034a732de8cf9ff73d41e129243671f2e24f046b3de2647e9"
+description = "Exact unreleased b4 session-token persistence candidate for credential-separated home alpha validation"
+status = "active"
+available_since = "2026-08-18"
+required_profile_capabilities = ["compose", "credential-rollback-separated", "paper", "persistent-world"]
+allowed_channels = ["alpha"]
+compatibility_status = "verified"
+compatibility_records = ["2026-08-18-b4-code-preservation-recovery-live-human", "2026-08-18-b4-session-persistence-home-alpha"]
+
+[[preset_catalog.presets]]
+ref = "mcremote-paper-auth-b3@1"
+content_sha256 = "bd371defae9343f57aae4a0c1cbc9da7e55bd0d69f1b5d8f3a4c908fda58634d"
+description = "Exact b3 JAR-only rollback target for the auth-enforced home profile"
+status = "active"
+available_since = "2026-08-17"
+required_profile_capabilities = ["compose", "paper", "persistent-world"]
+allowed_channels = ["alpha"]
+compatibility_status = "unverified"
+compatibility_records = []
+
+[[preset_catalog.presets]]
 ref = "public-web-paper@1"
 content_sha256 = "3356f45b58ea342f92e189ae8699f09c503f7f9c0cc4a272461a5e3c5e307a02"
 description = "Exact public beta Caddy, Scratch, Bridge, Paper, and McRemote artifacts"
@@ -55,6 +99,17 @@ content_sha256 = "75eb206c31bc718e563dd81735972a2bb8fd6b8789a9140514448d3cd8fa4d
 description = "Exact public beta b3 Scratch, Bridge, Paper, and McRemote artifacts"
 status = "active"
 available_since = "2026-08-16"
+required_profile_capabilities = ["compose", "mcremote-auth-enforced", "mcremote-session-only", "paper", "persistent-world", "public-web", "scratch-runtime", "websocket-bridge"]
+allowed_channels = ["beta"]
+compatibility_status = "unverified"
+compatibility_records = []
+
+[[preset_catalog.presets]]
+ref = "public-web-paper@3"
+content_sha256 = "061988c6d63390b9e631febb99733b13d0e9ea3a85583c06daa38fb91325be80"
+description = "Exact public beta b4 Scratch, Bridge, Paper, and McRemote artifacts"
+status = "active"
+available_since = "2026-08-19"
 required_profile_capabilities = ["compose", "mcremote-auth-enforced", "mcremote-session-only", "paper", "persistent-world", "public-web", "scratch-runtime", "websocket-bridge"]
 allowed_channels = ["beta"]
 compatibility_status = "unverified"

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import socket
 import subprocess
 from dataclasses import dataclass
@@ -333,15 +334,30 @@ def _expected_volume_labels(lock: dict[str, Any]) -> dict[str, str]:
 
 
 def _validate_volume(record: dict[str, Any], volume: str, lock: dict[str, Any]) -> None:
+    labels = record.get("Labels")
+    expected = _expected_volume_labels(lock)
+    stable_labels = {
+        key: value
+        for key, value in expected.items()
+        if key != "io.mc-remote.created-by-lock"
+    }
     if (
         record.get("Name") != volume
         or record.get("Driver") != "local"
-        or record.get("Labels") != _expected_volume_labels(lock)
+        or not isinstance(labels, dict)
+        or set(labels) != set(expected)
+        or any(labels.get(key) != value for key, value in stable_labels.items())
+        or not isinstance(labels.get("io.mc-remote.created-by-lock"), str)
+        or re.fullmatch(
+            r"sha256:[0-9a-f]{64}",
+            labels["io.mc-remote.created-by-lock"],
+        )
+        is None
     ):
         _fail(
             "doctor_volume_unmanaged",
             volume,
-            "runtime volume does not match the current lock and mcrctl ownership labels",
+            "runtime volume does not match mcrctl ownership and creation provenance labels",
         )
 
 
@@ -477,7 +493,7 @@ def _validate_container(
                 }
             ],
         }
-        if lock["render_plan"]["adapter_revision"] in {"2", "3", "4", "7", "8", "9"}:
+        if lock["render_plan"]["adapter_revision"] in {"2", "3", "4", "7", "8", "9", "10"}:
             expected_ports["19132/udp"] = [
                 {
                     "HostIp": address,
@@ -816,7 +832,7 @@ def doctor_toml_project(
         _validate_volume(volume_record, volume, lock)
 
     scratch_runtime_status = "not-applicable"
-    if lock["render_plan"]["adapter_revision"] == "9":
+    if lock["render_plan"]["adapter_revision"] in {"9", "10"}:
         runtime_path = output / "runtime" / "scratch.json"
         try:
             expected_runtime = json.loads(runtime_path.read_text(encoding="utf-8"))

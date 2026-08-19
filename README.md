@@ -197,11 +197,18 @@ uv run mcrctl render --project ./deployment --output ./deployment/generated
 
 The `official-vps` preset includes an optional `beta` instance. Setting `beta.enabled: true` renders a `minecraft-beta` service with independent data, backup, OCI image, Paper, and plugin locks. Stable and beta both use the standard `25565/tcp+udp` and `25575/tcp` ports and therefore run exclusively. The stable public names are unsuffixed (`scratch.mc-remote.com`, `bridge.mc-remote.com`, and `sb.mc-remote.com`); beta uses the `-beta` suffix.
 
-The current public-beta TOML path uses `vps-server@7`. It requires a non-empty Scratch
+The b3 public-beta runtime-config path uses `vps-server@7`. It requires a non-empty Scratch
 `connection_targets` projection, lists `sb-beta.mc-remote.com` as the beta default, and emits a
 `notices` array. The array remains empty until the operator fixes the notice copy and URL. Resolve,
 render, and doctor fail closed when the target contract is missing, the default is absent from the
 list, or `notices` is not an array.
+
+The append-only b4 target is `vps-server@8` / `public-web-paper@3`. It pins the released b4
+McRemote JAR and the deployment OCI images built from the final Scratch CI artifact. Public b4
+keeps only session authentication: its hash-only session snapshot is writable under the
+Minecraft data volume, survives an ordinary restart, and may be discarded with that volume.
+It does not approve public long-lived credentials. Existing b3 runtimes use the resumable
+`mcrctl migration public-b4` path after the `vps-server@7` runtime-target projection is live.
 
 `minecraft-stable` and `minecraft-beta` belong to separate Compose profiles, so an ordinary `docker compose up` starts neither Minecraft channel. On a 6 GB VPS, do not run stable and beta together. Use the generated exclusive switch operations, which announce the change, run `save-all flush`, stop gracefully, check the standard ports, and restore the previous instance on failure:
 
@@ -335,14 +342,23 @@ age-encrypted ciphertext; keep plaintext retention, recipient access, and the ag
 identity under explicit operator control. Archive inclusion does not make plugin data
 part of the world-restore contract.
 
-The staged `home-server@3` / `compose@5` profile for long-lived credentials mounts the
-credential snapshot and revocation authority in independent volumes outside `/data`.
-This excludes both from world restore and an archive limited to `/data`. The profile,
-renderer, mount-topology checks, and deterministic restore tests are implemented, but the exact
-b3 preset, machine-readable plugin health, bootstrap transaction, and cross-repository
-live rollback evidence are not. Doctor currently fails closed after checking the mounts
-because credential health is unsupported. Live apply and public-default gates therefore
-remain closed; do not operate this profile with the current b2 preset.
+The credential-separated `home-server@3` / `compose@5` profile mounts the credential
+snapshot and revocation authority in independent volumes outside `/data`. This excludes
+both from world restore and an archive limited to `/data`. The exact b3 preset and the
+isolated-alpha `mcremote-paper@6` candidate with persistent session tokens are implemented.
+The exact `@6` McRemote JAR SHA-256 is
+`331633ef15a729658496e89fe49cb8a5eb5ebcb2ec86937b7e5313528d7ec997`.
+Controlled bootstrap is limited to the `alpha` / `isolated` / `integration` combination.
+Home-alpha validation covered fresh credential bootstrap, session reuse after restarting the
+same b4 runtime, and replaying saved Scratch and Python building code on a fresh world after
+new pairing.
+
+The nonce-bound machine-readable plugin checkpoint and doctor consumer, general bootstrap
+and reset transactions, and the public long-lived-credential gate remain a later slice.
+Doctor currently fails closed with `doctor_credential_health_unsupported` after validating
+the mount topology. This does not approve the profile as a public default, but the separate
+credential-lifecycle work does not block the b4 user-facing feature gate, in accordance with
+the knowledge authentication roadmap.
 
 Classify explicit runtime dependency downloads and update checks from a startup log
 without reproducing raw log lines or URL paths:

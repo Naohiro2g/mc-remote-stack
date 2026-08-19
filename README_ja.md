@@ -199,9 +199,14 @@ deploymentには使わず、bootstrap applyも受理しない。
 
 `official-vps`には任意の`staging` instanceを用意している。`staging.enabled: true`にすると、本番とは別のdata、backup、OCI image、Paper、plugin lockを持つ`minecraft-dev` serviceを生成する。本番は`25565/tcp・udp`と`25575/tcp`、stagingは`25566/tcp・udp`と`25576/tcp`を使う。Scratch stableの既定接続先は`sb.mc-remote.com`、Scratch devは`sb-dev.mc-remote.com`となる。
 
-現行の公開beta TOML経路は`vps-server@7`を使い、Scratch runtimeの非空`connection_targets`を
-必須にする。betaのdefaultは`sb-beta.mc-remote.com`で、公開ベータnoticeもruntime configへ投影する。
-欠落やdefault不包含はresolve / render / doctorでfail closedになる。
+公開b3のruntime-config経路は`vps-server@7`を使い、Scratch runtimeの非空`connection_targets`を
+必須にする。betaのdefaultは`sb-beta.mc-remote.com`で、noticeの文面とURLが未確定なら`notices: []`を
+投影する。欠落、default不包含、`notices`の型不正はresolve / render / doctorでfail closedになる。
+
+公開b4のappend-only targetは`vps-server@8` / `public-web-paper@3`である。最終Scratch CI artifactから
+作成したexact OCI imageと正式b4 McRemote JARを固定し、session recordだけをMinecraft data volume内へ
+hash-onlyで保存する。通常restartは越えるが、world交換時の認証継続やpublic long-lived credentialは保証しない。
+既存b3は`mcrctl migration public-b4`で新volumeへ移し、credential bootstrapとhealthは人間が明示確認する。
 
 `minecraft-dev`にはComposeの`staging` profileが付くため、通常の`docker compose up`では起動しない。6GB VPSではprod/devを同時起動せず、生成された排他切替scriptを使う。scriptは1分前から告知し、`save-all flush`、graceful stop、接続確認を行い、失敗時は元のinstanceへ戻す。
 
@@ -330,12 +335,19 @@ stateである。transfer adapterがoff-hostへ送るのはage暗号文だけと
 access、age identityをoperatorが明示管理する。archiveに含まれることは、plugin dataがworld restore
 契約へ入ることを意味しない。
 
-long-lived credential向けの`home-server@3` / `compose@5`は、credential snapshotとrevocation
+credentialをworldから分離する`home-server@3` / `compose@5`は、credential snapshotとrevocation
 authorityをそれぞれ`/data`外の独立volumeへmountする。これによりworld restoreと`/data`だけのarchive
-から両方を除外する。profile、render、mount topology検査、deterministic restore試験までは実装済みだが、
-exact b3 preset、pluginの機械可読health、bootstrap transaction、cross-repo live rollback evidenceは
-未完了である。現時点のdoctorはmount検査後にcredential health未対応としてfail closedする。このため
-live applyと公開既定化のgateは閉じたままであり、現行b2 presetと組み合わせて運用してはならない。
+から両方を除外する。exact b3 presetと、session token永続化を含むisolated alpha用
+`mcremote-paper@6`は実装済みである。`@6`のMcRemote JAR SHA-256は
+`331633ef15a729658496e89fe49cb8a5eb5ebcb2ec86937b7e5313528d7ec997`で、controlled bootstrapは
+`alpha` / `isolated` / `integration`の組合せだけを許す。home-alphaではfresh credential bootstrap、
+同一b4再起動後のsession再利用、空world・新規pairingでのScratch／Python建築コード再実行を確認した。
+
+pluginのnonce付き機械可読checkpointとそのdoctor consumer、一般向けbootstrap／reset transaction、
+long-lived credential公開gateは後続sliceである。現時点のdoctorはmount topology検査後に
+`doctor_credential_health_unsupported`でfail closedする。これはunsupportedを健康と誤認しない境界であり、
+一般profileの公開既定化を承認するものではない。一方、knowledgeのauthentication roadmapどおり、
+この後続credential-lifecycle sliceでb4利用者機能を律速しない。
 
 起動logに明示されたruntime dependency downloadとupdate checkを、raw lineやURL pathを
 再出力せず分類するには、次を実行する。

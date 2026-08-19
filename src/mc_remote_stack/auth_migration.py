@@ -93,6 +93,14 @@ PUBLIC_B3_MIGRATION = MigrationSpec(
     preset_transitions={"public-web-paper@1": "public-web-paper@2"},
     candidate_policy="public-b3",
 )
+PUBLIC_B4_MIGRATION = MigrationSpec(
+    name="public-b4",
+    schema="mcrctl.public-b4-migration",
+    relative=Path(".mcrctl") / "migrations" / "public-b4",
+    profile_transitions={"vps-server@7": "vps-server@8"},
+    preset_transitions={"public-web-paper@2": "public-web-paper@3"},
+    candidate_policy="public-b4",
+)
 _ACTIVE_MIGRATION: ContextVar[MigrationSpec] = ContextVar(
     "mc_remote_stack_active_migration",
     default=AUTH_ENFORCEMENT_MIGRATION,
@@ -593,6 +601,58 @@ def _validate_migration_candidate(
     target_lock: dict[str, Any],
 ) -> None:
     spec = _ACTIVE_MIGRATION.get()
+    if spec.candidate_policy == "public-b4":
+        exact_fields = (
+            "environment",
+            "world",
+            "network",
+            "agreements",
+            "acknowledgements",
+            "operator_inputs",
+            "secret_references",
+            "scope",
+        )
+        source_runtime = {
+            key: value
+            for key, value in source_lock["runtime"].items()
+            if key != "volumes"
+        }
+        target_runtime = {
+            key: value
+            for key, value in target_lock["runtime"].items()
+            if key != "volumes"
+        }
+        source_render = source_lock["render_plan"]
+        target_render = target_lock["render_plan"]
+        source_profile = source_lock["input"]["profile"]["ref"]
+        source_preset = source_lock["input"]["preset"]["ref"]
+        if (
+            source_profile != "vps-server@7"
+            or target_lock["input"]["profile"]["ref"]
+            != spec.profile_transitions.get(source_profile)
+            or source_preset != "public-web-paper@2"
+            or target_lock["input"]["preset"]["ref"]
+            != spec.preset_transitions.get(source_preset)
+            or any(source_lock[field] != target_lock[field] for field in exact_fields)
+            or source_lock["deployment"]["name"]
+            != target_lock["deployment"]["name"]
+            or source_runtime != target_runtime
+            or source_render["adapter"] != "compose"
+            or target_render["adapter"] != "compose"
+            or source_render["adapter_revision"] != "9"
+            or target_render["adapter_revision"] != "10"
+            or source_render["services"] != target_render["services"]
+            or source_render["volume_roles"] != target_render["volume_roles"]
+            or source_render["operator_inputs"] != target_render["operator_inputs"]
+            or set(target_render["required_security_controls"])
+            != set(source_render["required_security_controls"])
+        ):
+            _fail(
+                "migration_transition_not_reviewed",
+                "migration.target_lock",
+                "candidate changes state beyond the exact reviewed public b3-to-b4 release transition",
+            )
+        return
     if spec.candidate_policy == "public-b3":
         exact_fields = (
             "environment",
@@ -845,6 +905,7 @@ class _DockerMigrationHost:
         wait_timeout: int,
         runner: CommandRunner,
         hello_probe: Any,
+        credential_health_acknowledged: bool = False,
     ) -> None:
         self.source_lock = source_lock
         self.target_lock = target_lock
@@ -861,6 +922,7 @@ class _DockerMigrationHost:
         self.wait_timeout = wait_timeout
         self.runner = runner
         self.hello_probe = hello_probe
+        self.credential_health_acknowledged = credential_health_acknowledged
         self.docker_prefix = ["docker", "--context", docker_context]
 
     def _preflight_docker(self) -> None:
@@ -1299,6 +1361,16 @@ class _DockerMigrationHost:
             raise _translate_contract(exc, reason=exc.reason, path=exc.path) from exc
 
     def verify_target(self, plan: AuthMigrationPlan) -> None:
+        if (
+            _ACTIVE_MIGRATION.get().candidate_policy == "public-b4"
+            and not self.credential_health_acknowledged
+        ):
+            _fail(
+                "migration_credential_health_acknowledgement_required",
+                "credential.health",
+                "confirm UNINITIALIZED, run the explicit credential bootstrap, "
+                "confirm HEALTHY, then resume with the one-shot acknowledgement",
+            )
         try:
             doctor_toml_project(
                 self.project_root,
@@ -1540,7 +1612,7 @@ def _prepare_transaction(
         )
         shutil.copytree(source_output, source_render)
         if (
-            _ACTIVE_MIGRATION.get().candidate_policy == "public-b3"
+            _ACTIVE_MIGRATION.get().candidate_policy in {"public-b3", "public-b4"}
             and plan.auth_config_root is not None
         ):
             source_auth_config = (
@@ -1708,7 +1780,7 @@ def _install_auth_config(plan: AuthMigrationPlan) -> None:
         existing = destination.read_bytes()
         if existing == content:
             return
-        if _ACTIVE_MIGRATION.get().candidate_policy == "public-b3":
+        if _ACTIVE_MIGRATION.get().candidate_policy in {"public-b3", "public-b4"}:
             source_snapshot = _migration_root(plan.project_root) / "source-auth-config.yml"
             if (
                 source_snapshot.is_symlink()
@@ -1841,6 +1913,7 @@ def _apply_auth_enforcement_migration_locked(
     host: AuthMigrationHost | None = None,
     runner: CommandRunner = _default_runner,
     hello_probe: Any = probe_protocol_hello,
+    acknowledge_credential_health: bool = False,
     progress=lambda _step: None,
 ) -> AuthMigrationResult:
     """Apply or resume one durable migration; failures never restart the source runtime."""
@@ -1941,6 +2014,7 @@ def _apply_auth_enforcement_migration_locked(
         wait_timeout=wait_timeout,
         runner=runner,
         hello_probe=hello_probe,
+        credential_health_acknowledged=acknowledge_credential_health,
     )
     source_output = _migration_root(project_root) / "source-render"
     initial_phase = state["phase"]
@@ -2049,6 +2123,7 @@ def apply_auth_enforcement_migration(
     host: AuthMigrationHost | None = None,
     runner: CommandRunner = _default_runner,
     hello_probe: Any = probe_protocol_hello,
+    acknowledge_credential_health: bool = False,
     progress=lambda _step: None,
 ) -> AuthMigrationResult:
     """Apply or resume under an exclusive project-local migration lock."""
@@ -2099,6 +2174,7 @@ def apply_auth_enforcement_migration(
             host=host,
             runner=runner,
             hello_probe=hello_probe,
+            acknowledge_credential_health=acknowledge_credential_health,
             progress=progress,
         )
     finally:
@@ -2124,4 +2200,25 @@ def load_public_b3_upgrade_state(project_root: Path) -> dict[str, Any]:
     """Load one durable public b3 migration state."""
 
     with _activate_migration(PUBLIC_B3_MIGRATION):
+        return load_auth_migration_state(project_root)
+
+
+def plan_public_b4_upgrade(*args: Any, **kwargs: Any) -> AuthMigrationPlan:
+    """Plan the exact public b3-to-b4 migration in its own durable namespace."""
+
+    with _activate_migration(PUBLIC_B4_MIGRATION):
+        return plan_auth_enforcement_migration(*args, **kwargs)
+
+
+def apply_public_b4_upgrade(*args: Any, **kwargs: Any) -> AuthMigrationResult:
+    """Apply or resume the exact public b3-to-b4 migration."""
+
+    with _activate_migration(PUBLIC_B4_MIGRATION):
+        return apply_auth_enforcement_migration(*args, **kwargs)
+
+
+def load_public_b4_upgrade_state(project_root: Path) -> dict[str, Any]:
+    """Load one durable public b4 migration state."""
+
+    with _activate_migration(PUBLIC_B4_MIGRATION):
         return load_auth_migration_state(project_root)

@@ -1,3 +1,4 @@
+import copy
 import shutil
 from dataclasses import FrozenInstanceError
 from pathlib import Path
@@ -12,6 +13,7 @@ from mc_remote_stack.auth_migration import (
     MigrationSpec,
     _activate_migration,
     _build_candidate,
+    _DockerMigrationHost,
     _install_auth_config,
     _migration_root,
     _validate_migration_candidate,
@@ -89,6 +91,54 @@ def test_public_b3_candidate_allows_only_reviewed_release_transition() -> None:
             _validate_migration_candidate(source, target)
 
     assert exc_info.value.reason == "migration_transition_not_reviewed"
+
+
+def test_public_b4_migration_has_exact_vps_transition() -> None:
+    spec = auth_migration.PUBLIC_B4_MIGRATION
+
+    assert spec.name == "public-b4"
+    assert spec.profile_transitions == {"vps-server@7": "vps-server@8"}
+    assert spec.preset_transitions == {"public-web-paper@2": "public-web-paper@3"}
+    with _activate_migration(spec):
+        assert _migration_root(Path("/deployment")) == (
+            Path("/deployment/.mcrctl/migrations/public-b4")
+        )
+
+
+def test_public_b4_candidate_allows_only_reviewed_release_transition() -> None:
+    source = _release_lock(target=True)
+    source["input"]["profile"]["ref"] = "vps-server@7"
+    source["render_plan"]["adapter_revision"] = "9"
+    source["operator_inputs"] = [
+        {"role": "connection-targets", "sha256": "fixture"}
+    ]
+    source["render_plan"]["operator_inputs"] = [
+        {"role": "connection-targets"}
+    ]
+    target = copy.deepcopy(source)
+    target["input"]["profile"]["ref"] = "vps-server@8"
+    target["input"]["preset"]["ref"] = "public-web-paper@3"
+    target["selection"]["preset"] = "public-web-paper@3"
+    target["render_plan"]["adapter_revision"] = "10"
+    target["runtime"]["volumes"][0]["identity"] = "target-world"
+    target["components"] = [{"id": "mcremote", "version": "b4"}]
+    target["artifacts"] = [{"id": "mcremote", "sha256": "b4"}]
+
+    with _activate_migration(auth_migration.PUBLIC_B4_MIGRATION):
+        _validate_migration_candidate(source, target)
+
+
+def test_public_b4_target_requires_one_shot_credential_health_acknowledgement() -> None:
+    host = object.__new__(_DockerMigrationHost)
+    host.credential_health_acknowledged = False
+
+    with _activate_migration(auth_migration.PUBLIC_B4_MIGRATION):
+        with pytest.raises(AuthMigrationContractError) as exc_info:
+            host.verify_target(object())
+
+    assert exc_info.value.reason == (
+        "migration_credential_health_acknowledgement_required"
+    )
 
 
 def test_public_b3_candidate_updates_profile_preset_and_new_volumes(
@@ -284,6 +334,81 @@ def test_public_b3_cli_forwards_reviewed_transaction(
     assert "PLAN migration=public-b3" in text
     assert "PLAN release=public-web-paper@1->public-web-paper@2" in text
     assert "OK migration public-b3 status=complete" in text
+
+
+def test_public_b4_cli_forwards_reviewed_transaction(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    project = tmp_path / "deployment"
+    output = project / "generated"
+    source = "sha256:" + "1" * 64
+    target = "sha256:" + "2" * 64
+    plan = AuthMigrationPlan(
+        project_root=project.resolve(),
+        output=output.absolute(),
+        docker_context="default",
+        source_lock_identity=source,
+        target_lock_identity=target,
+        source_profile="vps-server@7",
+        target_profile="vps-server@8",
+        deployment="official-public-beta",
+        environment="official-public-beta",
+        services=("caddy", "scratch", "bridge", "minecraft"),
+        volume_migrations=(("minecraft-data", "old-world", "new-world"),),
+        preserved_compose_files=(project / "recovery" / "compose.plugins.yaml",),
+        preserved_compose_sha256=("3" * 64,),
+        preserved_composition_identity="sha256:" + "4" * 64,
+        auth_config_root=project / "private-config",
+    )
+    monkeypatch.setattr(
+        "mc_remote_stack.cli.plan_public_b4_upgrade",
+        lambda *_args, **_kwargs: plan,
+    )
+    monkeypatch.setattr(
+        "mc_remote_stack.cli.apply_public_b4_upgrade",
+        lambda *_args, **_kwargs: AuthMigrationResult(
+            "complete", source, target, "complete"
+        ),
+    )
+    common = [
+        "--project",
+        str(project),
+        "--output",
+        str(output),
+        "--docker-context",
+        "default",
+        "--target-volume",
+        "minecraft-data=new-world",
+        "--preserve-compose-file",
+        str(project / "recovery" / "compose.plugins.yaml"),
+        "--auth-config-root",
+        str(project / "private-config"),
+        "--allow-unverified",
+    ]
+
+    assert main(["migration", "public-b4", "plan", *common]) == 0
+    assert main(
+        [
+            "migration",
+            "public-b4",
+            "apply",
+            *common,
+            "--expected-source-lock-identity",
+            source,
+            "--expected-target-lock-identity",
+            target,
+            "--expected-preserved-composition-identity",
+            plan.preserved_composition_identity,
+            "--yes",
+        ]
+    ) == 0
+
+    text = capsys.readouterr().out
+    assert "PLAN migration=public-b4" in text
+    assert "PLAN release=public-web-paper@2->public-web-paper@3" in text
+    assert "OK migration public-b4 status=complete" in text
 
 
 def test_public_b3_config_replacement_requires_preserved_source(

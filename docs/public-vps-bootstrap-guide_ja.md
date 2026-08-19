@@ -6,8 +6,10 @@ MinecraftとMcRemoteのpublic betaを構築する。provider、実IP、個人名
 
 ## 0. 現在の完成範囲
 
-現在実装済みの`vps-server@6` / `public-web-paper@2`は、b3のScratch、Bridge、
-McRemoteをsession-only認証で固定し、次を一つのpublic bootstrap transactionとして扱う。
+新規b3用`vps-server@6` / `public-web-paper@2`に加え、公開b4 targetの
+`vps-server@8` / `public-web-paper@3`を実装済みである。b4はb3の公開境界を維持しながら、
+最終Scratch / Bridge artifact、McRemote b4、通常restartを越えるsession recordを固定する。
+次を一つのpublic bootstrapまたはreview済みmigration transactionとして扱う。
 
 - exact OCI Caddy / Scratch / Bridge / Minecraft runtime、Paper JAR、McRemote JAR
 - Caddyだけをpublic edgeへ接続し、backend間通信をinternal app networkへ限定
@@ -26,7 +28,7 @@ McRemoteをsession-only認証で固定し、次を一つのpublic bootstrap tran
 - provider / host firewall、DNS、TLSの変更
 - HTTPS / WSSの外部smokeを行うdoctor claim
 - backup / restore、upgrade、既存world import、stable / beta排他切替
-- 既存deploymentからのin-place migration
+- 一般化した任意version間のin-place migration（b2→b3とb3→b4だけを個別に許可する）
 
 ### 現行b2 VPSの停止境界
 
@@ -444,6 +446,66 @@ sandbox = "sb-beta.mc-remote.com"
 非空target、defaultの包含、`notices`配列を確認する。noticeの文面とURLをoperatorが確定するまでは空配列を配信する。
 成功時は`OK doctor scratch-runtime=current`を出す。
 `default_sandbox`だけを配信してScratch内蔵stable fallbackへ委ねる構成は正常系にしない。
+
+## 8.2 public b4 cutover
+
+公開b4のtargetは`vps-server@8` / `compose@10` / `public-web-paper@3`である。exact artifactは次で固定する。
+
+- Scratch tag target / CI source: `1d2f18785d260564ad4bc30a26a45ef33fc813d6`、CI artifact
+  `9287627432` / digest `sha256:924254363ab431c1f11ea8661f950b9325da56c248f52613cf87d70cb6562a71`
+- Scratch OCI: `sha256:6425f9ac2549c26440fb418868f2e0fdcc7ad817c1a7ae684142d9e0d879f09f`
+- Bridge CI artifact: `9287631364` / digest
+  `sha256:637dbd94224489aac6fdfd4e273a05e00792d1012b6f2efc4efcd8f5b82730f1`
+- Bridge OCI: `sha256:4225408cf4e40eda8877b0e3cee08649dd53374144edb2910e9365c1544fa146`
+- McRemote JAR: `331633ef15a729658496e89fe49cb8a5eb5ebcb2ec86937b7e5313528d7ec997`
+
+public b4はlong-lived credentialを公開しない。session recordだけをhash-onlyで
+`/data/plugins/McRemote/session-only/`へ保存する。通常restartは越えるが、Minecraft data volumeの交換、
+reset、rollbackで失われてよい。保護対象は保存済みScratch / Python建築コードであり、world、pairing、
+接続状態、認証状態へ完全rollback互換を要求しない。
+
+現行b3が`vps-server@6`なら、先に同じb3 artifact / 同じvolumeのまま`vps-server@7`へ進める。
+`mc-remote.toml`へprofile更新と`connection-targets@1`入力を加え、次のoperator fileを置く。
+
+```toml
+[[targets]]
+id = "beta"
+label = "公開ベータ"
+sandbox = "sb-beta.mc-remote.com"
+```
+
+resolve / render後、現在のcanonical composeとpreserved compose二枚を同じ順序で`up --detach --wait`し、
+doctorと実配信JSONで`default_sandbox`、非空`connection_targets`、`notices = []`を確認する。
+このb3 runtime-config更新が完了するまでb4 migrationをplanしない。
+
+b4 JARをcontent-addressed storeへSHA照合付きで収容した後、read-only planを実行する。
+
+```sh
+B4_MC_VOLUME="official-public-beta-b4-minecraft-data"
+B4_CADDY_DATA="official-public-beta-b4-caddy-data"
+B4_CADDY_CONFIG="official-public-beta-b4-caddy-config"
+
+sudo "$MC_REMOTE_STACK/.venv/bin/mcrctl" migration public-b4 plan \
+  --project "$MC_REMOTE_PROJECT" \
+  --output "$MC_REMOTE_OUTPUT" \
+  --docker-context default \
+  --target-volume "minecraft-data=$B4_MC_VOLUME" \
+  --target-volume "caddy-data=$B4_CADDY_DATA" \
+  --target-volume "caddy-config=$B4_CADDY_CONFIG" \
+  --preserve-compose-file "$MC_REMOTE_PROJECT/.mcrctl/migrations/auth-enforcement/preserved-compose/00-compose.recovery-plugins.yaml" \
+  --preserve-compose-file "$MC_REMOTE_PROJECT/.mcrctl/migrations/auth-enforcement/preserved-compose/01-compose.homepage.yaml" \
+  --auth-config-root "$AUTH_CONFIG_ROOT" \
+  --allow-unverified
+```
+
+planのsource / target lock、3 volume、preserved compositionをreviewしてapplyする。最初のapplyはtargetを
+起動した後、credential healthの人間確認を要求して意図的に停止する。container consoleで順に
+`mcremote credential status`（`UNINITIALIZED`）、`mcremote credential bootstrap`、
+`mcremote credential status`（`HEALTHY`）を確認する。確認後、同じapply引数へ
+`--acknowledge-credential-health`を一度だけ加えて再開する。state JSONを手編集せず、旧volumeを削除しない。
+
+完了後はtoken無しhelloの`auth_required`、新規pairing、ScratchのCatalog Picker / pose / WireScope、
+通常restart後の期限内session token再利用を確認する。お知らせの文面とURLが未確定の間は`notices: []`を維持する。
 
 ## 9. bootstrap apply
 
