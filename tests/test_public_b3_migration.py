@@ -141,6 +141,44 @@ def test_public_b4_target_requires_one_shot_credential_health_acknowledgement() 
     )
 
 
+def test_public_migration_rejects_compose_that_masks_exact_plugin_artifact() -> None:
+    lock = {
+        "runtime": {"artifact_store": "/artifacts"},
+        "components": [
+            {
+                "role": "mcremote-plugin",
+                "artifact": "mcremote-jar",
+            }
+        ],
+        "artifacts": [
+            {
+                "id": "mcremote-jar",
+                "filename": "mc-remote-b4.jar",
+                "sha256": "1" * 64,
+            }
+        ],
+    }
+    service = {
+        "volumes": [
+            {
+                "type": "bind",
+                "source": "/recovery/plugins",
+                "target": "/plugins",
+                "read_only": True,
+            }
+        ]
+    }
+
+    with pytest.raises(AuthMigrationContractError) as exc_info:
+        auth_migration._validate_effective_mcremote_mount(
+            service,
+            lock,
+            path="migration.source.minecraft",
+        )
+
+    assert exc_info.value.reason == "migration_artifact_mount_mismatch"
+
+
 def test_public_b3_candidate_updates_profile_preset_and_new_volumes(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

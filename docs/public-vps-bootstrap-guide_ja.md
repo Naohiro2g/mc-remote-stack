@@ -478,6 +478,12 @@ resolve / render後、現在のcanonical composeとpreserved compose二枚を同
 doctorと実配信JSONで`default_sandbox`、非空`connection_targets`、`notices = []`を確認する。
 このb3 runtime-config更新が完了するまでb4 migrationをplanしない。
 
+preserved composeで追加pluginを保持する場合も、`/plugins`全体をdirectory mountで置換してはならない。
+周辺pluginは個別file mountとし、generated composeがlockのMcRemote JARをcontent-addressed storeから
+`/plugins/<locked filename>`へread-only mountする経路を残す。doctorはlive mountを、migration planは
+source / target双方のeffective Composeを検査し、exact mountの欠落、`/plugins`を覆うmount、別McRemote
+JAR mountをfail closedにする。
+
 b4 JARをcontent-addressed storeへSHA照合付きで収容した後、read-only planを実行する。
 
 ```sh

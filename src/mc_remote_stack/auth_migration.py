@@ -38,6 +38,11 @@ from .apply import (
 from .doctor import DoctorContractError, doctor_toml_project, probe_protocol_hello
 from .render import RenderContractError, render_toml_project, verify_toml_render_output
 from .resolver import ResolutionError, load_lock, resolve_project
+from .runtime_artifacts import (
+    RuntimeArtifactContractError,
+    RuntimeMount,
+    validate_mcremote_mounts,
+)
 from .toml_project import (
     LOCK_NAME,
     ORDER_NAME,
@@ -775,6 +780,45 @@ def _compose_stack(
     return command
 
 
+def _validate_effective_mcremote_mount(
+    service: dict[str, Any],
+    lock: dict[str, Any],
+    *,
+    path: object,
+) -> None:
+    source = service.get("volumes")
+    if not isinstance(source, list):
+        _fail(
+            "migration_artifact_mount_mismatch",
+            path,
+            "effective Minecraft service volumes are unavailable",
+        )
+    mounts: list[RuntimeMount] = []
+    for mount in source:
+        if not isinstance(mount, dict) or not isinstance(mount.get("target"), str):
+            _fail(
+                "migration_artifact_mount_mismatch",
+                path,
+                "effective Minecraft mount record is invalid",
+            )
+        mounts.append(
+            RuntimeMount(
+                kind=str(mount.get("type", "")).lower(),
+                source=(
+                    mount.get("source")
+                    if isinstance(mount.get("source"), str)
+                    else None
+                ),
+                target=mount["target"],
+                read_only=mount.get("read_only") is True,
+            )
+        )
+    try:
+        validate_mcremote_mounts(mounts, lock)
+    except RuntimeArtifactContractError as exc:
+        _fail("migration_artifact_mount_mismatch", path, str(exc))
+
+
 def _validate_preserved_container_record(
     record: dict[str, Any],
     *,
@@ -972,13 +1016,17 @@ class _DockerMigrationHost:
 
     def _compose_services_for_directory(
         self,
+        output: Path,
         project_directory: Path,
+        lock: dict[str, Any],
         expected_services: set[str],
+        *,
+        path: object,
     ) -> dict[str, Any]:
         result = _run(
             self.runner,
             _compose_stack(
-                self.source_output,
+                output,
                 self.docker_prefix,
                 self.project_root,
                 self.preserved_compose_files,
@@ -987,23 +1035,31 @@ class _DockerMigrationHost:
             + ["config", "--format", "json"],
             timeout=60,
             reason="migration_source_compose_invalid",
-            path=self.source_output / "compose.yaml",
+            path=path,
         )
         try:
             rendered = json.loads(result.stdout)
         except json.JSONDecodeError:
             _fail(
                 "migration_source_compose_invalid",
-                self.source_output / "compose.yaml",
+                path,
                 "Docker Compose config output is not valid JSON",
             )
         services = rendered.get("services") if isinstance(rendered, dict) else None
         if not isinstance(services, dict) or set(services) != expected_services:
             _fail(
                 "migration_source_compose_invalid",
-                self.source_output / "compose.yaml",
+                path,
                 "Docker Compose config services do not match the source lock",
             )
+        minecraft = services.get("minecraft")
+        if not isinstance(minecraft, dict):
+            _fail(
+                "migration_artifact_mount_mismatch",
+                path,
+                "effective Compose does not contain the Minecraft service",
+            )
+        _validate_effective_mcremote_mount(minecraft, lock, path=path)
         return services
 
     def _source_working_directories(
@@ -1012,8 +1068,11 @@ class _DockerMigrationHost:
     ) -> dict[str, set[Path]]:
         generated_directory = self.source_output.resolve()
         canonical = self._compose_services_for_directory(
+            self.source_output,
             generated_directory,
+            self.source_lock,
             expected_services,
+            path="migration.source.minecraft",
         )
         allowed = {
             service: {generated_directory} for service in expected_services
@@ -1022,8 +1081,11 @@ class _DockerMigrationHost:
         if historical_directory == generated_directory:
             return allowed
         historical = self._compose_services_for_directory(
+            self.source_output,
             historical_directory,
+            self.source_lock,
             expected_services,
+            path="migration.source.minecraft",
         )
         for service in expected_services:
             if canonical[service] == historical[service]:
@@ -1035,6 +1097,13 @@ class _DockerMigrationHost:
             self._preflight_docker()
             services = set(_service_ids(self.source_lock))
             expected_working_directories = self._source_working_directories(services)
+            self._compose_services_for_directory(
+                self.target_output,
+                self.target_output.resolve(),
+                self.target_lock,
+                services,
+                path="migration.target.minecraft",
+            )
             containers = _project_container_ids(
                 self.runner,
                 self.docker_prefix,
