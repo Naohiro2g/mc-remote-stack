@@ -82,31 +82,55 @@ def _managed_container(
             }
         },
     }
+    plugin_component = next(
+        component
+        for component in lock["components"]
+        if component.get("role") == "mcremote-plugin"
+    )
+    plugin_artifact = next(
+        artifact
+        for artifact in lock["artifacts"]
+        if artifact.get("id") == plugin_component.get("artifact")
+    )
+    record["Mounts"] = [
+        {
+            "Type": "bind",
+            "Source": str(
+                Path(lock["runtime"]["artifact_store"])
+                / "sha256"
+                / plugin_artifact["sha256"]
+            ),
+            "Destination": f"/plugins/{plugin_artifact['filename']}",
+            "RW": False,
+        }
+    ]
     if lock["render_plan"]["adapter_revision"] == "5":
         identities = {
             assignment["role"]: assignment["identity"]
             for assignment in lock["runtime"]["volumes"]
         }
-        record["Mounts"] = [
-            {
+        record["Mounts"].extend(
+            [
+                {
                 "Type": "volume",
                 "Name": identities["minecraft-data"],
                 "Destination": "/data",
                 "RW": True,
-            },
-            {
+                },
+                {
                 "Type": "volume",
                 "Name": identities["credential-store"],
                 "Destination": "/mcremote/credential-store",
                 "RW": True,
-            },
-            {
+                },
+                {
                 "Type": "volume",
                 "Name": identities["credential-revocations"],
                 "Destination": "/mcremote/credential-revocations",
                 "RW": True,
-            },
-        ]
+                },
+            ]
+        )
     return record
 
 
@@ -404,7 +428,7 @@ def test_doctor_rejects_credential_authority_mounted_under_data(tmp_path: Path) 
     authority = next(
         mount
         for mount in container["Mounts"]
-        if mount["Name"] == "home-alpha-credential-revocations"
+        if mount.get("Name") == "home-alpha-credential-revocations"
     )
     authority["Destination"] = "/data/plugins/McRemote/credential-revocations"
     responses[_docker("inspect", "container-current")] = [
@@ -457,6 +481,41 @@ def test_doctor_reports_additional_compose_files_without_hiding_health(
     assert result.render_status == "additional-compose-files"
 
 
+def test_doctor_rejects_additional_compose_that_masks_exact_plugin_artifact(
+    tmp_path: Path,
+) -> None:
+    project, data_root, output, lock = _prepared_project(tmp_path)
+    responses = _doctor_responses(output, lock)
+    container = _managed_container(lock, output)
+    container["Config"]["Labels"]["com.docker.compose.project.config_files"] = (
+        f"{output.resolve() / 'compose.yaml'},"
+        f"{tmp_path / 'recovery.override.yaml'}"
+    )
+    container["Mounts"] = [
+        {
+            "Type": "bind",
+            "Source": str(tmp_path / "recovery" / "plugins"),
+            "Destination": "/plugins",
+            "RW": False,
+        }
+    ]
+    responses[_docker("inspect", "container-current")] = [
+        _result(("docker",), stdout=json.dumps([container]) + "\n")
+    ]
+
+    with pytest.raises(DoctorContractError) as exc_info:
+        doctor_toml_project(
+            project,
+            output,
+            docker_context="default",
+            data_root=data_root,
+            runner=FakeDocker(responses),
+            hello_probe=lambda *_args: pytest.fail("hello probe must not run"),
+        )
+
+    assert exc_info.value.reason == "doctor_artifact_mount_mismatch"
+
+
 def test_doctor_reports_public_vps_network_scope(tmp_path: Path) -> None:
     project, data_root, output, lock = _prepared_public_project(tmp_path)
     base = _compose_base(output)
@@ -507,11 +566,14 @@ def test_doctor_reports_public_vps_network_scope(tmp_path: Path) -> None:
                             {
                                 "Id": "container-current",
                                 "Config": {"Labels": labels},
-                                "State": {
-                                    "Running": True,
-                                    "Health": {"Status": "healthy"},
-                                },
-                                "NetworkSettings": {
+                                    "State": {
+                                        "Running": True,
+                                        "Health": {"Status": "healthy"},
+                                    },
+                                    "Mounts": _managed_container(lock, output)[
+                                        "Mounts"
+                                    ],
+                                    "NetworkSettings": {
                                     "Ports": {
                                         "25565/tcp": [
                                             {"HostIp": "0.0.0.0", "HostPort": "25565"}
@@ -626,6 +688,17 @@ def test_doctor_accepts_public_minecraft_ports_from_compose_renderer_8(
         "world": {"identity": "official-public-beta-world"},
         "lock_identity": "sha256:" + "1" * 64,
         "render_plan": {"adapter_revision": "8"},
+        "runtime": {"artifact_store": str(tmp_path / "artifacts")},
+        "components": [
+            {"role": "mcremote-plugin", "artifact": "mcremote-jar"}
+        ],
+        "artifacts": [
+            {
+                "id": "mcremote-jar",
+                "filename": "mc-remote-b3.jar",
+                "sha256": "2" * 64,
+            }
+        ],
         "network": {
             "bind_address": "0.0.0.0",
             "java_port": 25565,
@@ -648,6 +721,14 @@ def test_doctor_accepts_public_minecraft_ports_from_compose_renderer_8(
             }
         },
         "State": {"Running": True, "Health": {"Status": "healthy"}},
+        "Mounts": [
+            {
+                "Type": "bind",
+                "Source": str(tmp_path / "artifacts" / "sha256" / ("2" * 64)),
+                "Destination": "/plugins/mc-remote-b3.jar",
+                "RW": False,
+            }
+        ],
         "NetworkSettings": {
             "Ports": {
                 "25565/tcp": [{"HostIp": "0.0.0.0", "HostPort": "25565"}],

@@ -20,6 +20,11 @@ from .render import (
     _locked_public_routes,
     verify_toml_render_output,
 )
+from .runtime_artifacts import (
+    RuntimeArtifactContractError,
+    RuntimeMount,
+    validate_mcremote_mounts,
+)
 
 MAX_HELLO_BYTES = 64 * 1024
 MAX_SCRATCH_RUNTIME_BYTES = 64 * 1024
@@ -418,6 +423,49 @@ def _validate_credential_mounts(record: dict[str, Any], lock: dict[str, Any]) ->
             )
 
 
+def _validate_mcremote_artifact_mount(
+    record: dict[str, Any],
+    lock: dict[str, Any],
+) -> None:
+    source = record.get("Mounts")
+    if not isinstance(source, list):
+        _fail(
+            "doctor_artifact_mount_mismatch",
+            "runtime.mounts",
+            "runtime mounts are unavailable",
+        )
+    mounts: list[RuntimeMount] = []
+    for mount in source:
+        if not isinstance(mount, dict) or not isinstance(
+            mount.get("Destination"), str
+        ):
+            _fail(
+                "doctor_artifact_mount_mismatch",
+                "runtime.mounts",
+                "runtime mount record is invalid",
+            )
+        mounts.append(
+            RuntimeMount(
+                kind=str(mount.get("Type", "")).lower(),
+                source=(
+                    mount.get("Source")
+                    if isinstance(mount.get("Source"), str)
+                    else None
+                ),
+                target=mount["Destination"],
+                read_only=mount.get("RW") is False,
+            )
+        )
+    try:
+        validate_mcremote_mounts(mounts, lock)
+    except RuntimeArtifactContractError as exc:
+        _fail(
+            "doctor_artifact_mount_mismatch",
+            "runtime.mounts",
+            str(exc),
+        )
+
+
 def _validate_container(
     record: dict[str, Any],
     lock: dict[str, Any],
@@ -449,6 +497,7 @@ def _validate_container(
             "runtime container service is not declared by the current lock",
         )
     if service == "minecraft":
+        _validate_mcremote_artifact_mount(record, lock)
         _validate_credential_mounts(record, lock)
 
     state = record.get("State")
