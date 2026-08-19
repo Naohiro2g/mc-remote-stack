@@ -493,7 +493,7 @@ def _validate_container(
                 }
             ],
         }
-        if lock["render_plan"]["adapter_revision"] in {"2", "3", "4", "7", "8", "9"}:
+        if lock["render_plan"]["adapter_revision"] in {"2", "3", "4", "7", "8", "9", "10"}:
             expected_ports["19132/udp"] = [
                 {
                     "HostIp": address,
@@ -832,7 +832,7 @@ def doctor_toml_project(
         _validate_volume(volume_record, volume, lock)
 
     scratch_runtime_status = "not-applicable"
-    if lock["render_plan"]["adapter_revision"] == "9":
+    if lock["render_plan"]["adapter_revision"] in {"9", "10"}:
         runtime_path = output / "runtime" / "scratch.json"
         try:
             expected_runtime = json.loads(runtime_path.read_text(encoding="utf-8"))

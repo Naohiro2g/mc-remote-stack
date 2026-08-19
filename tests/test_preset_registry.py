@@ -983,3 +983,35 @@ def test_bundled_public_b3_runtime_config_profile_is_fail_closed() -> None:
         "adapter": "connection-targets@1",
         "required": True,
     }
+
+
+def test_bundled_public_b4_profile_and_preset_are_exact_session_only() -> None:
+    profile = load_profile("vps-server@8")
+    preset = load_preset("public-web-paper@3")
+
+    assert profile.data["renderer"] == {"name": "compose", "revision": "10"}
+    assert "mcremote-session-only" in profile.data["capabilities"]["provided"]
+    assert "credential-rollback-separated" not in profile.data["capabilities"][
+        "provided"
+    ]
+    roles = {item["id"]: item for item in profile.data["operator_input_roles"]}
+    assert roles["connection-targets"]["required"] is True
+
+    artifacts = {item["id"]: item for item in preset.data["artifacts"]}
+    assert artifacts["scratch-image"] == {
+        "id": "scratch-image",
+        "kind": "oci",
+        "version": "sha-1d2f18785d260564ad4bc30a26a45ef33fc813d6",
+        "locator": "ghcr.io/naohiro2g/mc-remote-scratch",
+        "digest": "sha256:6425f9ac2549c26440fb418868f2e0fdcc7ad817c1a7ae684142d9e0d879f09f",
+    }
+    assert artifacts["bridge-image"] == {
+        "id": "bridge-image",
+        "kind": "oci",
+        "version": "sha-1d2f18785d260564ad4bc30a26a45ef33fc813d6",
+        "locator": "ghcr.io/naohiro2g/mc-remote-bridge",
+        "digest": "sha256:4225408cf4e40eda8877b0e3cee08649dd53374144edb2910e9365c1544fa146",
+    }
+    assert artifacts["mcremote-jar"]["sha256"] == (
+        "331633ef15a729658496e89fe49cb8a5eb5ebcb2ec86937b7e5313528d7ec997"
+    )
