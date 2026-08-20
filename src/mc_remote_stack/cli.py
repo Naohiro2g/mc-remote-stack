@@ -1410,6 +1410,8 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
         )
     else:
         print("OK doctor protocol=responsive auth=required")
+    if result.homepage_status == "current":
+        print("OK doctor homepage=current")
     if result.scratch_runtime_status == "current":
         print("OK doctor scratch-runtime=current")
     if result.wirescope_status == "current":

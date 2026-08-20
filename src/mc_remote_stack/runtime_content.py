@@ -199,6 +199,21 @@ def verify_homepage_tree(root: Path, expected_sha256: str) -> HomepageTree:
     return HomepageTree(root, actual, len(records), total_bytes, "present")
 
 
+def _publish_homepage_modes(root: Path) -> None:
+    """Make one verified static tree traversable by a read-only runtime mount."""
+
+    try:
+        root.chmod(0o755)
+        for candidate in root.rglob("*"):
+            candidate.chmod(0o755 if candidate.is_dir() else 0o644)
+    except OSError as exc:
+        _fail(
+            "runtime_content_permissions_failed",
+            root,
+            f"cannot publish canonical homepage permissions: {exc}",
+        )
+
+
 def import_homepage_tree(source: Path, store: Path) -> HomepageTree:
     """Copy one safe static tree into a content-addressed immutable directory."""
 
@@ -213,6 +228,7 @@ def import_homepage_tree(source: Path, store: Path) -> HomepageTree:
     destination = tree_store / tree_sha256
     if destination.exists() or destination.is_symlink():
         verified = verify_homepage_tree(destination, tree_sha256)
+        _publish_homepage_modes(destination)
         return HomepageTree(
             destination,
             tree_sha256,
@@ -230,6 +246,7 @@ def import_homepage_tree(source: Path, store: Path) -> HomepageTree:
             target.parent.mkdir(mode=0o755, parents=True, exist_ok=True)
             shutil.copyfile(source / relative, target)
             target.chmod(0o644)
+        _publish_homepage_modes(temporary)
         verify_homepage_tree(temporary, tree_sha256)
         try:
             os.rename(temporary, destination)
@@ -241,6 +258,7 @@ def import_homepage_tree(source: Path, store: Path) -> HomepageTree:
         if not moved and temporary.exists():
             shutil.rmtree(temporary)
     verified = verify_homepage_tree(destination, tree_sha256)
+    _publish_homepage_modes(destination)
     return HomepageTree(
         destination,
         tree_sha256,
