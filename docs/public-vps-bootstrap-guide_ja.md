@@ -27,7 +27,7 @@ MinecraftとMcRemoteのpublic betaを構築する。provider、実IP、個人名
 次はまだ同じtransactionへ入っていないため、後続phaseで完成度を上げる。
 
 - provider / host firewall、DNS、TLSの変更
-- HTTPS / WSSの外部smokeを行うdoctor claim
+- Bridge WSS／Minecraft transportまで含む外部smokeのdoctor claim
 - backup / restore、既存world import、stable / beta排他切替
 - stateful schema変更やprofile family変更を含む任意version間migration
 
@@ -143,6 +143,35 @@ noticeは非秘密の見出し、本文、HTTPS URL、link labelを必須とし�
 notice linkは通常の`target=_blank`リンクであり、Scratch sourceのMessageChannel handoffを実行しない。
 WireScopeの観測を開始する正準入口はScratchブロック画面下部の「WireScopeを開く」である。noticeから
 WireScope appへ直接リンクした画面が観測対象待ちになることは異常ではない。
+
+#### 2026-08-21 official public beta notice feed適用記録
+
+- stack checkout: `a63578a7833ef1c7da3c5d254e29ed4a9e108230`
+- reviewed plan: `sha256:50bc44760750c452c4c7fcc21d76d5e826bfd130cb439862335cbd4a6b5e88b1`
+- source lock: `sha256:9da2e50bacc8091308eb989bc9f3bf159528cc9f25b4afe00fa3282070ff8b5e`
+- target lock: `sha256:931a924093043e3947c5b76a02edeaa25ab8b318cde3ce241fbbc7e99dad3f65`
+- transition: `vps-server@10/public-web-paper@4` → `vps-server@12/public-web-paper@5`
+- stateful identity: 既存b4の3 volumeを維持、追加Composeなし
+- result: transaction `complete`、doctor `runtime=healthy`／`render=current`／
+  `scratch-runtime=current`／`wirescope=current`
+- public runtime config: 上記3 noticeを指定順で配信
+
+初回applyは`compose@13`をdoctorのBedrock UDP公開port許可リストへ追加し忘れたため、
+`doctor_network_mismatch`で停止しsource projectionへ自動rollbackした。source doctorのhealthy／currentを
+確認後、回帰テストを追加しPR #24 merge `a63578a`で修正した。同じplan IDをresumeして完了しており、
+別plan作成、project手編集、volume交換は行っていない。
+
+適用後の公開面確認で`mc-remote.com`が空のHTTP 403を返すことを検出した。Caddy routeとbind mount、
+homepage tree SHAは正しかったが、composition canonicalization時に`mkdtemp()`の`0700`をhomepage CAS
+tree rootへそのままpublishしており、Caddy containerからindexを読めなかった。notice更新はhomepage
+tree identityを変更しておらず、問題はnotice文面ではなく、先行するtree importのpermission contractと
+doctorのhomepage claim欠落である。locked tree rootだけを`0755`へ修復し、同じindex SHAのままHTTPS 200へ
+復旧した。generated file、container内、volumeは手編集していない。
+
+恒久対策として、homepage importは既存entryを含めdirectory `0755`／file `0644`へ正規化する。
+renderはexact modeでなければ停止前に`runtime_content_permissions_invalid`で拒否し、doctorは公開homepage
+indexをlocked treeと照合して`OK doctor homepage=current`を返す。mount path一致だけをhomepage正常の
+根拠にしない。
 
 ### 以後のrelease更新
 
@@ -775,6 +804,9 @@ container環境値をprogressへ混ぜない。失敗detailはstderr（空なら
 - Scratch / Bridgeにはhost publishがなく、app networkは`internal=true`かつIPv6無効
 - Minecraftのdefault gatewayはIPv6無効のegressで、Mojang初回取得が成功する
 - token無しhelloが明示的`auth_required`。成功時は`doctor_auth_not_enforced`でFAIL
+- `homepage=current`。公開homepage indexがlocked static treeのexact bytesと一致
+- `scratch-runtime=current`。公開runtime JSONがcanonical renderと一致
+- `wirescope=current handoff=cross-origin`。公開indexとhandoff headerがcanonical renderと一致
 - compatibilityは正式evidence着地まで`unverified` warning
 
 別networkから、provider filter、host firewall、Docker publishを通したJava / McRemote
@@ -823,7 +855,7 @@ VPSで実証したTLS / WSS / rollbackを現行SSOTの自動claimとして完成
 
 1. homepage／周辺plugin artifactの配布元とprovenance
 2. backup retention / off-host live smoke / rollback cleanup contract
-3. HTTPS / WSS / Bridge→Minecraft smokeのdoctor claim
+3. Bridge WSS / Bridge→Minecraft smokeのdoctor claim
 4. stable / betaの排他切替、upgrade、同一hash redeploy
 5. provider filter / UFW / `DOCKER-USER`観測のsanitized evidence schema
 

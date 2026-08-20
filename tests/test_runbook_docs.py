@@ -117,6 +117,12 @@ def test_public_vps_runbook_uses_ordered_notice_file_and_keeps_release_notice_la
     assert "WireScope（ワイヤースコープ）ライブ画面" in guide
     assert "マイクラリモコンScratchクライアント ver.2100.0.0b4" in guide
     assert "presetから自動的に末尾" in guide
+    assert "sha256:50bc44760750c452c4c7fcc21d76d5e826bfd130cb439862335cbd4a6b5e88b1" in guide
+    assert "doctor_network_mismatch" in guide
+    assert "同じplan IDをresume" in guide
+    assert "mkdtemp()" in guide
+    assert "runtime_content_permissions_invalid" in guide
+    assert "OK doctor homepage=current" in guide
 
 
 def test_public_vps_runbook_repairs_the_whole_project_tree_before_mutation() -> None:

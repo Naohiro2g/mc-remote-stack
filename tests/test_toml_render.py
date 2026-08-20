@@ -1,3 +1,4 @@
+import copy
 import hashlib
 import json
 import os
@@ -1540,8 +1541,14 @@ def test_compose_v12_projects_exact_plugins_and_homepage_without_overlays(
     monkeypatch.setattr(
         render_module,
         "_compose_v11",
-        lambda _lock: (base_compose, base_files),
+        lambda _lock: (copy.deepcopy(base_compose), dict(base_files)),
     )
+
+    homepage.path.chmod(0o700)
+    with pytest.raises(RenderContractError) as exc_info:
+        render_module._compose_v12(lock)
+    assert exc_info.value.reason == "runtime_content_permissions_invalid"
+    homepage.path.chmod(0o755)
 
     compose, rendered = render_module._compose_v12(lock)
 

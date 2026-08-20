@@ -1,5 +1,6 @@
 import hashlib
 import shutil
+import stat
 from pathlib import Path
 
 import pytest
@@ -73,6 +74,23 @@ def test_homepage_tree_import_and_verify_are_deterministic(tmp_path: Path) -> No
     assert imported.total_bytes == 9
     assert verified.file_count == imported.file_count
     assert verified.total_bytes == imported.total_bytes
+    assert stat.S_IMODE(imported.path.stat().st_mode) == 0o755
+    assert stat.S_IMODE((imported.path / "assets").stat().st_mode) == 0o755
+    assert stat.S_IMODE((imported.path / "index.html").stat().st_mode) == 0o644
+
+
+def test_homepage_tree_import_repairs_an_existing_private_root(tmp_path: Path) -> None:
+    source = tmp_path / "homepage"
+    source.mkdir()
+    (source / "index.html").write_text("home\n", encoding="utf-8")
+    store = tmp_path / "store"
+    imported = import_homepage_tree(source, store)
+    imported.path.chmod(0o700)
+
+    present = import_homepage_tree(source, store)
+
+    assert present.status == "present"
+    assert stat.S_IMODE(present.path.stat().st_mode) == 0o755
 
 
 def test_homepage_tree_import_never_uses_an_absolute_cleanup_sentinel(

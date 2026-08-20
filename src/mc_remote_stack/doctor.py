@@ -30,6 +30,7 @@ from .runtime_artifacts import (
 
 MAX_HELLO_BYTES = 64 * 1024
 MAX_SCRATCH_RUNTIME_BYTES = 64 * 1024
+MAX_HOMEPAGE_INDEX_BYTES = 1024 * 1024
 MAX_WIRESCOPE_INDEX_BYTES = 1024 * 1024
 MCREMOTE_B2_SHA256 = "ad2674fa93645cc3c4c0d2b6aa5b37f11a8f9519162f61ac00b8be7122b023c7"
 
@@ -83,6 +84,7 @@ class TomlDoctorResult:
     protocol: str | None
     minecraft_version: str | None
     compatibility_status: str
+    homepage_status: str = "not-applicable"
     scratch_runtime_status: str = "not-applicable"
     wirescope_status: str = "not-applicable"
 
@@ -166,6 +168,41 @@ def probe_scratch_runtime_config(url: str, timeout: int) -> object:
             "doctor_scratch_runtime_invalid",
             url,
             f"Scratch runtime config is not valid UTF-8 JSON: {exc}",
+        )
+
+
+def probe_homepage_public(
+    url: str,
+    *,
+    expected_index_sha256: str,
+    timeout: int,
+) -> None:
+    """Fetch the public homepage and compare its exact canonical index bytes."""
+
+    request = Request(
+        url,
+        headers={"Accept": "text/html", "User-Agent": "mcrctl-doctor/1"},
+    )
+    try:
+        with urlopen(request, timeout=timeout) as response:
+            source = response.read(MAX_HOMEPAGE_INDEX_BYTES + 1)
+    except (HTTPError, URLError, TimeoutError, OSError) as exc:
+        _fail(
+            "doctor_homepage_unavailable",
+            url,
+            f"cannot fetch the public homepage: {exc}",
+        )
+    if len(source) > MAX_HOMEPAGE_INDEX_BYTES:
+        _fail(
+            "doctor_homepage_invalid",
+            url,
+            "public homepage index exceeded the 1 MiB limit",
+        )
+    if hashlib.sha256(source).hexdigest() != expected_index_sha256:
+        _fail(
+            "doctor_homepage_content_mismatch",
+            url,
+            "public homepage index does not match the locked static tree",
         )
 
 
@@ -910,6 +947,7 @@ def doctor_toml_project(
     timeout: int = 5,
     runner: CommandRunner = _default_runner,
     hello_probe=probe_protocol_hello,
+    homepage_probe=probe_homepage_public,
     scratch_runtime_probe=probe_scratch_runtime_config,
     wirescope_probe=probe_wirescope_public_handoff,
 ) -> TomlDoctorResult:
@@ -1072,6 +1110,7 @@ def doctor_toml_project(
         )
         _validate_volume(volume_record, volume, lock)
 
+    homepage_status = "not-applicable"
     scratch_runtime_status = "not-applicable"
     wirescope_status = "not-applicable"
     if lock["render_plan"]["adapter_revision"] in {"9", "10", "11", "12", "13"}:
@@ -1085,6 +1124,46 @@ def doctor_toml_project(
                 f"cannot read canonical Scratch runtime config: {exc}",
             )
         routes = _locked_public_routes(lock)
+        if lock["render_plan"]["adapter_revision"] in {"12", "13"}:
+            homepage_inputs = [
+                item
+                for item in lock["operator_inputs"]
+                if item.get("role") == "homepage-static"
+            ]
+            if len(homepage_inputs) != 1:
+                _fail(
+                    "doctor_homepage_invalid",
+                    "operator_inputs.homepage-static",
+                    "canonical public runtime requires one locked homepage tree",
+                )
+            tree_sha256 = homepage_inputs[0]["semantic"].get("tree_sha256")
+            index_path = (
+                Path(lock["runtime"]["artifact_store"])
+                / "trees"
+                / "sha256"
+                / tree_sha256
+                / "index.html"
+            )
+            try:
+                index_source = index_path.read_bytes()
+            except OSError as exc:
+                _fail(
+                    "doctor_homepage_invalid",
+                    index_path,
+                    f"cannot read the locked homepage index: {exc}",
+                )
+            if len(index_source) > MAX_HOMEPAGE_INDEX_BYTES:
+                _fail(
+                    "doctor_homepage_invalid",
+                    index_path,
+                    "locked homepage index exceeded the 1 MiB limit",
+                )
+            homepage_probe(
+                f"https://{routes['homepage']}/",
+                expected_index_sha256=hashlib.sha256(index_source).hexdigest(),
+                timeout=timeout,
+            )
+            homepage_status = "current"
         scratch_runtime_url = (
             f"https://{routes['scratch']}/mc-remote-runtime-config.json"
         )
@@ -1165,6 +1244,7 @@ def doctor_toml_project(
         protocol=hello.protocol,
         minecraft_version=hello.minecraft_version,
         compatibility_status=lock["compatibility"]["status"],
+        homepage_status=homepage_status,
         scratch_runtime_status=scratch_runtime_status,
         wirescope_status=wirescope_status,
     )

@@ -1348,6 +1348,14 @@ def _compose_v12(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str]]:
         verified = verify_homepage_tree(homepage_root, homepage["tree_sha256"])
     except ValueError as exc:
         _render_fail("runtime_content_missing", homepage_root, str(exc))
+    for candidate in [homepage_root, *homepage_root.rglob("*")]:
+        expected_mode = 0o755 if candidate.is_dir() else 0o644
+        if stat.S_IMODE(candidate.stat().st_mode) != expected_mode:
+            _render_fail(
+                "runtime_content_permissions_invalid",
+                candidate,
+                f"canonical homepage entry must have mode {expected_mode:o}",
+            )
     if (
         verified.file_count != homepage["file_count"]
         or verified.total_bytes != homepage["total_bytes"]

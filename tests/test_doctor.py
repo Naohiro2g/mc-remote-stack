@@ -14,6 +14,7 @@ from mc_remote_stack.doctor import (
     _validate_container,
     _validate_volume,
     doctor_toml_project,
+    probe_homepage_public,
     probe_protocol_hello,
     probe_scratch_runtime_config,
     probe_wirescope_public_handoff,
@@ -449,6 +450,43 @@ def test_doctor_fetches_public_scratch_runtime_without_credentials(
         "https://scratch-beta.example/mc-remote-runtime-config.json"
     )
     assert request.headers.get("Authorization") is None
+
+
+def test_doctor_checks_exact_public_homepage_index(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    index = b"<!doctype html><title>McRemote</title>\n"
+    received: dict[str, object] = {}
+
+    class Response:
+        headers: dict[str, str] = {}
+
+        def __enter__(self) -> "Response":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def read(self, size: int) -> bytes:
+            received["size"] = size
+            return index
+
+    def fake_urlopen(request: object, timeout: int) -> Response:
+        received["request"] = request
+        received["timeout"] = timeout
+        return Response()
+
+    monkeypatch.setattr("mc_remote_stack.doctor.urlopen", fake_urlopen)
+
+    probe_homepage_public(
+        "https://mc-remote.example/",
+        expected_index_sha256=hashlib.sha256(index).hexdigest(),
+        timeout=5,
+    )
+
+    assert received["timeout"] == 5
+    assert received["size"] == 1024 * 1024 + 1
+    assert received["request"].full_url == "https://mc-remote.example/"
 
 
 def test_doctor_checks_cross_origin_wirescope_headers_and_exact_index(
@@ -1113,6 +1151,7 @@ def test_cli_doctor_uses_simple_local_defaults_and_does_not_echo_secrets(
             protocol="21.0.0",
             minecraft_version="1.21.11",
             compatibility_status="unverified",
+            homepage_status="current",
             scratch_runtime_status="current",
         )
 
@@ -1129,6 +1168,7 @@ def test_cli_doctor_uses_simple_local_defaults_and_does_not_echo_secrets(
     assert "render=current" in output
     assert "OK doctor network=loopback bind=127.0.0.1 java-port=25565 mcremote-port=25575" in output
     assert "OK doctor protocol=21.0.0 mc-version=1.21.11 auth=not-required" in output
+    assert "OK doctor homepage=current" in output
     assert "OK doctor scratch-runtime=current" in output
     assert "WARN doctor compatibility=unverified" in output
     assert "token" not in output
