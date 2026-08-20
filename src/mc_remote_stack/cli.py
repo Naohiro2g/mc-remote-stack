@@ -36,6 +36,11 @@ from .backup import (
     ready_outbox_archives,
     transfer_archive,
 )
+from .composition import (
+    CompositionContractError,
+    apply_canonical_composition,
+    plan_canonical_composition,
+)
 from .deployment_update import (
     DeploymentUpdateContractError,
     apply_deployment_update,
@@ -64,6 +69,7 @@ from .restore import (
     plan_world_restore,
 )
 from .runtime_audit import audit_minecraft_log
+from .runtime_content import RuntimeContentError
 from .secrets import list_secrets, set_secret
 from .toml_project import (
     ProjectOrderError,
@@ -97,12 +103,14 @@ def _print_structured_failure(
         | AuthMigrationContractError
         | DoctorContractError
         | DeploymentUpdateContractError
+        | CompositionContractError
         | OperatorEnvironmentError
         | OperatorInputError
         | PresetDataError
         | ProjectOrderError
         | RenderContractError
         | ResolutionError
+        | RuntimeContentError
     ),
 ) -> int:
     print(f"FAIL {operation} reason={exc.reason} path={exc.path}")
@@ -699,6 +707,7 @@ def _cmd_apply(args: argparse.Namespace) -> int:
         ProjectOrderError,
         RenderContractError,
         ResolutionError,
+        RuntimeContentError,
     ) as exc:
         return _print_structured_failure("apply", exc)
     except OSError as exc:
@@ -768,6 +777,7 @@ def _cmd_deployment_update_plan(args: argparse.Namespace) -> int:
         ProjectOrderError,
         RenderContractError,
         ResolutionError,
+        RuntimeContentError,
     ) as exc:
         return _print_structured_failure("deployment update plan", exc)
     except OSError as exc:
@@ -834,6 +844,101 @@ def _cmd_deployment_update_apply(args: argparse.Namespace) -> int:
         return 2
     print(
         f"OK deployment-update status={result.status} plan={result.plan_id} "
+        f"source-lock={result.source_lock_identity} "
+        f"target-lock={result.target_lock_identity} phase={result.phase}"
+    )
+    return 0
+
+
+def _cmd_deployment_composition_plan(args: argparse.Namespace) -> int:
+    project = Path(args.project)
+    output = Path(args.output) if args.output else project / "generated"
+    try:
+        check_operator_environment(project, docker_context=args.docker_context)
+        result = plan_canonical_composition(
+            project,
+            output,
+            target_profile=args.to_profile,
+            docker_context=args.docker_context,
+            data_root=_preset_data_root(),
+        )
+    except (
+        ArtifactFetchError,
+        CompositionContractError,
+        DeploymentUpdateContractError,
+        DoctorContractError,
+        OperatorEnvironmentError,
+        PresetDataError,
+        ProjectOrderError,
+        RenderContractError,
+        ResolutionError,
+        RuntimeContentError,
+    ) as exc:
+        return _print_structured_failure("deployment composition plan", exc)
+    except OSError as exc:
+        print(f"FAIL deployment composition plan: {exc}")
+        return 2
+    plan = result.transaction
+    print(
+        f"PLAN deployment-composition id={plan.plan_id} "
+        f"deployment={plan.deployment} context={plan.docker_context}"
+    )
+    print(
+        f"PLAN profile={plan.source_profile}->{plan.target_profile} "
+        f"preset={plan.source_preset}"
+    )
+    print(
+        f"PLAN adopt plugins={result.plugin_count} "
+        f"homepage-tree={result.homepage_tree_sha256} backup=preserved"
+    )
+    print(
+        f"PLAN remove-additional-compose files={len(plan.preserved_compose_files)} "
+        "target-render=canonical"
+    )
+    print(
+        "PLAN failure-policy=restore-source-projection-with-reviewed-overlays; "
+        "world/session/pairing-state-not-rolled-back"
+    )
+    print(
+        f"NEXT mcrctl deployment composition apply --project {plan.project_root} "
+        f"--plan-id {plan.plan_id} --yes"
+    )
+    return 0
+
+
+def _cmd_deployment_composition_apply(args: argparse.Namespace) -> int:
+    project = Path(args.project)
+    try:
+        plan = load_deployment_update_plan(project, args.plan_id)
+        check_operator_environment(project, docker_context=plan.docker_context)
+        result = apply_canonical_composition(
+            project,
+            plan_id=args.plan_id,
+            confirmed=args.yes,
+            data_root=_preset_data_root(),
+            wait_timeout=args.wait_timeout,
+            progress=lambda step: print(
+                f"PROGRESS deployment-composition step={step}",
+                flush=True,
+            ),
+        )
+    except (
+        CompositionContractError,
+        DeploymentUpdateContractError,
+        DoctorContractError,
+        OperatorEnvironmentError,
+        PresetDataError,
+        ProjectOrderError,
+        RenderContractError,
+        ResolutionError,
+        RuntimeContentError,
+    ) as exc:
+        return _print_structured_failure("deployment composition apply", exc)
+    except OSError as exc:
+        print(f"FAIL deployment composition apply: {exc}")
+        return 2
+    print(
+        f"OK deployment-composition status={result.status} plan={result.plan_id} "
         f"source-lock={result.source_lock_identity} "
         f"target-lock={result.target_lock_identity} phase={result.phase}"
     )
@@ -1831,6 +1936,42 @@ def build_parser() -> argparse.ArgumentParser:
     deployment_update_apply_parser.add_argument("--wait-timeout", type=int, default=300)
     deployment_update_apply_parser.add_argument("--yes", action="store_true")
     deployment_update_apply_parser.set_defaults(handler=_cmd_deployment_update_apply)
+
+    deployment_composition_parser = deployment_subparsers.add_parser(
+        "composition",
+        help="replace reviewed runtime overlays with canonical typed inputs",
+    )
+    deployment_composition_subparsers = deployment_composition_parser.add_subparsers(
+        dest="deployment_composition_command",
+        required=True,
+    )
+    deployment_composition_plan_parser = deployment_composition_subparsers.add_parser(
+        "plan",
+        help="discover and prepare one exact overlay canonicalization",
+    )
+    deployment_composition_plan_parser.add_argument("--project", required=True)
+    deployment_composition_plan_parser.add_argument("--output")
+    deployment_composition_plan_parser.add_argument("--docker-context", default="default")
+    deployment_composition_plan_parser.add_argument(
+        "--to-profile",
+        default="vps-server@10",
+    )
+    deployment_composition_plan_parser.set_defaults(
+        handler=_cmd_deployment_composition_plan
+    )
+    deployment_composition_apply_parser = deployment_composition_subparsers.add_parser(
+        "apply",
+        help="apply or retry one exact canonicalization plan",
+    )
+    deployment_composition_apply_parser.add_argument("--project", required=True)
+    deployment_composition_apply_parser.add_argument("--plan-id", required=True)
+    deployment_composition_apply_parser.add_argument(
+        "--wait-timeout", type=int, default=300
+    )
+    deployment_composition_apply_parser.add_argument("--yes", action="store_true")
+    deployment_composition_apply_parser.set_defaults(
+        handler=_cmd_deployment_composition_apply
+    )
 
     migration_parser = subparsers.add_parser(
         "migration",

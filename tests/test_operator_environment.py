@@ -87,6 +87,60 @@ def test_operator_check_rejects_project_not_owned_by_operator(tmp_path: Path) ->
     assert caught.value.path == project.resolve()
 
 
+def test_operator_check_rejects_nested_project_entry_without_write_access(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "deployment"
+    project.mkdir()
+    nested = project / "recovery.yaml"
+    nested.write_text("services: {}\n", encoding="utf-8")
+    nested.chmod(0o400)
+    try:
+        with pytest.raises(OperatorEnvironmentError) as caught:
+            check_operator_environment(
+                project,
+                docker_context="default",
+                effective_uid=project.stat().st_uid,
+                effective_user="operator",
+                runner=_healthy_runner,
+                python_version=(3, 11, 9),
+            )
+    finally:
+        nested.chmod(0o600)
+
+    assert caught.value.reason == "operator_project_entry_not_writable"
+    assert caught.value.path == nested
+
+
+def test_operator_check_rejects_an_unwritable_declared_artifact_store(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "deployment"
+    project.mkdir()
+    artifact_store = tmp_path / "artifact-store"
+    artifact_store.mkdir()
+    (project / "mc-remote.toml").write_text(
+        f'[runtime]\nartifact_store = "{artifact_store}"\n',
+        encoding="utf-8",
+    )
+    artifact_store.chmod(0o500)
+    try:
+        with pytest.raises(OperatorEnvironmentError) as caught:
+            check_operator_environment(
+                project,
+                docker_context="default",
+                effective_uid=project.stat().st_uid,
+                effective_user="operator",
+                runner=_healthy_runner,
+                python_version=(3, 11, 9),
+            )
+    finally:
+        artifact_store.chmod(0o700)
+
+    assert caught.value.reason == "operator_artifact_store_not_writable"
+    assert caught.value.path == artifact_store
+
+
 def test_operator_check_reports_direct_docker_permission_failure(tmp_path: Path) -> None:
     project = tmp_path / "deployment"
     project.mkdir()

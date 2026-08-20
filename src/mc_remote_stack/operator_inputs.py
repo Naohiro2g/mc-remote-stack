@@ -20,10 +20,19 @@ MINECRAFT_SERVER_ADAPTER = "minecraft-server@1"
 MINECRAFT_SERVER_PATH = "operator/minecraft-server/server.toml"
 CONNECTION_TARGETS_ADAPTER = "connection-targets@1"
 CONNECTION_TARGETS_PATH = "operator/connection-targets/targets.toml"
+MINECRAFT_PLUGINS_ADAPTER = "minecraft-plugins@1"
+MINECRAFT_PLUGINS_PATH = "operator/minecraft-plugins/plugins.toml"
+HOMEPAGE_STATIC_ADAPTER = "homepage-static@1"
+HOMEPAGE_STATIC_PATH = "operator/homepage-static/homepage.toml"
+MINECRAFT_BACKUP_ADAPTER = "minecraft-backup@1"
+MINECRAFT_BACKUP_PATH = "operator/minecraft-backup/backup.toml"
 MAX_MOTD_SOURCE_BYTES = 4096
 MAX_MOTD_CHARACTERS = 256
 MAX_CONNECTION_TARGETS = 32
+MAX_MINECRAFT_PLUGINS = 64
 MAX_LABEL_CHARACTERS = 64
+SHA256 = re.compile(r"^[0-9a-f]{64}$")
+PLUGIN_FILENAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]{0,126}\.jar$")
 SUPPORTED_ADAPTERS = frozenset(
     {
         MINECRAFT_MOTD_ADAPTER,
@@ -31,6 +40,9 @@ SUPPORTED_ADAPTERS = frozenset(
         PUBLIC_ROUTES_ADAPTER,
         PUBLIC_ROUTES_V2_ADAPTER,
         CONNECTION_TARGETS_ADAPTER,
+        MINECRAFT_PLUGINS_ADAPTER,
+        HOMEPAGE_STATIC_ADAPTER,
+        MINECRAFT_BACKUP_ADAPTER,
     }
 )
 PUBLIC_ROUTE_KEYS = frozenset(
@@ -433,6 +445,145 @@ def _parse_connection_targets(path: Path, source: bytes) -> dict[str, Any]:
     return {"targets": semantic_targets}
 
 
+def _parse_toml_document(path: Path, source: bytes) -> dict[str, Any]:
+    if source.startswith(b"\xef\xbb\xbf"):
+        _fail("operator_input_encoding_invalid", path, "UTF-8 BOM is forbidden")
+    try:
+        value = tomllib.loads(source.decode("utf-8"))
+    except UnicodeDecodeError as exc:
+        _fail("operator_input_encoding_invalid", path, str(exc))
+    except tomllib.TOMLDecodeError as exc:
+        _fail("operator_input_parse_failed", path, str(exc))
+    return value
+
+
+def _parse_minecraft_plugins(path: Path, source: bytes) -> dict[str, Any]:
+    value = _parse_toml_document(path, source)
+    if set(value) != {"plugins"}:
+        _fail(
+            "operator_input_parse_failed",
+            path,
+            "minecraft-plugins@1 requires exactly the plugins array",
+        )
+    plugins = value["plugins"]
+    if not isinstance(plugins, list) or not plugins or len(plugins) > MAX_MINECRAFT_PLUGINS:
+        _fail(
+            "operator_input_parse_failed",
+            path,
+            f"plugins must contain 1 through {MAX_MINECRAFT_PLUGINS} entries",
+        )
+
+    normalized: list[dict[str, str]] = []
+    filenames: set[str] = set()
+    digests: set[str] = set()
+    for index, plugin in enumerate(plugins):
+        if not isinstance(plugin, dict) or set(plugin) != {"filename", "sha256"}:
+            _fail(
+                "operator_input_parse_failed",
+                path,
+                f"plugins[{index}] must contain exactly filename and sha256",
+            )
+        filename = plugin["filename"]
+        sha256 = plugin["sha256"]
+        folded = filename.casefold() if isinstance(filename, str) else ""
+        if (
+            not isinstance(filename, str)
+            or PLUGIN_FILENAME.fullmatch(filename) is None
+            or "mcremote" in folded
+            or "mc-remote" in folded
+        ):
+            _fail(
+                "operator_input_parse_failed",
+                path,
+                f"plugins[{index}].filename must be a safe non-McRemote JAR filename",
+            )
+        if not isinstance(sha256, str) or SHA256.fullmatch(sha256) is None:
+            _fail(
+                "operator_input_parse_failed",
+                path,
+                f"plugins[{index}].sha256 must be 64 lowercase hexadecimal characters",
+            )
+        if folded in filenames or sha256 in digests:
+            _fail(
+                "operator_input_parse_failed",
+                path,
+                "plugin filenames and SHA-256 identities must each be unique",
+            )
+        filenames.add(folded)
+        digests.add(sha256)
+        normalized.append({"filename": filename, "sha256": sha256})
+    return {"plugins": sorted(normalized, key=lambda item: item["filename"].casefold())}
+
+
+def _parse_homepage_static(path: Path, source: bytes) -> dict[str, Any]:
+    value = _parse_toml_document(path, source)
+    expected = {"tree_sha256", "file_count", "total_bytes"}
+    if set(value) != expected:
+        _fail(
+            "operator_input_parse_failed",
+            path,
+            "homepage-static@1 requires exactly tree_sha256, file_count, and total_bytes",
+        )
+    tree_sha256 = value["tree_sha256"]
+    file_count = value["file_count"]
+    total_bytes = value["total_bytes"]
+    if not isinstance(tree_sha256, str) or SHA256.fullmatch(tree_sha256) is None:
+        _fail(
+            "operator_input_parse_failed",
+            path,
+            "tree_sha256 must be 64 lowercase hexadecimal characters",
+        )
+    if isinstance(file_count, bool) or not isinstance(file_count, int) or not 1 <= file_count <= 4096:
+        _fail(
+            "operator_input_parse_failed",
+            path,
+            "file_count must be an integer between 1 and 4096",
+        )
+    if (
+        isinstance(total_bytes, bool)
+        or not isinstance(total_bytes, int)
+        or not 1 <= total_bytes <= 128 * 1024 * 1024
+    ):
+        _fail(
+            "operator_input_parse_failed",
+            path,
+            "total_bytes must be an integer between 1 and 134217728",
+        )
+    return {
+        "tree_sha256": tree_sha256,
+        "file_count": file_count,
+        "total_bytes": total_bytes,
+    }
+
+
+def _parse_minecraft_backup(path: Path, source: bytes) -> dict[str, str]:
+    value = _parse_toml_document(path, source)
+    if set(value) != {"host_path"}:
+        _fail(
+            "operator_input_parse_failed",
+            path,
+            "minecraft-backup@1 requires exactly host_path",
+        )
+    host_path = value["host_path"]
+    if not isinstance(host_path, str):
+        _fail("operator_input_parse_failed", path, "host_path must be a string")
+    parsed = Path(host_path)
+    if (
+        not parsed.is_absolute()
+        or parsed == Path("/")
+        or "\\" in host_path
+        or ".." in parsed.parts
+        or "secret://" in host_path.casefold()
+        or "${" in host_path
+    ):
+        _fail(
+            "operator_input_parse_failed",
+            path,
+            "host_path must be a non-root absolute POSIX path without interpolation",
+        )
+    return {"host_path": host_path}
+
+
 def _parse_adapter(adapter: str, path: Path, relative_path: str) -> dict[str, Any]:
     if adapter == MINECRAFT_MOTD_ADAPTER:
         if relative_path != MINECRAFT_MOTD_PATH:
@@ -474,6 +625,30 @@ def _parse_adapter(adapter: str, path: Path, relative_path: str) -> dict[str, An
                 f"{adapter} requires exact path {CONNECTION_TARGETS_PATH}",
             )
         return _parse_connection_targets(path, _read_source(path))
+    if adapter == MINECRAFT_PLUGINS_ADAPTER:
+        if relative_path != MINECRAFT_PLUGINS_PATH:
+            _fail(
+                "operator_input_path_invalid",
+                path,
+                f"{adapter} requires exact path {MINECRAFT_PLUGINS_PATH}",
+            )
+        return _parse_minecraft_plugins(path, _read_source(path))
+    if adapter == HOMEPAGE_STATIC_ADAPTER:
+        if relative_path != HOMEPAGE_STATIC_PATH:
+            _fail(
+                "operator_input_path_invalid",
+                path,
+                f"{adapter} requires exact path {HOMEPAGE_STATIC_PATH}",
+            )
+        return _parse_homepage_static(path, _read_source(path))
+    if adapter == MINECRAFT_BACKUP_ADAPTER:
+        if relative_path != MINECRAFT_BACKUP_PATH:
+            _fail(
+                "operator_input_path_invalid",
+                path,
+                f"{adapter} requires exact path {MINECRAFT_BACKUP_PATH}",
+            )
+        return _parse_minecraft_backup(path, _read_source(path))
     _fail(
         "unsupported_operator_input_adapter",
         adapter,

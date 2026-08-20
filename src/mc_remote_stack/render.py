@@ -19,6 +19,7 @@ import yaml
 
 from .preset_registry import semantic_sha256
 from .resolver import inspect_lock, load_lock
+from .runtime_content import verify_homepage_tree
 from .runtime_contract import MINECRAFT_RUNTIME_GID, MINECRAFT_RUNTIME_UID
 from .toml_project import load_order
 from .validation import Issue, LoadedProject, validate_project
@@ -181,7 +182,15 @@ def _locked_public_routes(lock: dict[str, Any]) -> dict[str, Any]:
     matches = [item for item in operator_inputs if item["role"] == "public-routes"]
     if len(matches) != 1 or any(
         item["role"]
-        not in {"public-routes", "minecraft-motd", "minecraft-server", "connection-targets"}
+        not in {
+            "public-routes",
+            "minecraft-motd",
+            "minecraft-server",
+            "connection-targets",
+            "minecraft-plugins",
+            "homepage-static",
+            "minecraft-backup",
+        }
         for item in operator_inputs
     ):
         _render_fail(
@@ -640,6 +649,7 @@ def _compose_v2(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str]]:
         lock,
         allowed_roles=frozenset(
             {"public-routes", "minecraft-motd", "minecraft-server", "connection-targets"}
+            | {"minecraft-plugins", "homepage-static", "minecraft-backup"}
         ),
     )
     world_identity = lock["world"]["identity"]
@@ -1212,6 +1222,161 @@ connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
     return compose, rendered_files
 
 
+def _locked_composition_input(
+    lock: dict[str, Any],
+    *,
+    role: str,
+    adapter: str,
+    path: str,
+) -> dict[str, Any]:
+    matches = [item for item in lock["operator_inputs"] if item["role"] == role]
+    if len(matches) != 1:
+        _render_fail(
+            "render_plan_invalid",
+            f"operator_inputs.{role}",
+            f"compose@12 requires exactly one {role} input",
+        )
+    item = matches[0]
+    if (
+        item["adapter"] != adapter
+        or item["path"] != path
+        or item["semantic_sha256"] != semantic_sha256(item["semantic"])
+    ):
+        _render_fail(
+            "render_plan_invalid",
+            f"operator_inputs.{role}",
+            f"locked {role} adapter identity or semantic digest is invalid",
+        )
+    return item
+
+
+def _compose_v12(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str]]:
+    compose, rendered_files = _compose_v11(lock)
+    plugin_input = _locked_composition_input(
+        lock,
+        role="minecraft-plugins",
+        adapter="minecraft-plugins@1",
+        path="operator/minecraft-plugins/plugins.toml",
+    )
+    homepage_input = _locked_composition_input(
+        lock,
+        role="homepage-static",
+        adapter="homepage-static@1",
+        path="operator/homepage-static/homepage.toml",
+    )
+    backup_input = _locked_composition_input(
+        lock,
+        role="minecraft-backup",
+        adapter="minecraft-backup@1",
+        path="operator/minecraft-backup/backup.toml",
+    )
+    artifact_store = Path(lock["runtime"]["artifact_store"]).resolve()
+    existing_targets = {
+        volume.get("target")
+        for volume in compose["services"]["minecraft"]["volumes"]
+        if isinstance(volume, dict)
+    }
+    for plugin in plugin_input["semantic"]["plugins"]:
+        source = artifact_store / "sha256" / plugin["sha256"]
+        if not source.is_file() or source.is_symlink() or _sha256_file(source) != plugin["sha256"]:
+            _render_fail(
+                "runtime_content_missing",
+                source,
+                f"exact peripheral plugin {plugin['filename']} is absent or invalid",
+            )
+        target = f"/plugins/{plugin['filename']}"
+        if target in existing_targets:
+            _render_fail(
+                "render_plan_invalid",
+                target,
+                "peripheral plugin target collides with a preset-owned artifact",
+            )
+        existing_targets.add(target)
+        compose["services"]["minecraft"]["volumes"].append(
+            {
+                "type": "bind",
+                "source": str(source),
+                "target": target,
+                "read_only": True,
+            }
+        )
+
+    homepage = homepage_input["semantic"]
+    homepage_root = artifact_store / "trees" / "sha256" / homepage["tree_sha256"]
+    try:
+        verified = verify_homepage_tree(homepage_root, homepage["tree_sha256"])
+    except ValueError as exc:
+        _render_fail("runtime_content_missing", homepage_root, str(exc))
+    if (
+        verified.file_count != homepage["file_count"]
+        or verified.total_bytes != homepage["total_bytes"]
+    ):
+        _render_fail(
+            "runtime_content_invalid",
+            homepage_root,
+            "homepage tree count or byte total differs from the locked input",
+        )
+    routes = _locked_public_routes(lock)
+    homepage_domains = ", ".join([routes["homepage"], *routes["homepage_aliases"]])
+    old_block = f'''{homepage_domains} {{
+    encode zstd gzip
+    respond "McRemote public edge is healthy; homepage content is not installed." 200
+}}'''
+    new_block = f'''{homepage_domains} {{
+    root * /srv/homepage
+    encode zstd gzip
+    file_server
+}}'''
+    if old_block not in rendered_files["Caddyfile"]:
+        _render_fail(
+            "render_plan_invalid",
+            "Caddyfile.homepage",
+            "compose@12 could not locate the canonical homepage placeholder",
+        )
+    rendered_files["Caddyfile"] = rendered_files["Caddyfile"].replace(
+        old_block, new_block, 1
+    )
+    compose["services"]["caddy"]["volumes"].append(
+        {
+            "type": "bind",
+            "source": str(homepage_root),
+            "target": "/srv/homepage",
+            "read_only": True,
+        }
+    )
+    backup_path = Path(backup_input["semantic"]["host_path"])
+    if backup_path.is_symlink() or not backup_path.is_dir():
+        _render_fail(
+            "runtime_content_missing",
+            backup_path,
+            "configured Minecraft backup path must be one existing real directory",
+        )
+    if "/backup" in existing_targets:
+        _render_fail(
+            "render_plan_invalid",
+            "/backup",
+            "backup target collides with another canonical mount",
+        )
+    compose["services"]["minecraft"]["volumes"].append(
+        {
+            "type": "bind",
+            "source": str(backup_path),
+            "target": "/backup",
+        }
+    )
+    compose["services"]["minecraft"]["labels"][
+        "io.mc-remote.peripheral-plugins"
+    ] = plugin_input["semantic_sha256"]
+    compose["services"]["caddy"]["labels"][
+        "io.mc-remote.homepage-tree"
+    ] = homepage["tree_sha256"]
+    rendered_files = {
+        relative: content.replace("compose@11", "compose@12")
+        for relative, content in rendered_files.items()
+    }
+    return compose, rendered_files
+
+
 def _write_synced(path: Path, content: bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("wb") as stream:
@@ -1523,6 +1688,49 @@ def _stage_compose_v11(lock: dict[str, Any], staging: Path) -> tuple[str, ...]:
     return rendered_paths
 
 
+def _stage_compose_v12(lock: dict[str, Any], staging: Path) -> tuple[str, ...]:
+    compose, rendered_files = _compose_v12(lock)
+    assets, manifest_source = _verified_wirescope_assets(lock)
+    _write_synced(
+        staging / "compose.yaml",
+        yaml.safe_dump(compose, sort_keys=False, allow_unicode=True).encode("utf-8"),
+    )
+    for relative, content in rendered_files.items():
+        _write_synced(staging / PurePosixPath(relative), content.encode("utf-8"))
+    wirescope_paths: list[str] = []
+    for relative, content in assets:
+        output_path = f"wirescope/{relative}"
+        _write_synced(staging / PurePosixPath(output_path), content)
+        wirescope_paths.append(output_path)
+    detached_path = "wirescope/wirescope-app.manifest.json"
+    _write_synced(staging / detached_path, manifest_source)
+    wirescope_paths.append(detached_path)
+    rendered_paths = ("compose.yaml", *rendered_files, *wirescope_paths)
+    manifest = {
+        "schema_version": 1,
+        "adapter": "compose",
+        "adapter_revision": "12",
+        "lock_identity": lock["lock_identity"],
+        "render_plan_sha256": lock["render_plan"]["semantic_sha256"],
+        "files": [
+            {
+                "path": relative,
+                "sha256": _sha256_file(staging / PurePosixPath(relative)),
+            }
+            for relative in rendered_paths
+        ],
+    }
+    _write_synced(
+        staging / "render-manifest.json",
+        (json.dumps(manifest, ensure_ascii=False, indent=2) + "\n").encode("utf-8"),
+    )
+    directories = {staging}
+    directories.update(path.parent for path in staging.rglob("*") if path.is_file())
+    for directory in sorted(directories, key=lambda path: len(path.parts), reverse=True):
+        _fsync_directory(directory)
+    return rendered_paths
+
+
 def _stage_current(lock: dict[str, Any], staging: Path) -> tuple[str, ...]:
     revision = lock["render_plan"]["adapter_revision"]
     if revision == "1":
@@ -1547,6 +1755,8 @@ def _stage_current(lock: dict[str, Any], staging: Path) -> tuple[str, ...]:
         return _stage_compose_v10(lock, staging)
     if revision == "11":
         return _stage_compose_v11(lock, staging)
+    if revision == "12":
+        return _stage_compose_v12(lock, staging)
     _render_fail("unsupported_renderer", "render_plan", f"unsupported renderer: compose@{revision}")
 
 
@@ -1592,7 +1802,7 @@ def _load_managed_manifest(output: Path) -> dict[str, Any] | None:
         }
         or manifest.get("schema_version") != 1
         or manifest.get("adapter") != "compose"
-        or manifest.get("adapter_revision") not in {"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11"}
+        or manifest.get("adapter_revision") not in {"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"}
         or not isinstance(manifest.get("files"), list)
     ):
         _render_fail("render_output_tampered", manifest_path, "managed render manifest shape is invalid")
@@ -1721,7 +1931,7 @@ def _load_current_toml_render_lock(
         lock = load_lock(project_root, data_root=data_root)
     adapter = lock["render_plan"]["adapter"]
     adapter_revision = lock["render_plan"]["adapter_revision"]
-    if adapter != "compose" or adapter_revision not in {"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11"}:
+    if adapter != "compose" or adapter_revision not in {"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"}:
         _render_fail(
             "unsupported_renderer",
             "render_plan",

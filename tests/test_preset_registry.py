@@ -1044,3 +1044,26 @@ def test_bundled_public_b4_wirescope_profile_pins_two_file_contract() -> None:
         "/wirescope-app-v2100.0.0b4/wirescope-app.manifest.json"
     )
     verify_preset_catalog()
+
+
+def test_bundled_canonical_public_profile_owns_runtime_composition() -> None:
+    profile = load_profile("vps-server@10")
+
+    assert profile.data["renderer"] == {"name": "compose", "revision": "12"}
+    assert "canonical-runtime-composition" in profile.data["capabilities"]["provided"]
+    roles = {item["id"]: item for item in profile.data["operator_input_roles"]}
+    assert roles["minecraft-plugins"] == {
+        "id": "minecraft-plugins",
+        "adapter": "minecraft-plugins@1",
+        "required": True,
+    }
+    assert roles["homepage-static"] == {
+        "id": "homepage-static",
+        "adapter": "homepage-static@1",
+        "required": True,
+    }
+    assert roles["minecraft-backup"] == {
+        "id": "minecraft-backup",
+        "adapter": "minecraft-backup@1",
+        "required": True,
+    }

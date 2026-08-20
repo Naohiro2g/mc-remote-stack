@@ -9,12 +9,16 @@
   copyの不一致として再整理した。
 - [x] Ubuntu operator bootstrap、`mcrctl operator check`、全project commandのroot実行拒否を
   test-firstで実装した。project order／lock／generated／transaction stateは同じ非root operatorが
-  所有し、Docker groupのroot相当権限は既にsudo管理者である個人operatorだけへ明示付与する。
+  所有し、Docker groupのroot相当権限は既にsudo管理者である個人operatorだけへ明示付与する。project
+  treeと宣言済みartifact storeのnested ownershipも開始前に検査し、既定pathだけを明示修復できる。
 - [x] [`docs/deployment-operator-workflow-design_ja.md`](docs/deployment-operator-workflow-design_ja.md)へ、
   保存済み建築コードを既定保護値とするin-place更新、停止前blocker集約、限定rollback、runbook更新規律、
   通常更新の二command／手編集ゼロSLOを固定した。
-- [ ] 現行public betaのrecovery plugin／homepage overlayをtyped input／locked componentへcanonicalizeし、
-  `render=additional-compose-files`を通常状態から除く。
+- [x] 現行public betaのrecovery plugin／homepage／backup overlayをtyped input／locked componentへ
+  canonicalizeする`mcrctl deployment composition plan/apply`をtest-firstで実装した。live Compose
+  provenanceから既知shapeだけを採用し、周辺plugin bytesとhomepage treeをartifact storeへ取り込み、
+  `vps-server@10` / `compose@12`の単一renderへ移す。public betaへのlive適用と`render=current`確認は
+  operator checkpointを持つ後続運用作業である。
 - [x] `mcrctl deployment update plan/apply`の第1sliceを実装した。same-volumeのprofile／preset family更新、
   typed input candidate、artifact取得、live Compose provenance自動snapshot、source／target lock、限定rollbackを
   一つのdurable planへ束縛した。target doctor失敗時は旧projectionを再起動し、world／session／pairingの
