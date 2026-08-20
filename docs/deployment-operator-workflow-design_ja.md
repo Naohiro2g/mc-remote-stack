@@ -196,7 +196,8 @@ public betaの通常更新は次を運用SLOとする。
 1. operator bootstrap／check、root実行拒否（完了）
 2. generic same-volume plan／apply、live Compose自動snapshot、doctor、限定rollback（第1slice完了）
 3. public runbookを通常入口中心に再編集し、`public-bN`をhistory-only表記（完了）
-4. public betaのrecovery plugin／homepage／backup canonicalization（実装完了、live適用待ち）
+4. public betaのrecovery plugin／homepage／backup canonicalization（2026-08-21 live適用完了、
+   target lock `sha256:9da2e50bacc8091308eb989bc9f3bf159528cc9f25b4afe00fa3282070ff8b5e`）
 5. blocker集約、credential health、DNS／TLS claimをprofile policyで追加
 6. home alpha／betaとcatering hostへ同じtransactionを投影
 

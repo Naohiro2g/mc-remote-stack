@@ -85,6 +85,26 @@ homepage、backupを再現する。失敗時はplanがsnapshotした旧overlay�
 再実行してresumeし、state JSONやgenerated Composeを手編集しない。この処理はlocal artifactを配布可能にした
 という意味ではない。別hostへ再構築する場合は後述のartifact store保全境界に従う。
 
+### 2026-08-21 official public beta適用記録
+
+上記の一回収束経路をofficial public betaへ適用し、次を確認した。
+
+- stack checkout: `eb8fc00a82df01904a2e5e32113cbf1ac1b9deea`
+- reviewed plan: `sha256:9137ec654fae162c0246576ddbb414ddf8521bd6985c8fea54dd215509589e0f`
+- source lock: `sha256:6c7d7df9f5422aea4415f006da5dd10b8962dff2fb29fbac459c4e6410dea457`
+- target lock: `sha256:9da2e50bacc8091308eb989bc9f3bf159528cc9f25b4afe00fa3282070ff8b5e`
+- transition: `vps-server@8/public-web-paper@3` → `vps-server@10/public-web-paper@4`
+- result: transaction `complete`、doctor `runtime=healthy`／`render=current`
+- live Compose provenance: canonical `generated/compose.yaml` 1枚だけ
+- stateful identity: 既存b4の3 volumeを維持
+- McRemote JAR SHA-256: `331633ef15a729658496e89fe49cb8a5eb5ebcb2ec86937b7e5313528d7ec997`
+- Scratch runtime: `sb-beta.mc-remote.com`と`https://wirescope-beta.mc-remote.com/`を配信
+- WireScope public check: HTTPS 200、TLS検証成功
+- expected warning: `compatibility=unverified`
+
+この記録はdeployment経路のsanitizedな実施結果であり、compatibility claimの正式ratifyではない。
+そのためunverified warningを消さず、knowledge側の正式evidenceは別gateとする。
+
 ### 以後のrelease更新
 
 canonical化後、同じprofile／preset family内でdeployment、world、network、volume identityを変えない更新は
