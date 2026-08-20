@@ -52,6 +52,7 @@ def test_public_vps_runbook_never_runs_mcrctl_through_sudo() -> None:
     assert not re.search(r"sudo\s+[^\n]*mcrctl", guide)
     assert "mcrctl operator check" in guide
     assert "docker group" in guide
+    assert "runtime group" in guide
 
 
 def test_public_vps_runbook_puts_generic_same_volume_update_before_history() -> None:

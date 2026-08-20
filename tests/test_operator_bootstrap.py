@@ -17,6 +17,9 @@ def test_ubuntu_operator_bootstrap_is_auditable_and_prepares_real_tools() -> Non
     assert "docker-ce-cli" in script
     assert "docker-compose-plugin" in script
     assert "usermod -aG docker" in script
+    assert "RUNTIME_ROOT=/var/lib/mc-remote" in script
+    assert 'usermod -aG "$runtime_group"' in script
+    assert "runtime root is not traversable" in script
     assert "UV_BOOTSTRAP_VERSION=" in script
     assert "UV_NO_MODIFY_PATH=1" in script
     assert "uv sync --extra dev" in script
@@ -35,4 +38,6 @@ def test_fresh_host_runbook_uses_operator_bootstrap_as_the_only_tool_setup_entry
     assert "tools/bootstrap-ubuntu-operator.sh --check" in guide
     assert "tools/bootstrap-ubuntu-operator.sh --install" in guide
     assert "mcrctl operator check" in guide
+    assert "/var/lib/mc-remote" in guide
+    assert "runtime group" in guide
     assert "sudo mcrctl" not in guide
