@@ -44,6 +44,16 @@ def test_public_vps_runbook_keeps_human_apply_checkpoint() -> None:
     assert "--allow-unverified" in guide
 
 
+def test_public_vps_runbook_never_runs_mcrctl_through_sudo() -> None:
+    guide = (REPO_ROOT / "docs" / "public-vps-bootstrap-guide_ja.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert not re.search(r"sudo\s+[^\n]*mcrctl", guide)
+    assert "mcrctl operator check" in guide
+    assert "docker group" in guide
+
+
 def test_public_vps_runbook_uses_resumable_auth_migration_transaction() -> None:
     guide = (REPO_ROOT / "docs" / "public-vps-bootstrap-guide_ja.md").read_text(
         encoding="utf-8"
@@ -107,3 +117,18 @@ def test_readmes_report_the_current_b4_credential_alpha_boundary() -> None:
 
     assert "b4利用者機能を律速しない" in japanese
     assert "does not block the b4 user-facing feature gate" in english
+
+
+def test_deployment_workflow_design_replaces_release_named_normal_operations() -> None:
+    design = (REPO_ROOT / "docs" / "deployment-operator-workflow-design_ja.md").read_text(
+        encoding="utf-8"
+    )
+    readme = (REPO_ROOT / "README_ja.md").read_text(encoding="utf-8")
+
+    assert "mcrctl deployment update plan" in design
+    assert "mcrctl deployment update apply" in design
+    assert "通常更新に`public-bN`" in design
+    assert "保存済みScratch／Python建築コード" in design
+    assert "停止前preflight" in design
+    assert "手編集ゼロ" in design
+    assert "deployment-operator-workflow-design_ja.md" in readme

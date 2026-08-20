@@ -2,6 +2,24 @@
 
 確定前または別sliceへ送る作業だけを置く。private host名、IP、credential、account情報は書かない。
 
+## 2026-08-20 deployment operator workflow redesign
+
+- [x] b2〜b4のpublic beta手戻りを、個別incidentではなく、信頼されたoperator environment未定義、
+  release固有migration、停止前preflight不足、recovery Composeの非canonical残留、保護価値と全volume
+  copyの不一致として再整理した。
+- [x] Ubuntu operator bootstrap、`mcrctl operator check`、全project commandのroot実行拒否を
+  test-firstで実装した。project order／lock／generated／transaction stateは同じ非root operatorが
+  所有し、Docker groupのroot相当権限は既にsudo管理者である個人operatorだけへ明示付与する。
+- [x] [`docs/deployment-operator-workflow-design_ja.md`](docs/deployment-operator-workflow-design_ja.md)へ、
+  保存済み建築コードを既定保護値とするin-place更新、停止前blocker集約、限定rollback、runbook更新規律、
+  通常更新の二command／手編集ゼロSLOを固定した。
+- [ ] 現行public betaのrecovery plugin／homepage overlayをtyped input／locked componentへcanonicalizeし、
+  `render=additional-compose-files`を通常状態から除く。
+- [ ] `mcrctl deployment update plan/apply`を実装し、source／target identity、artifact、effective Compose、
+  route、credential checkpoint、rollback inputを一つのdurable planへ束縛する。
+- [ ] generic update完成後、`migration public-b3/public-b4`をhistory-onlyへ凍結し、public runbook先頭を
+  現行の通常更新だけで完走できる構成へ再編集する。新しい`public-bN` subcommandは追加しない。
+
 ## 2026-08-18 b4 code-first recovery gate [→DEC 2026-08-18-01]
 
 - [x] knowledge remote `main` commit `af81126df519d6b02341e9127fb0bd0402c9fac7`を参照した。

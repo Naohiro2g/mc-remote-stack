@@ -153,8 +153,9 @@ codex --sandbox read-only --ask-for-approval on-request \
 - writeが必要になった場合だけ、対象repo内で`workspace-write`へ変更する。command networkは
   原則offのままとし、`danger-full-access`、`--dangerously-bypass-approvals-and-sandbox`、
   `--ask-for-approval never`、`dangerously_allow_all_unix_sockets`を使わない。
-- Docker preflight、`apply`、`doctor`、sudo/package操作は、個人管理者が別terminalで実行する。
-  trusted checkoutと管理者所有projectを使い、agentへはsanitized出力だけを返す。これにより
+- Docker preflight、`apply`、`doctor`は、operator bootstrap済みの個人管理者が同じ非root identityで
+  別terminalから実行する。sudoはpackage／group等のhost整備だけに限定する。trusted checkoutと
+  管理者所有projectを使い、agentへはsanitized出力だけを返す。これにより
   on-host支援を検証しても、agentへrootful Docker controlを直接またはagent-written code経由で
   渡さない。
 - 実験後は`codex logout`し、専用userのlocal credentialを除去する。別途作成したAPI keyや
@@ -191,7 +192,7 @@ gateを満たせなくなったら権限拡張を求めず停止し、human-run�
 | --- | --- | --- |
 | target | read-only接続確認、user / OS / toolの観測 | どのhost・userを対象にするか、agentに許すscope |
 | SSH | 設定案、`sshd -t`、session別の結果整理 | 別terminalのSSH / `sudo -v`成功を自分で確認してからhardeningを承認 |
-| toolchain | 既存tool再利用、missing itemの診断、repo tests | package導入やpersistent PATH変更を承認 |
+| toolchain | operator bootstrapのcheck、repo tests | `--install`、docker group付与、persistent host変更を承認 |
 | project init | 全instance値を明示したcommand生成、validate | environment / volume / world / bind portを自分の言葉で確認 |
 | agreements | EULA link提示、必要なfieldの場所を案内 | EULA同意、unverifiedを使う具体的理由を書く |
 | resolve / plan | exact preset解決、artifact fetch、差分の要約 | lock identity、artifact、volume、world、port、warningをreview |
@@ -223,8 +224,8 @@ read-only discovery、validate、plan、doctorと、host mutationを分ける。
 - unknown container / volume、port conflict、stale renderをagentが自動修復しない。
 
 管理端末 + SSH経路では、人間が承認した後にagentがexact commandを実行し、結果を検証してよい。
-対象host上の限定実験では、Docker / sudo / apply / doctorをこの規則の対象にせず、人間の
-trusted terminalへ戻す。人間関与はagentへ作業を戻さないための儀式ではなく、判断とmutationの
+対象host上の限定実験では、Docker / apply / doctorとhost整備のsudoをこの規則の対象にせず、人間の
+trusted operator terminalへ戻す。人間関与はagentへ作業を戻さないための儀式ではなく、判断とmutationの
 境界を人間が握るために置く。
 
 ## 7. pause / handoff
