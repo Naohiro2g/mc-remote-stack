@@ -21,6 +21,7 @@ MINECRAFT_SERVER_ADAPTER = "minecraft-server@1"
 MINECRAFT_SERVER_PATH = "operator/minecraft-server/server.toml"
 CONNECTION_TARGETS_ADAPTER = "connection-targets@1"
 CONNECTION_TARGETS_V2_ADAPTER = "connection-targets@2"
+CONNECTION_TARGETS_V3_ADAPTER = "connection-targets@3"
 CONNECTION_TARGETS_PATH = "operator/connection-targets/targets.toml"
 MINECRAFT_PLUGINS_ADAPTER = "minecraft-plugins@1"
 MINECRAFT_PLUGINS_PATH = "operator/minecraft-plugins/plugins.toml"
@@ -31,6 +32,7 @@ MINECRAFT_BACKUP_PATH = "operator/minecraft-backup/backup.toml"
 MAX_MOTD_SOURCE_BYTES = 4096
 MAX_MOTD_CHARACTERS = 256
 MAX_CONNECTION_TARGETS = 32
+MAX_SCRATCH_NOTICES = 16
 MAX_NOTICE_BODY_CHARACTERS = 512
 MAX_NOTICE_HREF_CHARACTERS = 2048
 MAX_MINECRAFT_PLUGINS = 64
@@ -45,6 +47,7 @@ SUPPORTED_ADAPTERS = frozenset(
         PUBLIC_ROUTES_V2_ADAPTER,
         CONNECTION_TARGETS_ADAPTER,
         CONNECTION_TARGETS_V2_ADAPTER,
+        CONNECTION_TARGETS_V3_ADAPTER,
         MINECRAFT_PLUGINS_ADAPTER,
         HOMEPAGE_STATIC_ADAPTER,
         MINECRAFT_BACKUP_ADAPTER,
@@ -64,6 +67,7 @@ CONNECTION_TARGET_V2_KEYS = frozenset(
         "notice_label",
     }
 )
+CONNECTION_TARGET_V3_KEYS = frozenset({"targets", "notices"})
 CONNECTION_TARGET_ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
 DNS_NAME = re.compile(
     r"^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+"
@@ -490,15 +494,15 @@ def _notice_text(
         _fail(
             "operator_input_secret_forbidden",
             path,
-            "connection-targets@2 notice fields are public and have no secret injection point",
+            "Scratch notice fields are public and have no secret injection point",
         )
     return value
 
 
-def _notice_href(path: Path, value: object) -> str:
+def _notice_href(path: Path, value: object, *, key: str = "notice_href") -> str:
     href = _notice_text(
         path,
-        "notice_href",
+        key,
         value,
         maximum=MAX_NOTICE_HREF_CHARACTERS,
     )
@@ -513,7 +517,7 @@ def _notice_href(path: Path, value: object) -> str:
         _fail(
             "operator_input_parse_failed",
             path,
-            "notice_href must be one absolute HTTPS URL without credentials or fragment",
+            f"{key} must be one absolute HTTPS URL without credentials or fragment",
         )
     return href
 
@@ -553,6 +557,73 @@ def _parse_connection_targets_v2(path: Path, source: bytes) -> dict[str, Any]:
                 },
             }
         ],
+    }
+
+
+def _parse_connection_targets_v3(path: Path, source: bytes) -> dict[str, Any]:
+    value = _connection_targets_document(path, source)
+    if set(value) != CONNECTION_TARGET_V3_KEYS:
+        _fail(
+            "operator_input_parse_failed",
+            path,
+            "connection-targets@3 requires exactly targets and notices",
+        )
+    notices = value["notices"]
+    if (
+        not isinstance(notices, list)
+        or not notices
+        or len(notices) > MAX_SCRATCH_NOTICES
+    ):
+        _fail(
+            "operator_input_parse_failed",
+            path,
+            f"notices must contain 1 through {MAX_SCRATCH_NOTICES} entries",
+        )
+    semantic_notices: list[dict[str, Any]] = []
+    for index, notice in enumerate(notices):
+        if not isinstance(notice, dict) or set(notice) != {
+            "heading",
+            "body",
+            "href",
+            "label",
+        }:
+            _fail(
+                "operator_input_parse_failed",
+                path,
+                f"notices[{index}] must contain exactly heading, body, href, and label",
+            )
+        semantic_notices.append(
+            {
+                "heading": _notice_text(
+                    path,
+                    f"notices[{index}].heading",
+                    notice["heading"],
+                    maximum=MAX_LABEL_CHARACTERS,
+                ),
+                "body": _notice_text(
+                    path,
+                    f"notices[{index}].body",
+                    notice["body"],
+                    maximum=MAX_NOTICE_BODY_CHARACTERS,
+                ),
+                "link": {
+                    "href": _notice_href(
+                        path,
+                        notice["href"],
+                        key=f"notices[{index}].href",
+                    ),
+                    "label": _notice_text(
+                        path,
+                        f"notices[{index}].label",
+                        notice["label"],
+                        maximum=MAX_LABEL_CHARACTERS,
+                    ),
+                },
+            }
+        )
+    return {
+        "targets": _connection_targets_semantic(path, value["targets"]),
+        "notices": semantic_notices,
     }
 
 
@@ -744,6 +815,14 @@ def _parse_adapter(adapter: str, path: Path, relative_path: str) -> dict[str, An
                 f"{adapter} requires exact path {CONNECTION_TARGETS_PATH}",
             )
         return _parse_connection_targets_v2(path, _read_source(path))
+    if adapter == CONNECTION_TARGETS_V3_ADAPTER:
+        if relative_path != CONNECTION_TARGETS_PATH:
+            _fail(
+                "operator_input_path_invalid",
+                path,
+                f"{adapter} requires exact path {CONNECTION_TARGETS_PATH}",
+            )
+        return _parse_connection_targets_v3(path, _read_source(path))
     if adapter == MINECRAFT_PLUGINS_ADAPTER:
         if relative_path != MINECRAFT_PLUGINS_PATH:
             _fail(

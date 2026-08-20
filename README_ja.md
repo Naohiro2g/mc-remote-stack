@@ -200,9 +200,10 @@ deploymentには使わず、bootstrap applyも受理しない。
 
 `official-vps`には任意の`staging` instanceを用意している。`staging.enabled: true`にすると、本番とは別のdata、backup、OCI image、Paper、plugin lockを持つ`minecraft-dev` serviceを生成する。本番は`25565/tcp・udp`と`25575/tcp`、stagingは`25566/tcp・udp`と`25576/tcp`を使う。Scratch stableの既定接続先は`sb.mc-remote.com`、Scratch devは`sb-dev.mc-remote.com`となる。
 
-公開b3のruntime-config経路は`vps-server@7`を使い、Scratch runtimeの非空`connection_targets`を
-必須にする。betaのdefaultは`sb-beta.mc-remote.com`で、noticeの文面とURLが未確定なら`notices: []`を
-投影する。欠落、default不包含、`notices`の型不正はresolve / render / doctorでfail closedになる。
+公開b3のruntime-config経路は`vps-server@7`でScratch runtimeの非空`connection_targets`を必須化した。
+現行`vps-server@12`は上から新しい順のoperator notice feedを受け取り、preset所有のScratchクライアント版情報を
+末尾へ必ず追加する。betaのdefaultは`sb-beta.mc-remote.com`で、入力欠落、default不包含、notice feedの型不正は
+resolve / render / doctorでfail closedになる。
 
 公開b4のappend-only targetは`vps-server@8` / `public-web-paper@3`である。最終Scratch CI artifactから
 作成したexact OCI imageと正式b4 McRemote JARを固定し、session recordだけをMinecraft data volume内へ

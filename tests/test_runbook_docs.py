@@ -99,13 +99,24 @@ def test_public_vps_runbook_canonicalizes_live_overlays_before_normal_updates() 
     assert "sha256:9da2e50bacc8091308eb989bc9f3bf159528cc9f25b4afe00fa3282070ff8b5e" in current
     assert "render=current" in current
     assert "compatibility=unverified" in current
-    assert "--to-profile vps-server@11" in current
-    assert "connection-targets.notice_heading" in current
-    assert "connection-targets.notice_href" in current
-    assert "presetは同じ" in current
+    assert "--to-profile vps-server@12" in current
+    assert "--to-preset public-web-paper@5" in current
+    assert '--replace-input "connection-targets=$REVIEWED_NOTICE_INPUT"' in current
     assert "staleなMcRemote JAR" in current
     assert "render=current" in current
     assert "--preserve-compose-file" not in commands
+
+
+def test_public_vps_runbook_uses_ordered_notice_file_and_keeps_release_notice_last() -> None:
+    guide = (REPO_ROOT / "docs" / "public-vps-bootstrap-guide_ja.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert "--replace-input \"connection-targets=$REVIEWED_NOTICE_INPUT\"" in guide
+    assert "今後のリリース予定" in guide
+    assert "WireScope（ワイヤースコープ）ライブ画面" in guide
+    assert "マイクラリモコンScratchクライアント ver.2100.0.0b4" in guide
+    assert "presetから自動的に末尾" in guide
 
 
 def test_public_vps_runbook_repairs_the_whole_project_tree_before_mutation() -> None:

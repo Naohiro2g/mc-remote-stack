@@ -369,6 +369,17 @@
   exact b3 candidateのpublish、start / doctor、phase resumeを一つのtransactionとする。
   人間sudo checkpointでplanのlive preflightとidentity reviewを終えるまでVPS runtimeは変更しない。
 
+## 2026-08-21 Scratch notice feed運用
+
+- [x] 公開Scratchのお知らせを順序付きoperator feedへし、上から新しい順に投影する。
+  Scratchクライアントの版情報は日々の告知から分離し、artifact presetがrelease URLと一緒に所有して
+  rendererが必ず末尾へ追加する。複数の日本語文面をshell scalarへ分解せず、review済みTOML全体を
+  `deployment update plan --replace-input`へ渡す。
+- [ ] 同じprofile／presetでnoticeだけを変える日常運用には、全serviceを停止するrelease updateより小さい
+  web projection専用transactionを作る。source／target lock、配信JSON、rollbackを保持しつつ、artifact、route、
+  volume、Minecraft／Bridge projectionが同一であることをfail closedに確認し、必要なweb serviceだけを再作成する。
+  runtime JSONの直接編集、container内編集、無監査CMS fetchは正準経路にしない。
+
 ## 2026-07-27 catering VPS session handoff
 
 ### Git / deployment現在地

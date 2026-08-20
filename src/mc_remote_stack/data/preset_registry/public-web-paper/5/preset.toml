@@ -1,0 +1,138 @@
+schema_version = 1
+
+[preset]
+name = "public-web-paper"
+revision = "5"
+description = "Exact public beta b4 artifacts with the public Scratch release notice"
+
+[requirements]
+profile_capabilities = [
+  "compose",
+  "paper",
+  "persistent-world",
+  "public-web",
+  "scratch-runtime",
+  "websocket-bridge",
+  "wirescope-browser",
+  "mcremote-auth-enforced",
+  "mcremote-session-only",
+]
+allowed_channels = ["beta"]
+required_claims = [
+  "profile-render",
+  "protocol-hello",
+  "https-runtime",
+  "websocket-bridge",
+  "wirescope-public-handoff",
+]
+
+[presentation.scratch_release_notice]
+heading = "マイクラリモコンScratchクライアント ver.2100.0.0b4"
+body = "リリース情報は「こちら」。"
+
+[presentation.scratch_release_notice.link]
+href = "https://github.com/Naohiro2g/scratch-editor/releases#release-v2100.0.0b4"
+label = "こちら"
+
+[[components]]
+id = "caddy"
+role = "caddy-edge"
+artifact = "caddy-image"
+
+[[components]]
+id = "scratch"
+role = "scratch-runtime"
+artifact = "scratch-image"
+
+[[components]]
+id = "bridge"
+role = "websocket-bridge"
+artifact = "bridge-image"
+protocol = "21.0.0"
+
+[[components]]
+id = "wirescope"
+role = "wirescope-app"
+artifact = "wirescope-zip"
+
+[[components]]
+id = "wirescope-manifest"
+role = "wirescope-manifest"
+artifact = "wirescope-manifest"
+
+[[components]]
+id = "minecraft-runtime"
+role = "minecraft-runtime"
+artifact = "minecraft-image"
+
+[[components]]
+id = "paper-server"
+role = "paper-server"
+artifact = "paper-jar"
+minecraft_version = "1.21.11"
+
+[[components]]
+id = "mcremote-paper"
+role = "mcremote-plugin"
+artifact = "mcremote-jar"
+protocol = "21.0.0"
+
+[[artifacts]]
+id = "caddy-image"
+kind = "oci"
+version = "2.11.4-alpine"
+locator = "docker.io/library/caddy"
+digest = "sha256:98eb57d882ccd5213d1688764db10c1ca2c58a1ca3a6717a3411ad798f7a423a"
+
+[[artifacts]]
+id = "scratch-image"
+kind = "oci"
+version = "sha-1d2f18785d260564ad4bc30a26a45ef33fc813d6"
+locator = "ghcr.io/naohiro2g/mc-remote-scratch"
+digest = "sha256:6425f9ac2549c26440fb418868f2e0fdcc7ad817c1a7ae684142d9e0d879f09f"
+
+[[artifacts]]
+id = "bridge-image"
+kind = "oci"
+version = "sha-1d2f18785d260564ad4bc30a26a45ef33fc813d6"
+locator = "ghcr.io/naohiro2g/mc-remote-bridge"
+digest = "sha256:4225408cf4e40eda8877b0e3cee08649dd53374144edb2910e9365c1544fa146"
+
+[[artifacts]]
+id = "wirescope-zip"
+kind = "https-file"
+version = "2100.0.0b4"
+filename = "wirescope-app.zip"
+sha256 = "1a56617c78c283332f1afe3bdd3797ab37f0cdc3455c86c73c926c751721657f"
+origin = "https://github.com/Naohiro2g/mc-remote-stack/releases/download/wirescope-app-v2100.0.0b4/wirescope-app.zip"
+
+[[artifacts]]
+id = "wirescope-manifest"
+kind = "https-file"
+version = "2100.0.0b4"
+filename = "wirescope-app.manifest.json"
+sha256 = "f3ec11496b595bbca4ba27a6e938a1149336eb5a2da55e742d60e1681cf4d154"
+origin = "https://github.com/Naohiro2g/mc-remote-stack/releases/download/wirescope-app-v2100.0.0b4/wirescope-app.manifest.json"
+
+[[artifacts]]
+id = "minecraft-image"
+kind = "oci"
+version = "2026.7.2-java21"
+locator = "docker.io/itzg/minecraft-server"
+digest = "sha256:7f69fd6688e03495c8a8f5a46e8a8e82001b4465f4b55bdcd024c02c3624d8c8"
+
+[[artifacts]]
+id = "paper-jar"
+kind = "https-file"
+version = "1.21.11-132"
+filename = "paper-1.21.11-132.jar"
+sha256 = "5ffef465eeeb5f2a3c23a24419d97c51afd7dbb4923ff42df9a3f58bba1ccfba"
+origin = "https://fill-data.papermc.io/v1/objects/5ffef465eeeb5f2a3c23a24419d97c51afd7dbb4923ff42df9a3f58bba1ccfba/paper-1.21.11-132.jar"
+
+[[artifacts]]
+id = "mcremote-jar"
+kind = "https-file"
+version = "2100.0.0b4"
+filename = "mc-remote-1.21.11-2100.0.0b4.jar"
+sha256 = "331633ef15a729658496e89fe49cb8a5eb5ebcb2ec86937b7e5313528d7ec997"
+origin = "https://github.com/Naohiro2g/McRemote/releases/download/v1.21.11-2100.0.0b4/mc-remote-1.21.11-2100.0.0b4.jar"

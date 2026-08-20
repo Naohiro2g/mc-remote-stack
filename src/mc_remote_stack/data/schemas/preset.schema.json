@@ -95,9 +95,53 @@
           }
         ]
       }
+    },
+    "presentation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scratch_release_notice"],
+      "properties": {
+        "scratch_release_notice": {
+          "$ref": "#/$defs/scratchNotice"
+        }
+      }
     }
   },
   "$defs": {
+    "scratchNotice": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["heading", "body", "link"],
+      "properties": {
+        "heading": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "body": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "link": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["href", "label"],
+          "properties": {
+            "href": {
+              "type": "string",
+              "pattern": "^https://",
+              "maxLength": 2048
+            },
+            "label": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            }
+          }
+        }
+      }
+    },
     "name": {
       "type": "string",
       "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"

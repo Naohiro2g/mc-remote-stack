@@ -296,6 +296,8 @@ def _build_candidate(
         "components": preset["components"],
         "artifacts": preset["artifacts"],
     }
+    if "presentation" in preset:
+        render_payload["presentation"] = preset["presentation"]
     render_plan = {
         "adapter": profile["renderer"]["name"],
         "adapter_revision": profile["renderer"]["revision"],
@@ -306,6 +308,8 @@ def _build_candidate(
         "operator_input_roles": copy.deepcopy(profile.get("operator_input_roles", [])),
         "operator_inputs": copy.deepcopy(operator_inputs),
     }
+    if "presentation" in preset:
+        render_plan["presentation"] = copy.deepcopy(preset["presentation"])
     lifecycle_projection: dict[str, Any] = {"status": lifecycle.status}
     if lifecycle.warning:
         lifecycle_projection["warning"] = lifecycle.warning
@@ -360,6 +364,8 @@ def _build_candidate(
             "runtime_owned_state": "excluded",
         },
     }
+    if "presentation" in preset:
+        identity_payload["presentation"] = copy.deepcopy(preset["presentation"])
     lock = {
         "schema_version": 1,
         "lock_identity": f"sha256:{semantic_sha256(identity_payload)}",

@@ -372,6 +372,16 @@
         ]
       }
     },
+    "presentation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scratch_release_notice"],
+      "properties": {
+        "scratch_release_notice": {
+          "$ref": "#/$defs/scratchNotice"
+        }
+      }
+    },
     "render_plan": {
       "type": "object",
       "additionalProperties": false,
@@ -446,6 +456,16 @@
           "items": {
             "$ref": "#/$defs/operatorInput"
           }
+        },
+        "presentation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["scratch_release_notice"],
+          "properties": {
+            "scratch_release_notice": {
+              "$ref": "#/$defs/scratchNotice"
+            }
+          }
         }
       }
     },
@@ -483,6 +503,40 @@
     }
   },
   "$defs": {
+    "scratchNotice": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["heading", "body", "link"],
+      "properties": {
+        "heading": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "body": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "link": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["href", "label"],
+          "properties": {
+            "href": {
+              "type": "string",
+              "pattern": "^https://",
+              "maxLength": 2048
+            },
+            "label": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            }
+          }
+        }
+      }
+    },
     "token": {
       "type": "string",
       "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"
@@ -565,6 +619,9 @@
           "$ref": "#/$defs/connectionTargetsV2Input"
         },
         {
+          "$ref": "#/$defs/connectionTargetsV3Input"
+        },
+        {
           "$ref": "#/$defs/minecraftPluginsInput"
         },
         {
@@ -632,7 +689,7 @@
           "const": "connection-targets"
         },
         "adapter": {
-          "enum": ["connection-targets@1", "connection-targets@2"]
+          "enum": ["connection-targets@1", "connection-targets@2", "connection-targets@3"]
         },
         "required": {
           "type": "boolean"
@@ -1109,6 +1166,70 @@
                     }
                   }
                 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "connectionTargetsV3Input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "role",
+        "adapter",
+        "path",
+        "semantic_sha256",
+        "semantic"
+      ],
+      "properties": {
+        "role": {
+          "const": "connection-targets"
+        },
+        "adapter": {
+          "const": "connection-targets@3"
+        },
+        "path": {
+          "const": "operator/connection-targets/targets.toml"
+        },
+        "semantic_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "semantic": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["targets", "notices"],
+          "properties": {
+            "targets": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 32,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["id", "label", "sandbox"],
+                "properties": {
+                  "id": {
+                    "$ref": "#/$defs/token"
+                  },
+                  "label": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  },
+                  "sandbox": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              }
+            },
+            "notices": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 16,
+              "items": {
+                "$ref": "#/$defs/scratchNotice"
               }
             }
           }

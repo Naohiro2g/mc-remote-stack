@@ -1,0 +1,16 @@
+[[targets]]
+id = "beta"
+label = "公開ベータ"
+sandbox = "sb-beta.mc-remote.com"
+
+[[notices]]
+heading = "今後のリリース予定"
+body = "10月RC版、年内に安定版リリース予定です。"
+href = "https://mc-remote.com"
+label = "公式サイトを見る"
+
+[[notices]]
+heading = "WireScope（ワイヤースコープ）ライブ画面"
+body = "ScratchとMinecraftの通信を観察できます。観察を始めるには、マインクラフトと接続後にMcRemoteパネルの『WireScopeを開く』を使います。"
+href = "https://wirescope-beta.mc-remote.com/"
+label = "WireScopeを見る"
