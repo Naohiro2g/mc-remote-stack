@@ -66,6 +66,13 @@ BOOTSTRAP_CONTRACTS = frozenset(
             "public",
             "integration",
         ),
+        (
+            "vps-server@10",
+            "public-web-paper@4",
+            "beta",
+            "public",
+            "integration",
+        ),
     }
 )
 DOCKER_CONTEXT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$")
@@ -556,6 +563,7 @@ def _check_ports(
         "9",
         "10",
         "11",
+        "12",
     }:
         ports = [80, 443, *ports]
     for port in ports:

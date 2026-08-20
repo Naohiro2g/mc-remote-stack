@@ -64,15 +64,48 @@ def test_public_vps_runbook_puts_generic_same_volume_update_before_history() -> 
     commands = "\n".join(re.findall(r"```sh\n(.*?)```", current, re.S))
 
     assert "mcrctl\" deployment update plan" in current
-    assert "--to-profile vps-server@9" in current
-    assert "--to-preset public-web-paper@4" in current
-    assert "public-routes.wirescope=wirescope-beta.mc-remote.com" in current
+    assert '--to-profile "$REVIEWED_NEXT_PROFILE"' in current
+    assert '--to-preset "$REVIEWED_NEXT_PRESET"' in current
+    assert "次releaseが確定するまで実行しない" in current
     assert "mcrctl\" deployment update apply" in current
     assert "--plan-id \"$REVIEWED_UPDATE_PLAN\"" in current
     assert "stateful volumeは同じidentity" in current
     assert "Compose pathを手入力しない" in current
     assert "--target-volume" not in commands
     assert "--preserve-compose-file" not in commands
+
+
+def test_public_vps_runbook_canonicalizes_live_overlays_before_normal_updates() -> None:
+    guide = (REPO_ROOT / "docs" / "public-vps-bootstrap-guide_ja.md").read_text(
+        encoding="utf-8"
+    )
+    current = guide.split("## 1. 通常のrelease更新", 1)[1].split(
+        "## 2. 新規host bootstrapと歴史的救済", 1
+    )[0]
+    commands = "\n".join(re.findall(r"```sh\n(.*?)```", current, re.S))
+
+    assert "mcrctl\" deployment composition plan" in current
+    assert "--to-profile vps-server@10" in current
+    assert "mcrctl\" deployment composition apply" in current
+    assert "--plan-id \"$REVIEWED_COMPOSITION_PLAN\"" in current
+    assert current.index("deployment composition plan") < current.index(
+        "deployment update plan"
+    )
+    assert "周辺plugin、homepage tree、backup bind" in current
+    assert "staleなMcRemote JAR" in current
+    assert "render=current" in current
+    assert "--preserve-compose-file" not in commands
+
+
+def test_public_vps_runbook_repairs_the_whole_project_tree_before_mutation() -> None:
+    guide = (REPO_ROOT / "docs" / "public-vps-bootstrap-guide_ja.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert "project配下を再帰的に検査" in guide
+    assert "--repair-project \"$MC_REMOTE_PROJECT\"" in guide
+    assert "--repair-artifact-store \"$MC_REMOTE_ARTIFACT_STORE\"" in guide
+    assert "sudoedit" not in guide
 
 
 def test_public_vps_runbook_uses_resumable_auth_migration_transaction() -> None:
@@ -152,4 +185,18 @@ def test_deployment_workflow_design_replaces_release_named_normal_operations() -
     assert "保存済みScratch／Python建築コード" in design
     assert "停止前preflight" in design
     assert "手編集ゼロ" in design
+    assert "composition plan" in design
+    assert "周辺plugin JAR" in design
+    assert "homepage tree" in design
+    assert "backup bind" in design
     assert "deployment-operator-workflow-design_ja.md" in readme
+
+
+def test_fresh_host_guide_keeps_canonicalized_local_content_recoverable() -> None:
+    guide = (REPO_ROOT / "docs" / "fresh-host-bootstrap-guide_ja.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert "artifact store全体" in guide
+    assert "trees/sha256" in guide
+    assert "配布元が確立した意味ではない" in guide

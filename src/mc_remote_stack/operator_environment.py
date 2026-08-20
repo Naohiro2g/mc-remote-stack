@@ -8,6 +8,7 @@ import os
 import re
 import subprocess
 import sys
+import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -113,6 +114,102 @@ def _parse_version(value: str, *, path: str) -> tuple[int, int, int]:
     return tuple(int(match.group(name)) for name in ("major", "minor", "patch"))
 
 
+def _validate_project_tree(project: Path, uid: int) -> None:
+    for entry in (project, *sorted(project.rglob("*"))):
+        if entry.is_symlink():
+            _fail(
+                "operator_project_symlink_forbidden",
+                entry,
+                "deployment project entries must not be symbolic links",
+            )
+        try:
+            owner = entry.stat().st_uid
+        except OSError as exc:
+            _fail("operator_project_unreadable", entry, str(exc))
+        if owner != uid:
+            _fail(
+                "operator_project_owner_mismatch",
+                entry,
+                f"project entry is owned by uid {owner}, but mcrctl is running as uid {uid}; "
+                "run the operator bootstrap with --install --repair-project",
+            )
+        required = os.R_OK | os.W_OK
+        if entry.is_dir():
+            required |= os.X_OK
+        if not os.access(entry, required):
+            _fail(
+                "operator_project_entry_not_writable",
+                entry,
+                "the project-owning operator requires read/write access; run the operator "
+                "bootstrap with --install --repair-project",
+            )
+
+
+def _declared_artifact_store(project: Path) -> Path | None:
+    order_path = project / "mc-remote.toml"
+    if not order_path.exists():
+        return None
+    try:
+        order = tomllib.loads(order_path.read_text(encoding="utf-8"))
+        artifact_store = order["runtime"]["artifact_store"]
+    except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError, KeyError, TypeError) as exc:
+        _fail(
+            "operator_project_order_invalid",
+            order_path,
+            f"cannot identify the deployment artifact store: {exc}",
+        )
+    if not isinstance(artifact_store, str) or not Path(artifact_store).is_absolute():
+        _fail(
+            "operator_project_order_invalid",
+            order_path,
+            "runtime.artifact_store must be one absolute path",
+        )
+    return Path(artifact_store)
+
+
+def _validate_artifact_store(path: Path, uid: int) -> None:
+    if not path.exists():
+        parent = path.parent
+        while not parent.exists() and parent != parent.parent:
+            parent = parent.parent
+        if parent.is_symlink() or parent.stat().st_uid != uid or not os.access(
+            parent, os.W_OK | os.X_OK
+        ):
+            _fail(
+                "operator_artifact_store_not_writable",
+                path,
+                "the nearest existing artifact-store parent is not owned and writable by the operator",
+            )
+        return
+    for entry in (path, *sorted(path.rglob("*"))):
+        if entry.is_symlink():
+            _fail(
+                "operator_artifact_store_symlink_forbidden",
+                entry,
+                "artifact-store entries must not be symbolic links",
+            )
+        try:
+            owner = entry.stat().st_uid
+        except OSError as exc:
+            _fail("operator_artifact_store_unreadable", entry, str(exc))
+        if owner != uid:
+            _fail(
+                "operator_artifact_store_owner_mismatch",
+                entry,
+                f"artifact-store entry is owned by uid {owner}; run the operator bootstrap "
+                "with --install --repair-artifact-store",
+            )
+        required = os.R_OK
+        if entry.is_dir():
+            required |= os.W_OK | os.X_OK
+        if not os.access(entry, required):
+            _fail(
+                "operator_artifact_store_not_writable",
+                entry,
+                "artifact-store directories must be writable by the deployment operator",
+            )
+
+
 def check_operator_environment(
     project_root: Path,
     *,
@@ -142,19 +239,10 @@ def check_operator_environment(
     project = project_root.resolve()
     if not project.is_dir():
         _fail("operator_project_missing", project, "deployment project directory does not exist")
-    owner = project.stat().st_uid
-    if owner != uid:
-        _fail(
-            "operator_project_owner_mismatch",
-            project,
-            f"project is owned by uid {owner}, but mcrctl is running as uid {uid}",
-        )
-    if not os.access(project, os.W_OK | os.X_OK):
-        _fail(
-            "operator_project_not_writable",
-            project,
-            "the project-owning operator cannot write and traverse the deployment project",
-        )
+    _validate_project_tree(project, uid)
+    artifact_store = _declared_artifact_store(project)
+    if artifact_store is not None:
+        _validate_artifact_store(artifact_store, uid)
 
     current_python = python_version or (
         sys.version_info.major,

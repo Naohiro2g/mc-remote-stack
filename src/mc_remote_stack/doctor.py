@@ -10,7 +10,7 @@ import subprocess
 from dataclasses import dataclass
 from importlib.resources.abc import Traversable
 from ipaddress import ip_address
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Protocol
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -24,6 +24,7 @@ from .render import (
 from .runtime_artifacts import (
     RuntimeArtifactContractError,
     RuntimeMount,
+    expected_mcremote_mount,
     validate_mcremote_mounts,
 )
 
@@ -541,6 +542,109 @@ def _validate_mcremote_artifact_mount(
         )
 
 
+def _composition_input(lock: dict[str, Any], role: str) -> dict[str, Any]:
+    matches = [item for item in lock["operator_inputs"] if item["role"] == role]
+    if len(matches) != 1:
+        _fail(
+            "doctor_composition_mount_mismatch",
+            f"operator_inputs.{role}",
+            f"canonical composition requires exactly one {role} input",
+        )
+    return matches[0]["semantic"]
+
+
+def _validate_canonical_composition_mounts(
+    record: dict[str, Any],
+    lock: dict[str, Any],
+    *,
+    service: str,
+) -> None:
+    controls = set(lock["render_plan"].get("required_security_controls", []))
+    if "exact-peripheral-plugin-set" not in controls:
+        return
+    raw_mounts = record.get("Mounts")
+    if not isinstance(raw_mounts, list):
+        _fail(
+            "doctor_composition_mount_mismatch",
+            f"services.{service}.mounts",
+            "runtime mount records are unavailable",
+        )
+    mounts = [mount for mount in raw_mounts if isinstance(mount, dict)]
+    artifact_store = Path(lock["runtime"]["artifact_store"]).resolve()
+    if service == "minecraft":
+        plugins = _composition_input(lock, "minecraft-plugins")["plugins"]
+        backup = _composition_input(lock, "minecraft-backup")["host_path"]
+        _mcremote_source, mcremote_target = expected_mcremote_mount(lock)
+        expected_plugins = {
+            f"/plugins/{plugin['filename']}": str(
+                artifact_store / "sha256" / plugin["sha256"]
+            )
+            for plugin in plugins
+        }
+        expected_plugin_targets = set(expected_plugins) | {mcremote_target}
+        actual_plugin_targets = {
+            mount.get("Destination")
+            for mount in mounts
+            if isinstance(mount.get("Destination"), str)
+            and PurePosixPath(mount["Destination"]).parent
+            == PurePosixPath("/plugins")
+            and PurePosixPath(mount["Destination"]).suffix.casefold() == ".jar"
+        }
+        if actual_plugin_targets != expected_plugin_targets:
+            _fail(
+                "doctor_composition_mount_mismatch",
+                "services.minecraft.mounts./plugins",
+                "live plugin targets differ from the exact canonical set",
+            )
+        for target, source in expected_plugins.items():
+            matching = [mount for mount in mounts if mount.get("Destination") == target]
+            if (
+                len(matching) != 1
+                or matching[0].get("Type") != "bind"
+                or matching[0].get("RW") is not False
+                or not isinstance(matching[0].get("Source"), str)
+                or str(Path(matching[0]["Source"]).resolve()) != source
+            ):
+                _fail(
+                    "doctor_composition_mount_mismatch",
+                    target,
+                    "peripheral plugin mount does not match its locked digest",
+                )
+        backup_matches = [
+            mount for mount in mounts if mount.get("Destination") == "/backup"
+        ]
+        if (
+            len(backup_matches) != 1
+            or backup_matches[0].get("Type") != "bind"
+            or backup_matches[0].get("RW") is not True
+            or not isinstance(backup_matches[0].get("Source"), str)
+            or Path(backup_matches[0]["Source"]).resolve() != Path(backup).resolve()
+        ):
+            _fail(
+                "doctor_composition_mount_mismatch",
+                "/backup",
+                "live backup bind differs from the locked operator path",
+            )
+    elif service == "caddy":
+        homepage = _composition_input(lock, "homepage-static")
+        expected = artifact_store / "trees" / "sha256" / homepage["tree_sha256"]
+        matching = [
+            mount for mount in mounts if mount.get("Destination") == "/srv/homepage"
+        ]
+        if (
+            len(matching) != 1
+            or matching[0].get("Type") != "bind"
+            or matching[0].get("RW") is not False
+            or not isinstance(matching[0].get("Source"), str)
+            or Path(matching[0]["Source"]).resolve() != expected
+        ):
+            _fail(
+                "doctor_composition_mount_mismatch",
+                "/srv/homepage",
+                "live homepage tree differs from the locked content-addressed tree",
+            )
+
+
 def _validate_container(
     record: dict[str, Any],
     lock: dict[str, Any],
@@ -574,6 +678,7 @@ def _validate_container(
     if service == "minecraft":
         _validate_mcremote_artifact_mount(record, lock)
         _validate_credential_mounts(record, lock)
+    _validate_canonical_composition_mounts(record, lock, service=service)
 
     state = record.get("State")
     if not isinstance(state, dict) or state.get("Running") is not True:
@@ -626,6 +731,7 @@ def _validate_container(
             "9",
             "10",
             "11",
+            "12",
         }:
             expected_ports["19132/udp"] = [
                 {

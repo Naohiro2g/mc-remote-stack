@@ -1,4 +1,5 @@
 import json
+import shutil
 import subprocess
 import tomllib
 from importlib.resources import files
@@ -16,6 +17,7 @@ from mc_remote_stack.deployment_update import (
     _make_plan,
     _plan_root,
     _prepare_candidate_order,
+    _publish_project,
     _state_from_plan,
     _validate_in_place_transition,
     _validate_required_effective_mounts,
@@ -284,6 +286,64 @@ def test_wirescope_target_preflight_rejects_overlay_that_masks_generated_docroot
         _validate_required_effective_mounts(services, lock, tmp_path / "generated")
 
     assert exc_info.value.reason == "update_target_control_masked"
+
+
+def test_project_publish_removes_operator_inputs_absent_from_restored_order(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = init_toml_project(
+        tmp_path / "source",
+        deployment_name="fixture",
+        profile="home-server@1",
+        environment_identity="fixture",
+        channel="beta",
+        exposure="isolated",
+        purpose="integration",
+        preset="mcremote-paper@1",
+        artifact_store=str(tmp_path / "artifacts"),
+        runtime_volumes={"minecraft-data": "fixture-data"},
+        world_identity="fixture-world",
+        bind_address="127.0.0.1",
+        java_port=25565,
+        mcremote_port=25575,
+        minecraft_eula=True,
+    ).root
+    destination = tmp_path / "destination"
+    shutil.copytree(source, destination)
+    for root in (source, destination):
+        (root / "mc-remote.lock.toml").write_text(
+            "schema_version = 1\n", encoding="utf-8"
+        )
+    with (destination / "mc-remote.toml").open("a", encoding="utf-8") as stream:
+        stream.write(
+            '''
+[[operator_inputs]]
+role = "minecraft-plugins"
+adapter = "minecraft-plugins@1"
+path = "operator/minecraft-plugins/plugins.toml"
+'''
+        )
+    obsolete = destination / "operator/minecraft-plugins/plugins.toml"
+    obsolete.parent.mkdir(parents=True)
+    obsolete.write_text(
+        '[[plugins]]\nfilename = "WorldEdit.jar"\nsha256 = "' + "a" * 64 + '"\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "mc_remote_stack.deployment_update.render_toml_project",
+        lambda *_args, **_kwargs: None,
+    )
+
+    _publish_project(
+        source,
+        destination,
+        destination / "generated",
+        data_root=files("mc_remote_stack").joinpath("data"),
+    )
+
+    assert not obsolete.exists()
+    assert not obsolete.parent.exists()
 
 
 class _RecordingUpdateHost:

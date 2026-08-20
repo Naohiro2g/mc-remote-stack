@@ -6,6 +6,9 @@ from mc_remote_stack.cli import main
 from mc_remote_stack.operator_inputs import (
     OperatorInputError,
     _parse_connection_targets,
+    _parse_homepage_static,
+    _parse_minecraft_backup,
+    _parse_minecraft_plugins,
     _parse_minecraft_server,
     _parse_public_routes_v2,
 )
@@ -403,6 +406,111 @@ wirescope = "wirescope-beta.mc-remote.example"
                 b'wirescope = "scratch-beta.mc-remote.example"',
             ),
         )
+
+    assert exc_info.value.reason == "operator_input_parse_failed"
+
+
+def test_minecraft_plugins_adapter_normalizes_exact_artifact_set(tmp_path: Path) -> None:
+    source = b'''[[plugins]]
+filename = "worldedit-bukkit-7.4.2.jar"
+sha256 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+
+[[plugins]]
+filename = "Geyser-Spigot.jar"
+sha256 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+'''
+
+    assert _parse_minecraft_plugins(tmp_path / "plugins.toml", source) == {
+        "plugins": [
+            {
+                "filename": "Geyser-Spigot.jar",
+                "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            },
+            {
+                "filename": "worldedit-bukkit-7.4.2.jar",
+                "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            },
+        ]
+    }
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        b"plugins = []\n",
+        b'[[plugins]]\nfilename = "../bad.jar"\nsha256 = "' + b"a" * 64 + b'"\n',
+        b'[[plugins]]\nfilename = "McRemote.jar"\nsha256 = "' + b"a" * 64 + b'"\n',
+        b'[[plugins]]\nfilename = "old-mcremote-copy.jar"\nsha256 = "' + b"a" * 64 + b'"\n',
+        b'[[plugins]]\nfilename = "plugin.zip"\nsha256 = "' + b"a" * 64 + b'"\n',
+        b'[[plugins]]\nfilename = "plugin.jar"\nsha256 = "nope"\n',
+        (
+            b'[[plugins]]\nfilename = "same.jar"\nsha256 = "'
+            + b"a" * 64
+            + b'"\n[[plugins]]\nfilename = "same.jar"\nsha256 = "'
+            + b"b" * 64
+            + b'"\n'
+        ),
+    ],
+)
+def test_minecraft_plugins_adapter_rejects_unsafe_or_ambiguous_sets(
+    tmp_path: Path,
+    source: bytes,
+) -> None:
+    with pytest.raises(OperatorInputError) as exc_info:
+        _parse_minecraft_plugins(tmp_path / "plugins.toml", source)
+
+    assert exc_info.value.reason == "operator_input_parse_failed"
+
+
+def test_homepage_static_adapter_records_one_exact_tree(tmp_path: Path) -> None:
+    source = b'''tree_sha256 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+file_count = 4
+total_bytes = 8192
+'''
+
+    assert _parse_homepage_static(tmp_path / "homepage.toml", source) == {
+        "tree_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "file_count": 4,
+        "total_bytes": 8192,
+    }
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        b'tree_sha256 = "nope"\nfile_count = 1\ntotal_bytes = 1\n',
+        b'tree_sha256 = "' + b"a" * 64 + b'"\nfile_count = 0\ntotal_bytes = 1\n',
+        b'tree_sha256 = "' + b"a" * 64 + b'"\nfile_count = 1\ntotal_bytes = 0\n',
+        b'tree_sha256 = "' + b"a" * 64 + b'"\nfile_count = 1\ntotal_bytes = 1\nextra = true\n',
+    ],
+)
+def test_homepage_static_adapter_fails_closed(tmp_path: Path, source: bytes) -> None:
+    with pytest.raises(OperatorInputError) as exc_info:
+        _parse_homepage_static(tmp_path / "homepage.toml", source)
+
+    assert exc_info.value.reason == "operator_input_parse_failed"
+
+
+def test_minecraft_backup_adapter_accepts_one_explicit_host_path(tmp_path: Path) -> None:
+    assert _parse_minecraft_backup(
+        tmp_path / "backup.toml",
+        b'host_path = "/var/lib/mc-remote/backup-beta"\n',
+    ) == {"host_path": "/var/lib/mc-remote/backup-beta"}
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        b'host_path = "relative"\n',
+        b'host_path = "/"\n',
+        b'host_path = "/var/../root"\n',
+        b'host_path = "secret://backup"\n',
+        b'host_path = "/var/backup"\nextra = true\n',
+    ],
+)
+def test_minecraft_backup_adapter_fails_closed(tmp_path: Path, source: bytes) -> None:
+    with pytest.raises(OperatorInputError) as exc_info:
+        _parse_minecraft_backup(tmp_path / "backup.toml", source)
 
     assert exc_info.value.reason == "operator_input_parse_failed"
 

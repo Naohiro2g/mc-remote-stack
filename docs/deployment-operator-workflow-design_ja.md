@@ -4,7 +4,7 @@
 operator transactionへ移す。これは既存`public-b3`／`public-b4`実装を一般化したと主張する文書ではない。
 今後の通常経路、移行順、合格条件を固定し、未実装部分を明示する。
 
-- 状態: operator environment基盤とsame-volume汎用update transactionの第1sliceを実装
+- 状態: operator environment、same-volume汎用update、runtime composition canonicalizationを実装
 - Stack側根拠: b2〜b4のpublic beta実施で発生したtool不足、root所有化、artifact／Compose
   provenance／credential／runtime config／WireScope routeの逐次手戻り
 - 利用者価値の錨: knowledge `2026-08-18-01`
@@ -36,10 +36,12 @@ agent専用user、教材利用者、server利用者へは与えない。
 
 - `--check`: 変更せず不足を一括報告
 - `--install`: Git、固定uv、Python 3.11、Docker Engine、Compose 2.33.1以上を準備
-- `--repair-project <exact path>`: 歴史的なroot実行で壊れた一projectのownerだけを修復
+- `--repair-project <exact path>`: 歴史的なroot実行で壊れた一project treeのownerだけを修復
+- `--repair-artifact-store <exact path>`: 同じ原因で壊れた既定artifact storeだけを修復
 
 準備後は`mcrctl operator check`が、非root UID、project owner、local Docker context、daemon、Composeを
-一括検証する。全project commandはroot実行を拒否する。order、lock、generated、transaction stateを
+一括検証する。project treeと宣言済みartifact storeも再帰検査し、root所有のnested fileを開始前に検出する。
+全project commandはroot実行を拒否する。order、lock、generated、transaction state、artifact bytesを
 同じoperatorが所有し続ける。
 
 ## 3. 守るもの
@@ -134,6 +136,30 @@ pathと順序を復元する必要がある。これは一度だけcanonicalizat
 未知overlayを自動採用しない。採用、廃止、別管理のいずれかを人間が一度決め、その後のrelease更新から
 provenance復元作業を除去する。
 
+現行public beta向けには、一回限りの次の入口を使う。
+
+```text
+mcrctl deployment composition plan \
+  --project <project> \
+  --to-profile vps-server@10
+
+mcrctl deployment composition apply \
+  --project <project> \
+  --plan-id <generated-plan-id> \
+  --yes
+```
+
+`plan`はlive containerのCompose provenanceを自動取得し、既知の形だけを型へ変換する。周辺plugin JARは
+filenameとSHA-256を持つ`minecraft-plugins@1`、homepage treeは決定論的inventory digestを持つ
+`homepage-static@1`、writable backup bindはabsolute pathを持つ`minecraft-backup@1`となる。plugin bytesと
+homepage treeは停止前にdeployment artifact storeへ取り込み、targetは追加Composeなしで起動する。
+
+`/plugins`全体mount、別McRemote JAR、未知service／mount、生成済み内容と異なる外部`/config`、手書きの
+homepage Caddyfileは採用せず停止する。recovery directoryに残ったstaleなMcRemote JARを「近くにあるから」
+採用しない。target doctorは周辺plugin、homepage、backupのexact mountと`render=current`を検証する。
+失敗時のrollbackはsnapshotしたsource overlayで旧projectionを再起動するが、world、session、pairingの
+完全復元は主張しない。
+
 ## 8. runbookの更新規律
 
 live作業で予期しない停止が起きたら、会話内の回避commandだけで先へ進まない。同じ作業中に次を行う。
@@ -163,7 +189,7 @@ public betaの通常更新は次を運用SLOとする。
 1. operator bootstrap／check、root実行拒否（完了）
 2. generic same-volume plan／apply、live Compose自動snapshot、doctor、限定rollback（第1slice完了）
 3. public runbookを通常入口中心に再編集し、`public-bN`をhistory-only表記（完了）
-4. public betaのrecovery plugin／homepage canonicalization
+4. public betaのrecovery plugin／homepage／backup canonicalization（実装完了、live適用待ち）
 5. blocker集約、credential health、DNS／TLS claimをprofile policyで追加
 6. home alpha／betaとcatering hostへ同じtransactionを投影
 

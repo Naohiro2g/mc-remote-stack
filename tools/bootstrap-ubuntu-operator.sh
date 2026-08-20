@@ -6,14 +6,15 @@ MINIMUM_COMPOSE_VERSION=2.33.1
 
 mode=check
 repair_project=
+repair_artifact_store=
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd -- "$script_dir/.." && pwd)"
 
 usage() {
   cat <<'EOF'
 Usage:
-  tools/bootstrap-ubuntu-operator.sh --check [--repair-project PATH]
-  tools/bootstrap-ubuntu-operator.sh --install [--repair-project PATH]
+  tools/bootstrap-ubuntu-operator.sh --check
+  tools/bootstrap-ubuntu-operator.sh --install [--repair-project PATH] [--repair-artifact-store PATH]
 
 --check reports every missing operator prerequisite without changing the host.
 --install installs missing Ubuntu packages, pinned uv, Docker Engine/Compose when
@@ -21,6 +22,8 @@ absent, and explicitly grants the current trusted sudo administrator direct
 Docker access. Re-login is required after group membership changes.
 --repair-project is accepted only with --install and only below
 $HOME/mc-remote-deployments; it repairs ownership left by historical root execution.
+--repair-artifact-store is accepted only with --install and only for
+$HOME/.local/share/mc-remote/artifacts; it repairs the same historical ownership drift.
 EOF
 }
 
@@ -36,6 +39,11 @@ while (($#)); do
       shift
       (($#)) || { echo "--repair-project requires PATH" >&2; exit 2; }
       repair_project=$1
+      ;;
+    --repair-artifact-store)
+      shift
+      (($#)) || { echo "--repair-artifact-store requires PATH" >&2; exit 2; }
+      repair_artifact_store=$1
       ;;
     --help|-h)
       usage
@@ -58,6 +66,10 @@ fi
 
 if [[ -n "$repair_project" && "$mode" != install ]]; then
   echo "FAIL --repair-project requires explicit --install" >&2
+  exit 2
+fi
+if [[ -n "$repair_artifact_store" && "$mode" != install ]]; then
+  echo "FAIL --repair-artifact-store requires explicit --install" >&2
   exit 2
 fi
 
@@ -153,6 +165,19 @@ repair_project_ownership() {
   echo "OK repaired project ownership path=$resolved owner=$(id -un)"
 }
 
+repair_artifact_store_ownership() {
+  local requested resolved allowed
+  requested=$1
+  resolved="$(realpath -e -- "$requested")"
+  allowed="$(realpath -m -- "$HOME/.local/share/mc-remote/artifacts")"
+  if [[ "$resolved" != "$allowed" || ! -d "$resolved" ]]; then
+    echo "FAIL repair target must be the existing artifact store $allowed" >&2
+    exit 2
+  fi
+  sudo chown -R "$(id -u):$(id -g)" "$resolved"
+  echo "OK repaired artifact store ownership path=$resolved owner=$(id -un)"
+}
+
 missing=()
 for command_name in curl git; do
   command -v "$command_name" >/dev/null 2>&1 || missing+=("$command_name")
@@ -179,6 +204,9 @@ if [[ "$mode" == install ]]; then
   fi
   if [[ -n "$repair_project" ]]; then
     repair_project_ownership "$repair_project"
+  fi
+  if [[ -n "$repair_artifact_store" ]]; then
+    repair_artifact_store_ownership "$repair_artifact_store"
   fi
   uv_bin="$(uv_path)"
   "$uv_bin" python install 3.11

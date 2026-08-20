@@ -12,6 +12,7 @@ def test_ubuntu_operator_bootstrap_is_auditable_and_prepares_real_tools() -> Non
     assert "--check" in script
     assert "--install" in script
     assert "--repair-project" in script
+    assert "--repair-artifact-store" in script
     assert "download.docker.com/linux/ubuntu" in script
     assert "docker-ce-cli" in script
     assert "docker-compose-plugin" in script

@@ -10,6 +10,7 @@ from mc_remote_stack.doctor import (
     ProtocolHelloResult,
     TomlDoctorResult,
     _auth_enforcement_required,
+    _validate_canonical_composition_mounts,
     _validate_container,
     _validate_volume,
     doctor_toml_project,
@@ -44,6 +45,99 @@ def _compose_base(output: Path) -> tuple[str, ...]:
         "--file",
         str((output / "compose.yaml").resolve()),
     )
+
+
+def test_doctor_validates_all_canonical_composition_mounts(tmp_path: Path) -> None:
+    store = tmp_path / "artifacts"
+    plugin_sha = "a" * 64
+    mcremote_sha = "b" * 64
+    homepage_sha = "c" * 64
+    backup = tmp_path / "backup"
+    lock = {
+        "runtime": {"artifact_store": str(store)},
+        "render_plan": {
+            "required_security_controls": ["exact-peripheral-plugin-set"]
+        },
+        "components": [
+            {
+                "role": "mcremote-plugin",
+                "artifact": "mcremote-jar",
+            }
+        ],
+        "artifacts": [
+            {
+                "id": "mcremote-jar",
+                "filename": "mc-remote-b4.jar",
+                "sha256": mcremote_sha,
+            }
+        ],
+        "operator_inputs": [
+            {
+                "role": "minecraft-plugins",
+                "semantic": {
+                    "plugins": [
+                        {"filename": "WorldEdit.jar", "sha256": plugin_sha}
+                    ]
+                },
+            },
+            {
+                "role": "minecraft-backup",
+                "semantic": {"host_path": str(backup)},
+            },
+            {
+                "role": "homepage-static",
+                "semantic": {"tree_sha256": homepage_sha},
+            },
+        ],
+    }
+    minecraft = {
+        "Mounts": [
+            {
+                "Type": "bind",
+                "Source": str(store / "sha256" / mcremote_sha),
+                "Destination": "/plugins/mc-remote-b4.jar",
+                "RW": False,
+            },
+            {
+                "Type": "bind",
+                "Source": str(store / "sha256" / plugin_sha),
+                "Destination": "/plugins/WorldEdit.jar",
+                "RW": False,
+            },
+            {
+                "Type": "bind",
+                "Source": str(backup),
+                "Destination": "/backup",
+                "RW": True,
+            },
+        ]
+    }
+    caddy = {
+        "Mounts": [
+            {
+                "Type": "bind",
+                "Source": str(store / "trees" / "sha256" / homepage_sha),
+                "Destination": "/srv/homepage",
+                "RW": False,
+            }
+        ]
+    }
+
+    _validate_canonical_composition_mounts(minecraft, lock, service="minecraft")
+    _validate_canonical_composition_mounts(caddy, lock, service="caddy")
+
+    minecraft["Mounts"].append(
+        {
+            "Type": "bind",
+            "Source": "/tmp/unknown.jar",
+            "Destination": "/plugins/Unknown.jar",
+            "RW": False,
+        }
+    )
+    with pytest.raises(DoctorContractError) as exc_info:
+        _validate_canonical_composition_mounts(minecraft, lock, service="minecraft")
+
+    assert exc_info.value.reason == "doctor_composition_mount_mismatch"
 
 
 def _managed_container(

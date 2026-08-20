@@ -83,6 +83,7 @@ class DeploymentUpdatePlan:
     volumes: tuple[tuple[str, str], ...]
     preserved_compose_files: tuple[Path, ...]
     preserved_compose_sha256: tuple[str, ...]
+    kind: str = "release-update"
 
 
 @dataclass(frozen=True)
@@ -514,8 +515,14 @@ def _make_plan(
     payload: dict[str, Any],
     preserved_compose_files: tuple[Path, ...],
 ) -> DeploymentUpdatePlan:
+    kind = payload.get("kind", "release-update")
+    identity_payload = dict(payload)
+    if kind != "release-update":
+        identity_payload["kind"] = kind
+    else:
+        identity_payload.pop("kind", None)
     canonical = json.dumps(
-        payload,
+        identity_payload,
         ensure_ascii=False,
         sort_keys=True,
         separators=(",", ":"),
@@ -538,6 +545,7 @@ def _make_plan(
         volumes=tuple(tuple(item) for item in payload["volumes"]),
         preserved_compose_files=preserved_compose_files,
         preserved_compose_sha256=tuple(payload["preserved_compose_sha256"]),
+        kind=kind,
     )
 
 
@@ -579,7 +587,7 @@ def _write_json(path: Path, value: dict[str, Any]) -> None:
 
 
 def _state_from_plan(plan: DeploymentUpdatePlan) -> dict[str, Any]:
-    return {
+    state = {
         "schema": UPDATE_SCHEMA,
         "schema_version": UPDATE_SCHEMA_VERSION,
         "phase": "prepared",
@@ -615,6 +623,9 @@ def _state_from_plan(plan: DeploymentUpdatePlan) -> dict[str, Any]:
         ],
         "last_error": None,
     }
+    if plan.kind != "release-update":
+        state["kind"] = plan.kind
+    return state
 
 
 def _plan_from_state(state: dict[str, Any]) -> DeploymentUpdatePlan:
@@ -641,6 +652,7 @@ def _plan_from_state(state: dict[str, Any]) -> DeploymentUpdatePlan:
         preserved_compose_sha256=tuple(
             item["sha256"] for item in state["preserved_compose_files"]
         ),
+        kind=state.get("kind", "release-update"),
     )
 
 
@@ -673,7 +685,7 @@ def _load_state(project_root: Path, plan_id: str) -> dict[str, Any]:
     }
     if (
         not isinstance(value, dict)
-        or set(value) != required
+        or frozenset(value) not in {frozenset(required), frozenset(required | {"kind"})}
         or value.get("schema") != UPDATE_SCHEMA
         or value.get("schema_version") != UPDATE_SCHEMA_VERSION
         or value.get("phase") not in UPDATE_PHASES
@@ -711,6 +723,10 @@ def _load_state(project_root: Path, plan_id: str) -> dict[str, Any]:
         or not isinstance(volumes, list)
         or not isinstance(compose_entries, list)
         or len(compose_entries) > MAX_PRESERVED_COMPOSE_FILES
+        or (
+            "kind" in value
+            and value["kind"] != "composition-canonicalization"
+        )
     ):
         _fail(
             "update_transaction_invalid",
@@ -757,6 +773,8 @@ def _load_state(project_root: Path, plan_id: str) -> dict[str, Any]:
         "volumes": [list(item) for item in plan.volumes],
         "preserved_compose_sha256": list(plan.preserved_compose_sha256),
     }
+    if plan.kind != "release-update":
+        payload["kind"] = plan.kind
     if _make_plan(payload, plan.preserved_compose_files).plan_id != plan_id:
         _fail(
             "update_transaction_invalid",
@@ -1091,6 +1109,7 @@ def _plan_deployment_update_locked(
     temporary = Path(
         tempfile.mkdtemp(prefix=".plan.", suffix=".prepare", dir=updates)
     )
+    moved = False
     try:
         candidate = temporary / "candidate"
         _prepare_candidate_order(
@@ -1131,10 +1150,10 @@ def _plan_deployment_update_locked(
             temporary_root=temporary,
             source_output=output,
         )
-        temporary = Path("/__moved__")
+        moved = True
         return plan
     finally:
-        if temporary.exists():
+        if not moved and temporary.exists():
             shutil.rmtree(temporary)
 
 
@@ -1239,6 +1258,13 @@ def _publish_project(
     data_root: Traversable,
 ) -> None:
     loaded = load_order(source)
+    previous = load_order(destination)
+    previous_inputs = {
+        item["path"] for item in previous.order.get("operator_inputs", [])
+    }
+    next_inputs = {
+        item["path"] for item in loaded.order.get("operator_inputs", [])
+    }
     for name in ("mc-remote.toml", "mc-remote.lock.toml"):
         _atomic_replace(destination / name, (source / name).read_bytes())
     for item in loaded.order.get("operator_inputs", []):
@@ -1249,6 +1275,21 @@ def _publish_project(
             _atomic_replace(target, (source / relative).read_bytes())
         else:
             shutil.copyfile(source / relative, target)
+    for relative_source in sorted(previous_inputs - next_inputs):
+        relative = Path(relative_source)
+        target = destination / relative
+        if target.is_symlink() or not target.is_file():
+            _fail(
+                "update_operator_input_cleanup_failed",
+                target,
+                "obsolete operator input must remain one regular non-symlink file",
+            )
+        target.unlink()
+        parent = target.parent
+        operator_root = destination / "operator"
+        while parent != operator_root and parent.is_dir() and not any(parent.iterdir()):
+            parent.rmdir()
+            parent = parent.parent
     render_toml_project(destination, output, data_root=data_root)
 
 
@@ -1263,6 +1304,7 @@ def apply_deployment_update(
     runner: CommandRunner = _default_runner,
     hello_probe: Any = probe_protocol_hello,
     progress=lambda _step: None,
+    expected_kind: str = "release-update",
 ) -> DeploymentUpdateResult:
     """Apply or retry one durable same-volume release update."""
 
@@ -1283,6 +1325,12 @@ def apply_deployment_update(
     try:
         state = _load_state(project_root, plan_id)
         plan = _plan_from_state(state)
+        if plan.kind != expected_kind:
+            _fail(
+                "update_plan_kind_mismatch",
+                plan_id,
+                f"plan kind {plan.kind} cannot be applied as {expected_kind}",
+            )
         root = _plan_root(project_root, plan_id)
         source_project = root / "source-project"
         source_output = root / "source-render"

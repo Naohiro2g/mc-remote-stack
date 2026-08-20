@@ -8,7 +8,8 @@ MinecraftとMcRemoteのpublic betaを構築する。provider、実IP、個人名
 
 新規b3用`vps-server@6` / `public-web-paper@2`に加え、公開b4 targetの
 `vps-server@8` / `public-web-paper@3`とWireScope公開handoffを含む
-`vps-server@9` / `public-web-paper@4`を実装済みである。b4はb3の公開境界を維持しながら、
+`vps-server@9` / `public-web-paper@4`、追加Composeを型付き入力へ回収する
+`vps-server@10` / `compose@12`を実装済みである。b4はb3の公開境界を維持しながら、
 最終Scratch / Bridge artifact、McRemote b4、通常restartを越えるsession recordを固定する。
 次を一つのpublic bootstrapまたはreview済みmigration transactionとして扱う。
 
@@ -25,7 +26,6 @@ MinecraftとMcRemoteのpublic betaを構築する。provider、実IP、個人名
 
 次はまだ同じtransactionへ入っていないため、後続phaseで完成度を上げる。
 
-- official homepage content artifact（現在はCaddyが明示的なhealth landingを返す）
 - provider / host firewall、DNS、TLSの変更
 - HTTPS / WSSの外部smokeを行うdoctor claim
 - backup / restore、既存world import、stable / beta排他切替
@@ -33,24 +33,71 @@ MinecraftとMcRemoteのpublic betaを構築する。provider、実IP、個人名
 
 ## 1. 通常のrelease更新
 
-同じprofile／preset family内で、deployment、world、network、volume identityを変えない更新は
-release固有migrationではなく、次の二commandを正準経路とする。planは不足するexact HTTPS artifactを
-content-addressed storeへ取得し、live Minecraft containerのCompose labelから追加Composeの順序と
-digestを自動snapshotする。container ID、Compose path、volume名、source／target lock SHAを人が
-会話から転記しない。
+### 一度だけ追加Composeをcanonical化する
 
-現在の公開betaへWireScope hostnameを投影するv8→v9更新は次でplanする。
+`doctor`が`render=additional-compose-files`を返す現行public betaでは、release更新を重ねる前に一度だけ
+runtime compositionをcanonical化する。`plan`はlive Minecraft containerのCompose labelを自動取得し、
+review済みの形に一致する周辺plugin、homepage tree、backup bindだけを型付き入力へ変換する。人間は
+container ID、Compose path、個別plugin SHA、homepage pathを転記しない。
 
 ```sh
 MC_REMOTE_STACK="$HOME/mc-remote-stack"
 MC_REMOTE_PROJECT="$HOME/mc-remote-deployments/official-public-beta"
 
+"$MC_REMOTE_STACK/tools/bootstrap-ubuntu-operator.sh" --check
+"$MC_REMOTE_STACK/.venv/bin/mcrctl" operator check \
+  --project "$MC_REMOTE_PROJECT" \
+  --docker-context default
+
+"$MC_REMOTE_STACK/.venv/bin/mcrctl" deployment composition plan \
+  --project "$MC_REMOTE_PROJECT" \
+  --docker-context default \
+  --to-profile vps-server@10
+```
+
+planは周辺plugin JARをcontent-addressed storeへ取り込み、homepageを決定論的なtree inventoryで固定する。
+既存のwritable backup pathもtyped inputへ記録する。一方、`/plugins`全体mount、別McRemote JAR、未知の
+service／mount、canonical renderと異なる外部config、既知templateでないCaddyfileはfail closedで拒否する。
+recovery directory内のstaleなMcRemote JARは周辺pluginとして採用しない。
+
+表示されたsource／target identity、plugin件数、homepage tree SHA、backup path、plan IDをreviewし、
+一つのplan IDだけを適用する。
+
+```sh
+REVIEWED_COMPOSITION_PLAN="sha256:<planで確認した64-hex>"
+
+"$MC_REMOTE_STACK/.venv/bin/mcrctl" deployment composition apply \
+  --project "$MC_REMOTE_PROJECT" \
+  --plan-id "$REVIEWED_COMPOSITION_PLAN" \
+  --yes
+```
+
+apply後のdoctorは`render=current`でなければならず、canonical `compose.yaml`だけでMcRemote、周辺plugin、
+homepage、backupを再現する。失敗時はplanがsnapshotした旧overlayで旧projectionを再起動する。同じplan IDを
+再実行してresumeし、state JSONやgenerated Composeを手編集しない。この処理はlocal artifactを配布可能にした
+という意味ではない。別hostへ再構築する場合は後述のartifact store保全境界に従う。
+
+### 以後のrelease更新
+
+canonical化後、同じprofile／preset family内でdeployment、world、network、volume identityを変えない更新は
+release固有migrationではなく、次の二commandを正準経路とする。planは不足するexact HTTPS artifactを
+content-addressed storeへ取得し、canonicalなlive Composeを検証する。container ID、Compose path、volume名、
+source／target lock SHAを人が会話から転記しない。
+
+次releaseのexact profile／presetがreview済みになった後だけ、次の形でplanする。下のplaceholderは
+次releaseが確定するまで実行しない。
+
+```sh
+MC_REMOTE_STACK="$HOME/mc-remote-stack"
+MC_REMOTE_PROJECT="$HOME/mc-remote-deployments/official-public-beta"
+REVIEWED_NEXT_PROFILE="vps-server@<review済みrevision>"
+REVIEWED_NEXT_PRESET="public-web-paper@<review済みrevision>"
+
 "$MC_REMOTE_STACK/.venv/bin/mcrctl" deployment update plan \
   --project "$MC_REMOTE_PROJECT" \
   --docker-context default \
-  --to-profile vps-server@9 \
-  --to-preset public-web-paper@4 \
-  --set-input public-routes.wirescope=wirescope-beta.mc-remote.com \
+  --to-profile "$REVIEWED_NEXT_PROFILE" \
+  --to-preset "$REVIEWED_NEXT_PRESET" \
   --allow-unverified
 ```
 
@@ -91,16 +138,32 @@ Python／uv／Docker／Composeの不足やDocker socket権限を、作業中の�
 MC_REMOTE_STACK="$HOME/mc-remote-stack"
 MC_REMOTE_PROJECT="$HOME/mc-remote-deployments/official-public-beta"
 MC_REMOTE_OUTPUT="$MC_REMOTE_PROJECT/generated"
+MC_REMOTE_ARTIFACT_STORE="$HOME/.local/share/mc-remote/artifacts"
 
 "$MC_REMOTE_STACK/.venv/bin/mcrctl" operator check \
   --project "$MC_REMOTE_PROJECT" \
   --docker-context default
 ```
 
-project order、lock、generated、migration stateは同じ非root operatorが所有する。`docker group`は
+project order、lock、generated、migration stateは同じ非root operatorが所有する。operator checkは
+project rootだけでなくproject配下を再帰的に検査し、root所有またはoperatorが読書きできないentryが一つでも
+あればmutation前に停止する。`docker group`は
 root相当の権限であるため、この個人管理者だけへ明示的に与える。agent userや一般利用者へは与えない。
 CLI全体をsudo実行せず、Docker操作だけをdirect socket accessで行う。開始gateの正典command名は
 `mcrctl operator check`であり、checkout外からは上記のexact executable pathで呼ぶ。
+
+過去のsudo実行でproject配下または宣言済みartifact storeがroot所有になっている場合は、別editorや一時copyで
+回避せず、正準bootstrapへexact pathを渡してownerを一度修復し、logout／login後にcheckを再実行する。
+
+```sh
+"$MC_REMOTE_STACK/tools/bootstrap-ubuntu-operator.sh" --install \
+  --repair-project "$MC_REMOTE_PROJECT" \
+  --repair-artifact-store "$MC_REMOTE_ARTIFACT_STORE"
+
+"$MC_REMOTE_STACK/.venv/bin/mcrctl" operator check \
+  --project "$MC_REMOTE_PROJECT" \
+  --docker-context default
+```
 
 ### 現行b2 VPSの停止境界
 
@@ -687,7 +750,7 @@ knowledge ownerへevidence draftとしてhandoffする。rawはGit外、private 
 Caddy、Scratch、Bridgeのcore transactionは`vps-server@5`へ取り込んだ。過去の6GB official
 VPSで実証したTLS / WSS / rollbackを現行SSOTの自動claimとして完成させる残作業は次である。
 
-1. homepageのcontent-addressed artifactとprovenance
+1. homepage／周辺plugin artifactの配布元とprovenance
 2. backup retention / off-host live smoke / rollback cleanup contract
 3. HTTPS / WSS / Bridge→Minecraft smokeのdoctor claim
 4. stable / betaの排他切替、upgrade、同一hash redeploy

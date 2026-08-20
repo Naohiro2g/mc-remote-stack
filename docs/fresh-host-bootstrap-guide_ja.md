@@ -98,15 +98,19 @@ Docker公式APT repositoryを使う。既存Dockerを未知の配布元から暗
 警告する通り、このgroupはroot相当の権限を持つ。agent専用userや一般利用者を追加してはならない。
 group追加後はlogout/loginし、`--check`を再実行する。`mcrctl`のroot実行は使用せず、CLIも拒否する。
 
-過去の`mcrctl` root実行で一つのprojectがroot所有になった場合だけ、対象をexact pathで限定して修復する。
+過去の`mcrctl` root実行で一つのproject配下がroot所有になった場合だけ、対象をexact pathで限定して
+project tree全体のownerを修復する。project rootだけを直してnested transaction／operator inputを残さない。
 
 ```bash
 tools/bootstrap-ubuntu-operator.sh --install \
-  --repair-project "$HOME/mc-remote-deployments/<deployment>"
+  --repair-project "$HOME/mc-remote-deployments/<deployment>" \
+  --repair-artifact-store "$HOME/.local/share/mc-remote/artifacts"
 ```
 
-`--repair-project`は`$HOME/mc-remote-deployments`直下のTOML projectだけを受理する。home directoryや
-deployment root全体を再帰変更しない。
+`--repair-project`は`$HOME/mc-remote-deployments`直下の一つのTOML projectだけを受理する。home directoryや
+deployment collection全体を再帰変更しない。
+`--repair-artifact-store`は既定のexact artifact storeだけを受理し、別のhome pathや任意の
+system directoryを再帰変更しない。どちらも通常操作ではなく、過去のroot実行を一度回収する修復入口である。
 
 ## 4. checkout と運用者環境の自己検証
 
@@ -176,6 +180,12 @@ fi
 
 共有groupで複数管理者に書込みを与える運用は、この個人管理者baselineへ暗黙追加しない。
 artifact storeの公開artifact bytesは`0755/0644`、local secret storeは`0700/0600`の別境界とする。
+
+public betaのcomposition canonicalizationで現在hostから取り込んだ周辺pluginとhomepageは、同じ
+artifact storeの`sha256/<file digest>`と`trees/sha256/<tree digest>`へ保存される。これらのlocal bytesに
+HTTPS配布元がまだ無い場合、別hostでの再構築にはorder／lockだけでなくartifact store全体の保全・移送が必要で
+ある。canonical化は実効Composeを一つへしたという意味であり、第三者向け配布元が確立した意味ではない。
+artifact storeをbackup対象から外したままhostを失えば、そのplugin／homepage bytesはlockだけから復元できない。
 
 exact subject `home-server@4` + `mcremote-paper@1`は、認証強制込みのlive evidenceが着地するまで
 unverifiedである。理由付きacknowledgementをorderへ記録し、生成前にplanをreviewする。
