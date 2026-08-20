@@ -20,8 +20,11 @@ The project is intentionally separate from:
 - [Catering-type validation roadmap (Japanese)](docs/catering-type-validation-roadmap_ja.md)
 - [Fresh-host bootstrap (Japanese)](docs/fresh-host-bootstrap-guide_ja.md)
 - [Public VPS bootstrap (Japanese)](docs/public-vps-bootstrap-guide_ja.md):
-  `vps-server@6` b3 discovery, exact multi-service plan/apply, public doctor,
-  existing-host cutover, and the remaining readiness phases
+  current two-command same-volume updates first, followed by new-host bootstrap,
+  historical b2/b3/b4 rescue transactions, public doctor, and remaining readiness phases
+- [Deployment operator workflow redesign (Japanese)](docs/deployment-operator-workflow-design_ja.md):
+  operator environment, code-first recovery value, release-independent durable update plans,
+  live Compose provenance capture, limited rollback, and the 15-minute human-operation SLO
 - [Home private alpha validation (Japanese)](docs/home-alpha-validation-guide_ja.md)
 - [Wake-on-LAN optional operation field note (Japanese)](docs/wake-on-lan-field-note_ja.md):
   why WoL matters for semi-always-on servers without becoming a hardware requirement, plus directed-broadcast,
@@ -216,6 +219,15 @@ Scratch runtime config, and serves the verified ZIP plus detached manifest from 
 Caddy docroot on that distinct origin. This surface provides only the Scratch cross-origin
 MessageChannel handoff; it does not add a public station, source ingress, or Minecraft control
 endpoint.
+
+For a running deployment in the same profile/preset family, use
+`mcrctl deployment update plan` followed by `mcrctl deployment update apply`. The plan
+fetches exact HTTPS artifacts before downtime, derives additional Compose inputs from live
+container provenance, and keeps stateful volume identities unchanged. The apply command accepts
+only the reviewed plan ID, runs the target doctor, and restores the source order/lock/render and
+containers if target startup or verification fails. It does not claim to restore world mutations,
+sessions, pairing, or connections. Release-specific `migration public-b3/public-b4` commands are
+history-bound rescue paths, not templates for future releases.
 
 `minecraft-stable` and `minecraft-beta` belong to separate Compose profiles, so an ordinary `docker compose up` starts neither Minecraft channel. On a 6 GB VPS, do not run stable and beta together. Use the generated exclusive switch operations, which announce the change, run `save-all flush`, stop gracefully, check the standard ports, and restore the previous instance on failure:
 

@@ -36,6 +36,12 @@ from .backup import (
     ready_outbox_archives,
     transfer_archive,
 )
+from .deployment_update import (
+    DeploymentUpdateContractError,
+    apply_deployment_update,
+    load_deployment_update_plan,
+    plan_deployment_update,
+)
 from .doctor import DoctorContractError, doctor_toml_project
 from .operator_environment import (
     OperatorEnvironmentError,
@@ -90,6 +96,7 @@ def _print_structured_failure(
         | ApplyContractError
         | AuthMigrationContractError
         | DoctorContractError
+        | DeploymentUpdateContractError
         | OperatorEnvironmentError
         | OperatorInputError
         | PresetDataError
@@ -704,6 +711,132 @@ def _cmd_apply(args: argparse.Namespace) -> int:
     )
     if args.allow_unverified:
         print("WARN live bootstrap used the one-shot unverified acknowledgement")
+    return 0
+
+
+def _deployment_update_input_overrides(
+    values: list[str],
+) -> dict[tuple[str, str], str]:
+    result: dict[tuple[str, str], str] = {}
+    for value in values:
+        logical, separator, scalar = value.partition("=")
+        role, dot, key = logical.partition(".")
+        identity = (role, key)
+        if (
+            not separator
+            or not dot
+            or not role
+            or not key
+            or not scalar
+            or identity in result
+        ):
+            raise DeploymentUpdateContractError(
+                "update_input_override_invalid",
+                value,
+                "use one unique ROLE.KEY=VALUE string per typed operator input",
+            )
+        result[identity] = scalar
+    return result
+
+
+def _cmd_deployment_update_plan(args: argparse.Namespace) -> int:
+    project = Path(args.project)
+    output = Path(args.output) if args.output else project / "generated"
+    try:
+        check_operator_environment(
+            project,
+            docker_context=args.docker_context,
+        )
+        overrides = _deployment_update_input_overrides(args.set_input)
+        plan = plan_deployment_update(
+            project,
+            output,
+            target_profile=args.to_profile,
+            target_preset=args.to_preset,
+            input_overrides=overrides,
+            docker_context=args.docker_context,
+            data_root=_preset_data_root(),
+            allow_unverified=args.allow_unverified,
+            allow_eol=args.allow_eol,
+        )
+    except (
+        ArtifactFetchError,
+        DeploymentUpdateContractError,
+        DoctorContractError,
+        OperatorEnvironmentError,
+        PresetDataError,
+        ProjectOrderError,
+        RenderContractError,
+        ResolutionError,
+    ) as exc:
+        return _print_structured_failure("deployment update plan", exc)
+    except OSError as exc:
+        print(f"FAIL deployment update plan: {exc}")
+        return 2
+    print(
+        f"PLAN deployment-update id={plan.plan_id} deployment={plan.deployment} "
+        f"environment={plan.environment} context={plan.docker_context}"
+    )
+    print(
+        f"PLAN release={plan.source_profile}/{plan.source_preset}"
+        f"->{plan.target_profile}/{plan.target_preset}"
+    )
+    print(
+        f"PLAN lock={plan.source_lock_identity}->{plan.target_lock_identity} "
+        "stateful-volumes=in-place"
+    )
+    print(
+        f"PLAN live-compose=auto-discovered "
+        f"additional-files={len(plan.preserved_compose_files)}"
+    )
+    print(
+        "PLAN failure-policy=restore-source-projection; "
+        "world/session/pairing-state-not-rolled-back"
+    )
+    print(
+        f"NEXT mcrctl deployment update apply --project {plan.project_root} "
+        f"--plan-id {plan.plan_id} --yes"
+    )
+    return 0
+
+
+def _cmd_deployment_update_apply(args: argparse.Namespace) -> int:
+    try:
+        project = Path(args.project)
+        plan = load_deployment_update_plan(project, args.plan_id)
+        check_operator_environment(
+            project,
+            docker_context=plan.docker_context,
+        )
+        result = apply_deployment_update(
+            project,
+            plan_id=args.plan_id,
+            confirmed=args.yes,
+            data_root=_preset_data_root(),
+            wait_timeout=args.wait_timeout,
+            progress=lambda step: print(
+                f"PROGRESS deployment-update step={step}",
+                flush=True,
+            ),
+        )
+    except (
+        DeploymentUpdateContractError,
+        DoctorContractError,
+        OperatorEnvironmentError,
+        PresetDataError,
+        ProjectOrderError,
+        RenderContractError,
+        ResolutionError,
+    ) as exc:
+        return _print_structured_failure("deployment update apply", exc)
+    except OSError as exc:
+        print(f"FAIL deployment update apply: {exc}")
+        return 2
+    print(
+        f"OK deployment-update status={result.status} plan={result.plan_id} "
+        f"source-lock={result.source_lock_identity} "
+        f"target-lock={result.target_lock_identity} phase={result.phase}"
+    )
     return 0
 
 
@@ -1659,6 +1792,45 @@ def build_parser() -> argparse.ArgumentParser:
     apply_parser.add_argument("--allow-eol", action="store_true")
     apply_parser.add_argument("--wait-timeout", type=int, default=300)
     apply_parser.set_defaults(handler=_cmd_apply)
+
+    deployment_parser = subparsers.add_parser(
+        "deployment",
+        help="release-independent deployment lifecycle operations",
+    )
+    deployment_subparsers = deployment_parser.add_subparsers(
+        dest="deployment_command",
+        required=True,
+    )
+    deployment_update_parser = deployment_subparsers.add_parser(
+        "update",
+        help="prepare or apply one same-volume release update",
+    )
+    deployment_update_subparsers = deployment_update_parser.add_subparsers(
+        dest="deployment_update_command",
+        required=True,
+    )
+    deployment_update_plan_parser = deployment_update_subparsers.add_parser(
+        "plan",
+        help="prepare an exact update from live provenance",
+    )
+    deployment_update_plan_parser.add_argument("--project", required=True)
+    deployment_update_plan_parser.add_argument("--output")
+    deployment_update_plan_parser.add_argument("--docker-context", default="default")
+    deployment_update_plan_parser.add_argument("--to-profile", required=True)
+    deployment_update_plan_parser.add_argument("--to-preset", required=True)
+    deployment_update_plan_parser.add_argument("--set-input", action="append", default=[])
+    deployment_update_plan_parser.add_argument("--allow-unverified", action="store_true")
+    deployment_update_plan_parser.add_argument("--allow-eol", action="store_true")
+    deployment_update_plan_parser.set_defaults(handler=_cmd_deployment_update_plan)
+    deployment_update_apply_parser = deployment_update_subparsers.add_parser(
+        "apply",
+        help="apply or retry one exact durable update plan",
+    )
+    deployment_update_apply_parser.add_argument("--project", required=True)
+    deployment_update_apply_parser.add_argument("--plan-id", required=True)
+    deployment_update_apply_parser.add_argument("--wait-timeout", type=int, default=300)
+    deployment_update_apply_parser.add_argument("--yes", action="store_true")
+    deployment_update_apply_parser.set_defaults(handler=_cmd_deployment_update_apply)
 
     migration_parser = subparsers.add_parser(
         "migration",

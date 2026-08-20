@@ -4,7 +4,7 @@
 operator transactionへ移す。これは既存`public-b3`／`public-b4`実装を一般化したと主張する文書ではない。
 今後の通常経路、移行順、合格条件を固定し、未実装部分を明示する。
 
-- 状態: operator environment基盤を実装。汎用update transactionは設計確定・実装待ち
+- 状態: operator environment基盤とsame-volume汎用update transactionの第1sliceを実装
 - Stack側根拠: b2〜b4のpublic beta実施で発生したtool不足、root所有化、artifact／Compose
   provenance／credential／runtime config／WireScope routeの逐次手戻り
 - 利用者価値の錨: knowledge `2026-08-18-01`
@@ -64,12 +64,13 @@ world保存やlong-lived credential継続が必要なenvironmentは、明示し�
 ```text
 mcrctl deployment update plan \
   --project <project> \
-  --target <profile>/<preset> \
+  --to-profile <profile@revision> \
+  --to-preset <preset@revision> \
   --docker-context default
 
 mcrctl deployment update apply \
   --project <project> \
-  --plan <generated-plan-id> \
+  --plan-id <generated-plan-id> \
   --yes
 ```
 
@@ -95,9 +96,11 @@ planはmutation前に次を可能な限り一巡し、単発の最初のエラ�
 - profileが要求する場合だけDNS／TLS／外部HTTP readiness
 - rollbackに必要な旧order、lock、render、artifactの存在
 
-artifact fetchやoperator input修正はplanの内部で黙って行わない。`NEXT` actionを機械可読に列挙し、
-不足を解消したら同じplan commandを再実行する。runtime停止後に初めてartifact欠落やroute欠落を発見する
-経路を合格させない。
+exact HTTPS artifactのcontent-addressed store取得は、planの明示progressとして停止前に行う。
+operator inputは`--set-input ROLE.KEY=VALUE`でcandidateだけへ型付き変更し、target adapterとschemaを
+resolve時に検証する。live orderへ黙って書かず、apply時にreview済みcandidateをまとめてpublishする。
+その他の不足は`NEXT` actionを機械可読に列挙し、同じplan commandを再実行する。runtime停止後に初めて
+artifact欠落やroute欠落を発見する経路を合格させない。
 
 ## 6. applyとrollback
 
@@ -157,11 +160,11 @@ public betaの通常更新は次を運用SLOとする。
 
 ## 10. 実装順
 
-1. operator bootstrap／check、root実行拒否（本slice）
-2. public betaのrecovery plugin／homepage canonicalization
-3. generic deployment planとblocker aggregation
-4. in-place apply／doctor／限定rollback
-5. `public-bN` commandをhistory-onlyへ凍結し、public runbookを通常入口中心に再編集
+1. operator bootstrap／check、root実行拒否（完了）
+2. generic same-volume plan／apply、live Compose自動snapshot、doctor、限定rollback（第1slice完了）
+3. public runbookを通常入口中心に再編集し、`public-bN`をhistory-only表記（完了）
+4. public betaのrecovery plugin／homepage canonicalization
+5. blocker集約、credential health、DNS／TLS claimをprofile policyで追加
 6. home alpha／betaとcatering hostへ同じtransactionを投影
 
-generic updateが実装されるまで、既存release固有migrationを新release用にコピーしてはならない。
+既存release固有migrationを新release用にコピーしてはならない。
