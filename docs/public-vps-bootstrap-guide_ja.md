@@ -30,6 +30,30 @@ MinecraftとMcRemoteのpublic betaを構築する。provider、実IP、個人名
 - backup / restore、upgrade、既存world import、stable / beta排他切替
 - 一般化した任意version間のin-place migration（b2→b3とb3→b4だけを個別に許可する）
 
+### 運用者環境はdeploymentの一部
+
+このguideでは、個人管理者を信頼されたdeployment operatorとして明示的に構成する。
+Python／uv／Docker／Composeの不足やDocker socket権限を、作業中の代替commandや
+`mcrctl`全体のroot実行で回避しない。[`fresh host bootstrap`](fresh-host-bootstrap-guide_ja.md)の
+`tools/bootstrap-ubuntu-operator.sh`で必要toolと直接Docker accessを準備する。
+
+既存projectでは、live stateを触る前に次をPASSさせる。
+
+```sh
+MC_REMOTE_STACK="$HOME/mc-remote-stack"
+MC_REMOTE_PROJECT="$HOME/mc-remote-deployments/official-public-beta"
+MC_REMOTE_OUTPUT="$MC_REMOTE_PROJECT/generated"
+
+"$MC_REMOTE_STACK/.venv/bin/mcrctl" operator check \
+  --project "$MC_REMOTE_PROJECT" \
+  --docker-context default
+```
+
+project order、lock、generated、migration stateは同じ非root operatorが所有する。`docker group`は
+root相当の権限であるため、この個人管理者だけへ明示的に与える。agent userや一般利用者へは与えない。
+CLI全体をsudo実行せず、Docker操作だけをdirect socket accessで行う。開始gateの正典command名は
+`mcrctl operator check`であり、checkout外からは上記のexact executable pathで呼ぶ。
+
 ### 現行b2 VPSの停止境界
 
 `official-public-beta`の現行観測は`vps-server@5` / `public-web-paper@1`相当のb2で、
@@ -37,7 +61,7 @@ recovery用の追加Composeと旧generated treeを使っている。新規host�
 `vps-server@6` / `public-web-paper@2`が解決・renderできることは、そのlive runtimeを
 上書きしてよい根拠にならない。
 
-b2からb3への更新に`--bootstrap`を使わない。先に人間のinteractive sudo checkpointで
+b2からb3への更新に`--bootstrap`を使わない。先に運用者のdirect Docker accessで
 live Docker inspect / doctorを取得し、現行のCompose file列、working directory、volume、
 plugin / config mountを確定する。専用transactionは新しい3 volumeへsource bytesをcopyし、
 review済みrecovery ComposeをSHA-256でsnapshotしたうえでb3を起動する。
@@ -52,13 +76,13 @@ AUTH_CONFIG_ROOT="$HOME/.config/mc-remote/runtime/official-public-beta/minecraft
 現行Minecraft containerをexactly oneまで絞り、Dockerが記録したCompose provenanceを確認する。
 
 ```sh
-sudo docker ps \
+docker ps \
   --filter "label=com.docker.compose.project=official-public-beta" \
   --filter "label=com.docker.compose.service=minecraft" \
   --format '{{.ID}}'
 
 SOURCE_MINECRAFT_CONTAINER="<上で確認したexactly oneのcontainer ID>"
-sudo docker inspect \
+docker inspect \
   --format '{{ index .Config.Labels "com.docker.compose.project.config_files" }}' \
   "$SOURCE_MINECRAFT_CONTAINER"
 ```
@@ -72,7 +96,7 @@ inspect結果が異なる場合は推測せず、そのruntimeを起動したrev
 SOURCE_RECOVERY_COMPOSE="$MC_REMOTE_PROJECT/.mcrctl/migrations/auth-enforcement/preserved-compose/00-compose.recovery-plugins.yaml"
 SOURCE_HOMEPAGE_COMPOSE="$MC_REMOTE_PROJECT/.mcrctl/migrations/auth-enforcement/preserved-compose/01-compose.homepage.yaml"
 
-sudo "$MC_REMOTE_STACK/.venv/bin/mcrctl" migration public-b3 plan \
+"$MC_REMOTE_STACK/.venv/bin/mcrctl" migration public-b3 plan \
   --project "$MC_REMOTE_PROJECT" \
   --output "$MC_REMOTE_OUTPUT" \
   --docker-context default \
@@ -92,7 +116,7 @@ REVIEWED_SOURCE_LOCK="sha256:<planで確認したsource>"
 REVIEWED_TARGET_LOCK="sha256:<planで確認したtarget>"
 REVIEWED_COMPOSITION="sha256:<planで確認したpreserved-composition>"
 
-sudo "$MC_REMOTE_STACK/.venv/bin/mcrctl" migration public-b3 apply \
+"$MC_REMOTE_STACK/.venv/bin/mcrctl" migration public-b3 apply \
   --project "$MC_REMOTE_PROJECT" \
   --output "$MC_REMOTE_OUTPUT" \
   --docker-context default \
@@ -147,9 +171,9 @@ command -v python3
 command -v uv
 command -v docker
 sudo -v
-sudo docker version
-sudo docker compose version
-sudo docker context inspect default
+docker version
+docker compose version
+docker context inspect default
 sudo ss -lntup
 sudo systemctl --failed
 ```
@@ -356,7 +380,7 @@ TARGET_CADDY_DATA="official-public-beta-auth-caddy-data"
 TARGET_CADDY_CONFIG="official-public-beta-auth-caddy-config"
 AUTH_CONFIG_ROOT="$HOME/.config/mc-remote/runtime/official-public-beta/minecraft"
 
-sudo "$MC_REMOTE_STACK/.venv/bin/mcrctl" migration auth-enforcement plan \
+"$MC_REMOTE_STACK/.venv/bin/mcrctl" migration auth-enforcement plan \
   --project "$MC_REMOTE_PROJECT" \
   --output "$MC_REMOTE_PROJECT/generated" \
   --docker-context default \
@@ -394,7 +418,7 @@ REVIEWED_SOURCE_LOCK="sha256:<planで確認したsource 64-hex>"
 REVIEWED_TARGET_LOCK="sha256:<planで確認したtarget 64-hex>"
 REVIEWED_PRESERVED_COMPOSITION="sha256:<planで確認したpreserved-composition 64-hex>"
 
-sudo "$MC_REMOTE_STACK/.venv/bin/mcrctl" migration auth-enforcement apply \
+"$MC_REMOTE_STACK/.venv/bin/mcrctl" migration auth-enforcement apply \
   --project "$MC_REMOTE_PROJECT" \
   --output "$MC_REMOTE_PROJECT/generated" \
   --docker-context default \
@@ -491,7 +515,7 @@ B4_MC_VOLUME="official-public-beta-b4-minecraft-data"
 B4_CADDY_DATA="official-public-beta-b4-caddy-data"
 B4_CADDY_CONFIG="official-public-beta-b4-caddy-config"
 
-sudo "$MC_REMOTE_STACK/.venv/bin/mcrctl" migration public-b4 plan \
+"$MC_REMOTE_STACK/.venv/bin/mcrctl" migration public-b4 plan \
   --project "$MC_REMOTE_PROJECT" \
   --output "$MC_REMOTE_OUTPUT" \
   --docker-context default \
@@ -515,16 +539,16 @@ planのsource / target lock、3 volume、preserved compositionをreviewしてapp
 
 ## 9. bootstrap apply
 
-管理者がrootful Dockerを直接使えないbaselineでは、人間がreview済みcheckoutとprojectを
-exact pathで指定してsudo実行する。agentが書込み可能なcheckout、venv、generated outputを
-sudoで実行しない。
+applyを含む全`mcrctl` commandは、projectを所有する同じ非root operatorで実行する。
+Docker accessがなければapplyへ進まず、運用者bootstrapを修復する。checkout、venv、order、lock、
+generated、transaction stateのownerをcommandごとに変えない。
 
 ```sh
 MC_REMOTE_STACK="$HOME/mc-remote-stack"
 MC_REMOTE_PROJECT="$HOME/mc-remote-deployments/official-public-beta"
 REVIEWED_LOCK_IDENTITY="sha256:<planで確認した64-hex>"
 
-sudo "$MC_REMOTE_STACK/.venv/bin/mcrctl" apply \
+"$MC_REMOTE_STACK/.venv/bin/mcrctl" apply \
   --project "$MC_REMOTE_PROJECT" \
   --output "$MC_REMOTE_PROJECT/generated" \
   --expected-lock-identity "$REVIEWED_LOCK_IDENTITY" \
@@ -551,7 +575,7 @@ container環境値をprogressへ混ぜない。失敗detailはstderr（空なら
 対象host上のread-only doctor:
 
 ```sh
-sudo "$MC_REMOTE_STACK/.venv/bin/mcrctl" doctor \
+"$MC_REMOTE_STACK/.venv/bin/mcrctl" doctor \
   --project "$MC_REMOTE_PROJECT" \
   --output "$MC_REMOTE_PROJECT/generated" \
   --docker-context default

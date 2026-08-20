@@ -72,38 +72,48 @@ $1=="pubkeyauthentication" {
 ことを確認する。reload 後も別 terminal で SSH と `sudo -v` を再確認する。失敗した sessionを
 唯一の管理経路にしない。
 
-## 3. host と toolchain の preflight
+## 3. 運用者環境を構築する
 
-最低限、次を確認する。
-
-```bash
-command -v git
-command -v python3
-python3 --version
-if ! command -v uv >/dev/null 2>&1 && [ -x "$HOME/.local/bin/uv" ]; then
-  export PATH="$HOME/.local/bin:$PATH"
-fi
-command -v uv
-command -v docker
-docker context inspect default
-docker --context default version
-docker --context default compose version
-```
-
-- Python は `3.11` 以上。
-- 初回applyは対象host上のlocal Unix socket Docker contextだけを受理する。
-- Docker Engine / Compose v2の導入方法、OS package、firewallはdistribution、provider、
-  選択profileに合わせて確認する。`mcrctl apply`は自動installしない。
-- port を旧 runbook から一括で開けない。公開 port と到達範囲は、生成する topology と認証境界を確認して決める。
-- token、password、秘密鍵を clone や deployment project に置かない。
-- Docker socketへのwrite accessはhost root相当の権限境界として扱い、個人管理者userへ限定する。
-
-## 4. package の取得と自己検証
+足りないcommandごとに代替手順へ分岐しない。このrepoのUbuntu用bootstrapを、運用者環境の
+唯一の入口にする。最初はread-only checkを実行する。
 
 ```bash
 git clone https://github.com/Naohiro2g/mc-remote-stack.git
 cd mc-remote-stack
-uv sync --extra dev
+tools/bootstrap-ubuntu-operator.sh --check
+```
+
+不足が報告された場合は、同じscriptへ明示的なinstall権限を与える。
+
+```bash
+tools/bootstrap-ubuntu-operator.sh --install
+```
+
+scriptはUbuntuのsupport対象versionだけを受理し、`ca-certificates`、`curl`、`git`、固定versionの
+`uv`、Python 3.11、Docker Engine、Compose 2.33.1以上を準備する。Dockerが未導入の場合は
+Docker公式APT repositoryを使う。既存Dockerを未知の配布元から暗黙置換しない。
+
+この個人管理者はdeploymentを行う**信頼された運用者**であり、既にsudo管理者である。毎回
+`mcrctl`全体をsudo経由で実行する代わりに、明示的な承認のもとで`docker` groupへ追加する。Docker公式文書が
+警告する通り、このgroupはroot相当の権限を持つ。agent専用userや一般利用者を追加してはならない。
+group追加後はlogout/loginし、`--check`を再実行する。`mcrctl`のroot実行は使用せず、CLIも拒否する。
+
+過去の`mcrctl` root実行で一つのprojectがroot所有になった場合だけ、対象をexact pathで限定して修復する。
+
+```bash
+tools/bootstrap-ubuntu-operator.sh --install \
+  --repair-project "$HOME/mc-remote-deployments/<deployment>"
+```
+
+`--repair-project`は`$HOME/mc-remote-deployments`直下のTOML projectだけを受理する。home directoryや
+deployment root全体を再帰変更しない。
+
+## 4. checkout と運用者環境の自己検証
+
+bootstrapはcheckout内の`.venv`も構築する。loginし直した後、次を一巡する。
+
+```bash
+tools/bootstrap-ubuntu-operator.sh --check
 uv run pytest
 uv run ruff check .
 uv run mcrctl --help
@@ -137,6 +147,7 @@ uv run mcrctl init "$MC_REMOTE_PROJECT" \
 uv run mcrctl validate --project "$MC_REMOTE_PROJECT"
 uv run mcrctl repo check --project "$MC_REMOTE_PROJECT"
 uv run mcrctl accept-eula --project "$MC_REMOTE_PROJECT" --yes
+uv run mcrctl operator check --project "$MC_REMOTE_PROJECT"
 ```
 
 directory名からaxisやidentityを推測しない。`home-alpha`は同じfileへ追加せず、後から別project、

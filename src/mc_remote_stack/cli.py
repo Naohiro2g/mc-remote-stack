@@ -4,6 +4,7 @@ import argparse
 import ftplib
 import getpass
 import json
+import os
 import zipfile
 from importlib.resources import files
 from pathlib import Path
@@ -36,6 +37,10 @@ from .backup import (
     transfer_archive,
 )
 from .doctor import DoctorContractError, doctor_toml_project
+from .operator_environment import (
+    OperatorEnvironmentError,
+    check_operator_environment,
+)
 from .operator_inputs import OperatorInputError, resolve_operator_inputs
 from .preset_registry import (
     PresetDataError,
@@ -85,6 +90,7 @@ def _print_structured_failure(
         | ApplyContractError
         | AuthMigrationContractError
         | DoctorContractError
+        | OperatorEnvironmentError
         | OperatorInputError
         | PresetDataError
         | ProjectOrderError
@@ -454,6 +460,26 @@ def _cmd_secret_list(args: argparse.Namespace) -> int:
 
 def _cmd_repo_check(args: argparse.Namespace) -> int:
     return _print_issues(check_repository(Path(args.project)))
+
+
+def _cmd_operator_check(args: argparse.Namespace) -> int:
+    try:
+        result = check_operator_environment(
+            Path(args.project),
+            docker_context=args.docker_context,
+        )
+    except OperatorEnvironmentError as exc:
+        return _print_structured_failure("operator check", exc)
+    print(
+        f"OK operator status={result.status} user={result.operator} uid={result.uid} "
+        f"project={result.project_root}"
+    )
+    print(
+        f"OK operator toolchain=ready python={result.python_version} "
+        f"docker={result.docker_version} compose={result.compose_version}"
+    )
+    print(f"OK operator docker-context={result.docker_context} access=direct")
+    return 0
 
 
 def _artifact_identity(artifact: dict) -> str:
@@ -1594,6 +1620,22 @@ def build_parser() -> argparse.ArgumentParser:
     check_parser.add_argument("--project", required=True)
     check_parser.set_defaults(handler=_cmd_repo_check)
 
+    operator_parser = subparsers.add_parser(
+        "operator",
+        help="prepare and verify the trusted deployment operator environment",
+    )
+    operator_subparsers = operator_parser.add_subparsers(
+        dest="operator_command",
+        required=True,
+    )
+    operator_check_parser = operator_subparsers.add_parser(
+        "check",
+        help="verify tools, direct Docker access, and project ownership",
+    )
+    operator_check_parser.add_argument("--project", required=True)
+    operator_check_parser.add_argument("--docker-context", default="default")
+    operator_check_parser.set_defaults(handler=_cmd_operator_check)
+
     plan_parser = subparsers.add_parser("plan", help="show deployment intent and blockers")
     plan_parser.add_argument("--project", required=True)
     plan_parser.set_defaults(handler=_cmd_plan)
@@ -1882,4 +1924,14 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    project_argument = getattr(args, "project", None)
+    if project_argument is None and args.command == "init":
+        project_argument = args.path
+    if project_argument is not None and os.geteuid() == 0:
+        return _print_reason_failure(
+            getattr(args, "operator_command", None) or "mcrctl",
+            "operator_root_forbidden",
+            Path(project_argument).resolve(),
+            "run mcrctl as the project-owning operator; never use sudo mcrctl",
+        )
     return args.handler(args)
