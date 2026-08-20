@@ -6,6 +6,7 @@ import getpass
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tomllib
@@ -112,6 +113,19 @@ def _parse_version(value: str, *, path: str) -> tuple[int, int, int]:
     if match is None:
         _fail("operator_tool_version_invalid", path, f"cannot parse version from {value!r}")
     return tuple(int(match.group(name)) for name in ("major", "minor", "patch"))
+
+
+def _uv_version_command() -> list[str]:
+    if shutil.which("uv") is not None:
+        return ["uv", "--version"]
+    bootstrap_uv = Path.home() / ".local/bin/uv"
+    if bootstrap_uv.is_file() and os.access(bootstrap_uv, os.X_OK):
+        return [str(bootstrap_uv), "--version"]
+    _fail(
+        "operator_tool_missing",
+        "operator.uv",
+        "required command 'uv' is not installed; run the operator bootstrap",
+    )
 
 
 def _validate_project_tree(project: Path, uid: int) -> None:
@@ -261,7 +275,7 @@ def check_operator_environment(
         path="operator.git",
     )
     uv = _one_line(
-        _run_tool(runner, ["uv", "--version"], path="operator.uv"),
+        _run_tool(runner, _uv_version_command(), path="operator.uv"),
         path="operator.uv",
     )
     context = _run_tool(
