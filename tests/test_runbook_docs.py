@@ -86,6 +86,8 @@ def test_public_vps_runbook_canonicalizes_live_overlays_before_normal_updates() 
 
     assert "mcrctl\" deployment composition plan" in current
     assert "--to-profile vps-server@10" in current
+    assert "--to-preset public-web-paper@4" in current
+    assert "public-routes.wirescope=wirescope-beta.mc-remote.com" in current
     assert "mcrctl\" deployment composition apply" in current
     assert "--plan-id \"$REVIEWED_COMPOSITION_PLAN\"" in current
     assert current.index("deployment composition plan") < current.index(

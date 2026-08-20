@@ -40,6 +40,11 @@ runtime compositionをcanonical化する。`plan`はlive Minecraft containerのC
 review済みの形に一致する周辺plugin、homepage tree、backup bindだけを型付き入力へ変換する。人間は
 container ID、Compose path、個別plugin SHA、homepage pathを転記しない。
 
+現行の`vps-server@8`／`public-web-paper@3`は、旧`public-routes@1`とhomepage overlayを同時に持つ。
+routeだけを先に更新すると旧overlayが新Caddyfileを隠し、compositionだけを先に行うと新profileが要求する
+WireScope routeをまだ入力できない。そのため、profile／preset更新、WireScope route追加、overlayの型付き
+入力化を次の一つのplanで収束させる。途中状態を手編集で作らない。
+
 ```sh
 MC_REMOTE_STACK="$HOME/mc-remote-stack"
 MC_REMOTE_PROJECT="$HOME/mc-remote-deployments/official-public-beta"
@@ -52,10 +57,13 @@ MC_REMOTE_PROJECT="$HOME/mc-remote-deployments/official-public-beta"
 "$MC_REMOTE_STACK/.venv/bin/mcrctl" deployment composition plan \
   --project "$MC_REMOTE_PROJECT" \
   --docker-context default \
-  --to-profile vps-server@10
+  --to-profile vps-server@10 \
+  --to-preset public-web-paper@4 \
+  --set-input public-routes.wirescope=wirescope-beta.mc-remote.com
 ```
 
-planは周辺plugin JARをcontent-addressed storeへ取り込み、homepageを決定論的なtree inventoryで固定する。
+planはb4 coreを保ったWireScope同梱presetへ進め、周辺plugin JARをcontent-addressed storeへ取り込み、
+homepageを決定論的なtree inventoryで固定する。
 既存のwritable backup pathもtyped inputへ記録する。一方、`/plugins`全体mount、別McRemote JAR、未知の
 service／mount、canonical renderと異なる外部config、既知templateでないCaddyfileはfail closedで拒否する。
 recovery directory内のstaleなMcRemote JARは周辺pluginとして採用しない。

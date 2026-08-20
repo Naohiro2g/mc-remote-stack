@@ -855,10 +855,13 @@ def _cmd_deployment_composition_plan(args: argparse.Namespace) -> int:
     output = Path(args.output) if args.output else project / "generated"
     try:
         check_operator_environment(project, docker_context=args.docker_context)
+        overrides = _deployment_update_input_overrides(args.set_input)
         result = plan_canonical_composition(
             project,
             output,
             target_profile=args.to_profile,
+            target_preset=args.to_preset,
+            input_overrides=overrides,
             docker_context=args.docker_context,
             data_root=_preset_data_root(),
         )
@@ -885,7 +888,7 @@ def _cmd_deployment_composition_plan(args: argparse.Namespace) -> int:
     )
     print(
         f"PLAN profile={plan.source_profile}->{plan.target_profile} "
-        f"preset={plan.source_preset}"
+        f"preset={plan.source_preset}->{plan.target_preset}"
     )
     print(
         f"PLAN adopt plugins={result.plugin_count} "
@@ -1955,6 +1958,10 @@ def build_parser() -> argparse.ArgumentParser:
     deployment_composition_plan_parser.add_argument(
         "--to-profile",
         default="vps-server@10",
+    )
+    deployment_composition_plan_parser.add_argument("--to-preset", required=True)
+    deployment_composition_plan_parser.add_argument(
+        "--set-input", action="append", default=[]
     )
     deployment_composition_plan_parser.set_defaults(
         handler=_cmd_deployment_composition_plan
