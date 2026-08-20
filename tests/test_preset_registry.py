@@ -1015,3 +1015,32 @@ def test_bundled_public_b4_profile_and_preset_are_exact_session_only() -> None:
     assert artifacts["mcremote-jar"]["sha256"] == (
         "331633ef15a729658496e89fe49cb8a5eb5ebcb2ec86937b7e5313528d7ec997"
     )
+
+
+def test_bundled_public_b4_wirescope_profile_pins_two_file_contract() -> None:
+    profile = load_profile("vps-server@9")
+    preset = load_preset("public-web-paper@4")
+
+    assert profile.data["renderer"] == {"name": "compose", "revision": "11"}
+    assert "wirescope-browser" in profile.data["capabilities"]["provided"]
+    assert {
+        item["id"]: item for item in profile.data["operator_input_roles"]
+    }["public-routes"] == {
+        "id": "public-routes",
+        "adapter": "public-routes@2",
+        "required": True,
+    }
+    artifacts = {item["id"]: item for item in preset.data["artifacts"]}
+    assert artifacts["wirescope-zip"]["sha256"] == (
+        "1a56617c78c283332f1afe3bdd3797ab37f0cdc3455c86c73c926c751721657f"
+    )
+    assert artifacts["wirescope-manifest"]["sha256"] == (
+        "f3ec11496b595bbca4ba27a6e938a1149336eb5a2da55e742d60e1681cf4d154"
+    )
+    assert artifacts["wirescope-zip"]["origin"].endswith(
+        "/wirescope-app-v2100.0.0b4/wirescope-app.zip"
+    )
+    assert artifacts["wirescope-manifest"]["origin"].endswith(
+        "/wirescope-app-v2100.0.0b4/wirescope-app.manifest.json"
+    )
+    verify_preset_catalog()

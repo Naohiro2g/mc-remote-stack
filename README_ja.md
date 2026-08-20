@@ -208,6 +208,13 @@ deploymentには使わず、bootstrap applyも受理しない。
 hash-onlyで保存する。通常restartは越えるが、world交換時の認証継続やpublic long-lived credentialは保証しない。
 既存b3は`mcrctl migration public-b4`で新volumeへ移し、credential bootstrapとhealthは人間が明示確認する。
 
+公開b4へWireScope browser surfaceを追加するappend-only targetは`vps-server@9` /
+`public-web-paper@4`である。`public-routes@2`はbetaの
+`wirescope-beta.mc-remote.com`を必須にし、Scratch runtimeへ
+`wirescope_url`を投影する。Caddyはexact ZIPとdetached manifestを照合・展開したread-only
+docrootを別originで配信する。これはScratchのcross-origin MessageChannel handoffだけを提供し、
+public station、source ingress、Minecraft control endpointを追加しない。
+
 `minecraft-dev`にはComposeの`staging` profileが付くため、通常の`docker compose up`では起動しない。6GB VPSではprod/devを同時起動せず、生成された排他切替scriptを使う。scriptは1分前から告知し、`save-all flush`、graceful stop、接続確認を行い、失敗時は元のinstanceへ戻す。
 
 ```sh

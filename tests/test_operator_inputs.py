@@ -7,6 +7,7 @@ from mc_remote_stack.operator_inputs import (
     OperatorInputError,
     _parse_connection_targets,
     _parse_minecraft_server,
+    _parse_public_routes_v2,
 )
 from mc_remote_stack.preset_registry import semantic_sha256
 from mc_remote_stack.resolver import (
@@ -374,6 +375,36 @@ def test_connection_targets_adapter_fails_closed(
         _parse_connection_targets(tmp_path / "targets.toml", content)
 
     assert exc_info.value.reason == reason
+
+
+def test_public_routes_v2_requires_distinct_wirescope_hostname(tmp_path: Path) -> None:
+    source = b'''homepage = "mc-remote.example"
+homepage_aliases = ["www.mc-remote.example"]
+scratch = "scratch-beta.mc-remote.example"
+bridge = "bridge-beta.mc-remote.example"
+minecraft = "sb-beta.mc-remote.example"
+wirescope = "wirescope-beta.mc-remote.example"
+'''
+
+    assert _parse_public_routes_v2(tmp_path / "routes.toml", source) == {
+        "homepage": "mc-remote.example",
+        "homepage_aliases": ["www.mc-remote.example"],
+        "scratch": "scratch-beta.mc-remote.example",
+        "bridge": "bridge-beta.mc-remote.example",
+        "minecraft": "sb-beta.mc-remote.example",
+        "wirescope": "wirescope-beta.mc-remote.example",
+    }
+
+    with pytest.raises(OperatorInputError) as exc_info:
+        _parse_public_routes_v2(
+            tmp_path / "routes.toml",
+            source.replace(
+                b'wirescope = "wirescope-beta.mc-remote.example"',
+                b'wirescope = "scratch-beta.mc-remote.example"',
+            ),
+        )
+
+    assert exc_info.value.reason == "operator_input_parse_failed"
 
 
 def test_cli_validate_runs_operator_adapter_before_lock_exists(

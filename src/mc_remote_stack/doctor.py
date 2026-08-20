@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import socket
@@ -28,6 +29,7 @@ from .runtime_artifacts import (
 
 MAX_HELLO_BYTES = 64 * 1024
 MAX_SCRATCH_RUNTIME_BYTES = 64 * 1024
+MAX_WIRESCOPE_INDEX_BYTES = 1024 * 1024
 MCREMOTE_B2_SHA256 = "ad2674fa93645cc3c4c0d2b6aa5b37f11a8f9519162f61ac00b8be7122b023c7"
 
 
@@ -81,6 +83,7 @@ class TomlDoctorResult:
     minecraft_version: str | None
     compatibility_status: str
     scratch_runtime_status: str = "not-applicable"
+    wirescope_status: str = "not-applicable"
 
 
 class DoctorContractError(ValueError):
@@ -162,6 +165,78 @@ def probe_scratch_runtime_config(url: str, timeout: int) -> object:
             "doctor_scratch_runtime_invalid",
             url,
             f"Scratch runtime config is not valid UTF-8 JSON: {exc}",
+        )
+
+
+def _public_get(url: str, timeout: int, limit: int) -> tuple[bytes, Any]:
+    request = Request(
+        url,
+        headers={"Accept": "text/html", "User-Agent": "mcrctl-doctor/1"},
+    )
+    try:
+        with urlopen(request, timeout=timeout) as response:
+            source = response.read(limit + 1)
+            headers = response.headers
+    except (HTTPError, URLError, TimeoutError, OSError) as exc:
+        _fail(
+            "doctor_wirescope_unavailable",
+            url,
+            f"cannot fetch the public browser handoff surface: {exc}",
+        )
+    if len(source) > limit:
+        _fail(
+            "doctor_wirescope_invalid",
+            url,
+            "public browser handoff response exceeded the size limit",
+        )
+    return source, headers
+
+
+def probe_wirescope_public_handoff(
+    scratch_url: str,
+    wirescope_url: str,
+    *,
+    expected_index_sha256: str,
+    timeout: int,
+) -> None:
+    """Check the two public origins needed by the Scratch MessageChannel handoff."""
+
+    _scratch_source, scratch_headers = _public_get(
+        scratch_url, timeout, MAX_WIRESCOPE_INDEX_BYTES
+    )
+    if scratch_headers.get("Referrer-Policy") != "strict-origin-when-cross-origin":
+        _fail(
+            "doctor_wirescope_header_mismatch",
+            scratch_url,
+            "Scratch origin must send its exact origin during the selection window",
+        )
+    index_source, wirescope_headers = _public_get(
+        wirescope_url, timeout, MAX_WIRESCOPE_INDEX_BYTES
+    )
+    expected_headers = {
+        "Cross-Origin-Opener-Policy": "unsafe-none",
+        "Referrer-Policy": "no-referrer",
+        "X-Content-Type-Options": "nosniff",
+        "Cache-Control": "no-store",
+        "Content-Security-Policy": (
+            "default-src 'none'; script-src 'self'; style-src 'self'; "
+            "connect-src 'self'; base-uri 'none'; form-action 'none'; "
+            "frame-ancestors 'none'"
+        ),
+    }
+    for name, expected in expected_headers.items():
+        if wirescope_headers.get(name) != expected:
+            _fail(
+                "doctor_wirescope_header_mismatch",
+                f"{wirescope_url}#{name}",
+                "public WireScope response header does not match the locked handoff profile",
+            )
+    actual_sha256 = hashlib.sha256(index_source).hexdigest()
+    if actual_sha256 != expected_index_sha256:
+        _fail(
+            "doctor_wirescope_content_mismatch",
+            wirescope_url,
+            "public WireScope index does not match the current canonical render",
         )
 
 
@@ -542,7 +617,16 @@ def _validate_container(
                 }
             ],
         }
-        if lock["render_plan"]["adapter_revision"] in {"2", "3", "4", "7", "8", "9", "10"}:
+        if lock["render_plan"]["adapter_revision"] in {
+            "2",
+            "3",
+            "4",
+            "7",
+            "8",
+            "9",
+            "10",
+            "11",
+        }:
             expected_ports["19132/udp"] = [
                 {
                     "HostIp": address,
@@ -720,6 +804,7 @@ def doctor_toml_project(
     runner: CommandRunner = _default_runner,
     hello_probe=probe_protocol_hello,
     scratch_runtime_probe=probe_scratch_runtime_config,
+    wirescope_probe=probe_wirescope_public_handoff,
 ) -> TomlDoctorResult:
     """Check one current Compose runtime without mutating host state."""
 
@@ -881,7 +966,8 @@ def doctor_toml_project(
         _validate_volume(volume_record, volume, lock)
 
     scratch_runtime_status = "not-applicable"
-    if lock["render_plan"]["adapter_revision"] in {"9", "10"}:
+    wirescope_status = "not-applicable"
+    if lock["render_plan"]["adapter_revision"] in {"9", "10", "11"}:
         runtime_path = output / "runtime" / "scratch.json"
         try:
             expected_runtime = json.loads(runtime_path.read_text(encoding="utf-8"))
@@ -901,6 +987,30 @@ def doctor_toml_project(
             expected=expected_runtime,
         )
         scratch_runtime_status = "current"
+        if lock["render_plan"]["adapter_revision"] == "11":
+            expected_wirescope_url = f"https://{routes['wirescope']}/"
+            if expected_runtime.get("wirescope_url") != expected_wirescope_url:
+                _fail(
+                    "doctor_wirescope_config_mismatch",
+                    "scratch.runtime.wirescope_url",
+                    "Scratch runtime does not point at the canonical public WireScope origin",
+                )
+            index_path = output / "wirescope" / "index.html"
+            try:
+                expected_index_sha256 = hashlib.sha256(index_path.read_bytes()).hexdigest()
+            except OSError as exc:
+                _fail(
+                    "doctor_wirescope_invalid",
+                    index_path,
+                    f"cannot read canonical WireScope index: {exc}",
+                )
+            wirescope_probe(
+                f"https://{routes['scratch']}/",
+                expected_wirescope_url,
+                expected_index_sha256=expected_index_sha256,
+                timeout=timeout,
+            )
+            wirescope_status = "current"
 
     if lock["render_plan"]["adapter_revision"] == "5":
         _fail(
@@ -949,4 +1059,5 @@ def doctor_toml_project(
         minecraft_version=hello.minecraft_version,
         compatibility_status=lock["compatibility"]["status"],
         scratch_runtime_status=scratch_runtime_status,
+        wirescope_status=wirescope_status,
     )

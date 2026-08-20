@@ -1,3 +1,4 @@
+import hashlib
 import json
 from pathlib import Path
 
@@ -14,6 +15,7 @@ from mc_remote_stack.doctor import (
     doctor_toml_project,
     probe_protocol_hello,
     probe_scratch_runtime_config,
+    probe_wirescope_public_handoff,
     validate_scratch_runtime_config,
 )
 
@@ -353,6 +355,62 @@ def test_doctor_fetches_public_scratch_runtime_without_credentials(
         "https://scratch-beta.example/mc-remote-runtime-config.json"
     )
     assert request.headers.get("Authorization") is None
+
+
+def test_doctor_checks_cross_origin_wirescope_headers_and_exact_index(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    index = b"<!doctype html><title>WireScope</title>\n"
+    responses = iter(
+        [
+            (
+                b"<!doctype html><title>Scratch</title>\n",
+                {"Referrer-Policy": "strict-origin-when-cross-origin"},
+            ),
+            (
+                index,
+                {
+                    "Cross-Origin-Opener-Policy": "unsafe-none",
+                    "Referrer-Policy": "no-referrer",
+                    "Content-Security-Policy": (
+                        "default-src 'none'; script-src 'self'; style-src 'self'; "
+                        "connect-src 'self'; base-uri 'none'; form-action 'none'; "
+                        "frame-ancestors 'none'"
+                    ),
+                    "X-Content-Type-Options": "nosniff",
+                    "Cache-Control": "no-store",
+                },
+            ),
+        ]
+    )
+
+    class Response:
+        def __init__(self, body: bytes, headers: dict[str, str]) -> None:
+            self.body = body
+            self.headers = headers
+
+        def __enter__(self) -> "Response":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def read(self, _size: int) -> bytes:
+            return self.body
+
+    def fake_urlopen(_request: object, timeout: int) -> Response:
+        assert timeout == 5
+        body, headers = next(responses)
+        return Response(body, headers)
+
+    monkeypatch.setattr("mc_remote_stack.doctor.urlopen", fake_urlopen)
+
+    probe_wirescope_public_handoff(
+        "https://scratch-beta.mc-remote.example/",
+        "https://wirescope-beta.mc-remote.example/",
+        expected_index_sha256=hashlib.sha256(index).hexdigest(),
+        timeout=5,
+    )
 
 
 def test_doctor_checks_mounts_then_requires_credential_health_projection(
