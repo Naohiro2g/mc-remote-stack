@@ -222,7 +222,7 @@ def _locked_public_routes(lock: dict[str, Any]) -> dict[str, Any]:
     return semantic
 
 
-def _locked_connection_targets(lock: dict[str, Any]) -> list[dict[str, str]] | None:
+def _locked_connection_input(lock: dict[str, Any]) -> dict[str, Any] | None:
     operator_inputs = lock["operator_inputs"]
     if operator_inputs != lock["render_plan"]["operator_inputs"]:
         _render_fail(
@@ -242,7 +242,7 @@ def _locked_connection_targets(lock: dict[str, Any]) -> list[dict[str, str]] | N
     operator_input = matches[0]
     semantic = operator_input["semantic"]
     if (
-        operator_input["adapter"] != "connection-targets@1"
+        operator_input["adapter"] not in {"connection-targets@1", "connection-targets@2"}
         or operator_input["path"] != "operator/connection-targets/targets.toml"
         or operator_input["semantic_sha256"] != semantic_sha256(semantic)
     ):
@@ -251,7 +251,28 @@ def _locked_connection_targets(lock: dict[str, Any]) -> list[dict[str, str]] | N
             "operator_inputs.connection-targets",
             "locked connection-targets adapter identity or semantic digest is invalid",
         )
-    return semantic["targets"]
+    expected_keys = {"targets"}
+    if operator_input["adapter"] == "connection-targets@2":
+        expected_keys.add("notices")
+    if set(semantic) != expected_keys:
+        _render_fail(
+            "render_plan_invalid",
+            "operator_inputs.connection-targets.semantic",
+            "locked connection targets do not contain the exact adapter keys",
+        )
+    return semantic
+
+
+def _locked_connection_targets(lock: dict[str, Any]) -> list[dict[str, str]] | None:
+    value = _locked_connection_input(lock)
+    return None if value is None else value["targets"]
+
+
+def _locked_connection_notices(lock: dict[str, Any]) -> list[dict[str, Any]]:
+    if "operator_inputs" not in lock:
+        return []
+    value = _locked_connection_input(lock)
+    return [] if value is None else value.get("notices", [])
 
 
 def _locked_minecraft_server(lock: dict[str, Any]) -> dict[str, Any]:
@@ -947,7 +968,7 @@ def _compose_v9(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str]]:
             f"{runtime_path}.default_sandbox",
             "default_sandbox must be listed in connection_targets",
         )
-    runtime_config["notices"] = []
+    runtime_config["notices"] = _locked_connection_notices(lock)
     rendered_files[runtime_path] = (
         json.dumps(runtime_config, ensure_ascii=False, indent=2) + "\n"
     )

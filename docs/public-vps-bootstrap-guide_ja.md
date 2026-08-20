@@ -105,6 +105,37 @@ homepage、backupを再現する。失敗時はplanがsnapshotした旧overlay�
 この記録はdeployment経路のsanitizedな実施結果であり、compatibility claimの正式ratifyではない。
 そのためunverified warningを消さず、knowledge側の正式evidenceは別gateとする。
 
+### Scratchお知らせを型付き入力で更新する
+
+`vps-server@11`は`connection-targets@2`を使い、接続先に加えて1件の公開noticeをoperator inputへ
+保持する。Scratch artifactを変えないため、presetは同じ`public-web-paper@4`を維持する。profileとpresetを
+同時に進めるための架空releaseを作らず、profileだけの前進または同じrelease内のnotice変更を通常updateで扱う。
+
+```sh
+NOTICE_HEADING='<review済み見出し>'
+NOTICE_BODY='<review済み本文>'
+NOTICE_HREF='https://<review済み公開URL>/'
+NOTICE_LABEL='<review済みリンク表示>'
+
+"$MC_REMOTE_STACK/.venv/bin/mcrctl" deployment update plan \
+  --project "$MC_REMOTE_PROJECT" \
+  --docker-context default \
+  --to-profile vps-server@11 \
+  --to-preset public-web-paper@4 \
+  --set-input "connection-targets.notice_heading=$NOTICE_HEADING" \
+  --set-input "connection-targets.notice_body=$NOTICE_BODY" \
+  --set-input "connection-targets.notice_href=$NOTICE_HREF" \
+  --set-input "connection-targets.notice_label=$NOTICE_LABEL" \
+  --allow-unverified
+```
+
+noticeは非秘密の見出し、本文、HTTPS URL、link labelをすべて必須とし、runtime JSONやcontainer内を
+手編集しない。同じprofile／presetで文面だけを変える場合も新しいplan IDを作ってapplyする。
+
+notice linkは通常の`target=_blank`リンクであり、Scratch sourceのMessageChannel handoffを実行しない。
+WireScopeの観測を開始する正準入口はScratchブロック画面下部の「WireScopeを開く」である。noticeから
+WireScope appへ直接リンクする場合、遷移先は観測対象待ちになることを文面上で誤認させない。
+
 ### 以後のrelease更新
 
 canonical化後、同じprofile／preset family内でdeployment、world、network、volume identityを変えない更新は

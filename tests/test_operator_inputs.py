@@ -6,6 +6,7 @@ from mc_remote_stack.cli import main
 from mc_remote_stack.operator_inputs import (
     OperatorInputError,
     _parse_connection_targets,
+    _parse_connection_targets_v2,
     _parse_homepage_static,
     _parse_minecraft_backup,
     _parse_minecraft_plugins,
@@ -378,6 +379,67 @@ def test_connection_targets_adapter_fails_closed(
         _parse_connection_targets(tmp_path / "targets.toml", content)
 
     assert exc_info.value.reason == reason
+
+
+def test_connection_targets_v2_projects_one_public_notice(tmp_path: Path) -> None:
+    source = b'''notice_heading = "WireScope beta"
+notice_body = "Scratch and Minecraft traffic can now be observed."
+notice_href = "https://wirescope-beta.mc-remote.example/"
+notice_label = "Open WireScope"
+
+[[targets]]
+id = "beta"
+label = "Beta"
+sandbox = "sb-beta.mc-remote.example"
+'''
+
+    assert _parse_connection_targets_v2(tmp_path / "targets.toml", source) == {
+        "targets": [
+            {
+                "id": "beta",
+                "label": "Beta",
+                "sandbox": "sb-beta.mc-remote.example",
+            }
+        ],
+        "notices": [
+            {
+                "heading": "WireScope beta",
+                "body": "Scratch and Minecraft traffic can now be observed.",
+                "link": {
+                    "href": "https://wirescope-beta.mc-remote.example/",
+                    "label": "Open WireScope",
+                },
+            }
+        ],
+    }
+
+
+@pytest.mark.parametrize(
+    "replacement",
+    [
+        b'notice_heading = ""',
+        b'notice_href = "http://wirescope-beta.mc-remote.example/"',
+        b'notice_href = "secret://credential"',
+    ],
+)
+def test_connection_targets_v2_rejects_invalid_public_notice(
+    tmp_path: Path,
+    replacement: bytes,
+) -> None:
+    source = b'''notice_heading = "WireScope beta"
+notice_body = "Observe traffic."
+notice_href = "https://wirescope-beta.mc-remote.example/"
+notice_label = "Open WireScope"
+[[targets]]
+id = "beta"
+label = "Beta"
+sandbox = "sb-beta.mc-remote.example"
+'''
+    key = replacement.partition(b" =")[0]
+    lines = [replacement if line.startswith(key + b" =") else line for line in source.splitlines()]
+
+    with pytest.raises(OperatorInputError):
+        _parse_connection_targets_v2(tmp_path / "targets.toml", b"\n".join(lines) + b"\n")
 
 
 def test_public_routes_v2_requires_distinct_wirescope_hostname(tmp_path: Path) -> None:

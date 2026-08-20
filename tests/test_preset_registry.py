@@ -1067,3 +1067,18 @@ def test_bundled_canonical_public_profile_owns_runtime_composition() -> None:
         "adapter": "minecraft-backup@1",
         "required": True,
     }
+
+
+def test_public_notice_profile_keeps_b4_artifacts_and_requires_typed_notice() -> None:
+    profile = load_profile("vps-server@11")
+    preset = load_preset("public-web-paper@4")
+
+    assert profile.data["renderer"] == {"name": "compose", "revision": "12"}
+    assert {
+        item["id"]: item for item in profile.data["operator_input_roles"]
+    }["connection-targets"] == {
+        "id": "connection-targets",
+        "adapter": "connection-targets@2",
+        "required": True,
+    }
+    assert preset.ref == "public-web-paper@4"

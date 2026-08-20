@@ -7,6 +7,7 @@ import tomllib
 from ipaddress import ip_address
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from .preset_registry import semantic_sha256
 from .toml_project import LoadedOrder
@@ -19,6 +20,7 @@ PUBLIC_ROUTES_PATH = "operator/public-routes/routes.toml"
 MINECRAFT_SERVER_ADAPTER = "minecraft-server@1"
 MINECRAFT_SERVER_PATH = "operator/minecraft-server/server.toml"
 CONNECTION_TARGETS_ADAPTER = "connection-targets@1"
+CONNECTION_TARGETS_V2_ADAPTER = "connection-targets@2"
 CONNECTION_TARGETS_PATH = "operator/connection-targets/targets.toml"
 MINECRAFT_PLUGINS_ADAPTER = "minecraft-plugins@1"
 MINECRAFT_PLUGINS_PATH = "operator/minecraft-plugins/plugins.toml"
@@ -29,6 +31,8 @@ MINECRAFT_BACKUP_PATH = "operator/minecraft-backup/backup.toml"
 MAX_MOTD_SOURCE_BYTES = 4096
 MAX_MOTD_CHARACTERS = 256
 MAX_CONNECTION_TARGETS = 32
+MAX_NOTICE_BODY_CHARACTERS = 512
+MAX_NOTICE_HREF_CHARACTERS = 2048
 MAX_MINECRAFT_PLUGINS = 64
 MAX_LABEL_CHARACTERS = 64
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
@@ -40,6 +44,7 @@ SUPPORTED_ADAPTERS = frozenset(
         PUBLIC_ROUTES_ADAPTER,
         PUBLIC_ROUTES_V2_ADAPTER,
         CONNECTION_TARGETS_ADAPTER,
+        CONNECTION_TARGETS_V2_ADAPTER,
         MINECRAFT_PLUGINS_ADAPTER,
         HOMEPAGE_STATIC_ADAPTER,
         MINECRAFT_BACKUP_ADAPTER,
@@ -50,6 +55,15 @@ PUBLIC_ROUTE_KEYS = frozenset(
 )
 PUBLIC_ROUTE_V2_KEYS = PUBLIC_ROUTE_KEYS | {"wirescope"}
 CONNECTION_TARGET_KEYS = frozenset({"id", "label", "sandbox"})
+CONNECTION_TARGET_V2_KEYS = frozenset(
+    {
+        "targets",
+        "notice_heading",
+        "notice_body",
+        "notice_href",
+        "notice_label",
+    }
+)
 CONNECTION_TARGET_ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
 DNS_NAME = re.compile(
     r"^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+"
@@ -388,12 +402,12 @@ def _connection_target_label(path: Path, index: int, value: object) -> str:
         _fail(
             "operator_input_secret_forbidden",
             path,
-            "connection-targets@1 is a public display field and has no secret injection point",
+            "connection-targets is a public display field and has no secret injection point",
         )
     return value
 
 
-def _parse_connection_targets(path: Path, source: bytes) -> dict[str, Any]:
+def _connection_targets_document(path: Path, source: bytes) -> dict[str, Any]:
     if source.startswith(b"\xef\xbb\xbf"):
         _fail("operator_input_encoding_invalid", path, "UTF-8 BOM is forbidden")
     try:
@@ -402,13 +416,10 @@ def _parse_connection_targets(path: Path, source: bytes) -> dict[str, Any]:
         _fail("operator_input_encoding_invalid", path, str(exc))
     except tomllib.TOMLDecodeError as exc:
         _fail("operator_input_parse_failed", path, str(exc))
-    if set(value) != {"targets"}:
-        _fail(
-            "operator_input_parse_failed",
-            path,
-            "connection-targets@1 requires exactly the targets key",
-        )
-    targets = value["targets"]
+    return value
+
+
+def _connection_targets_semantic(path: Path, targets: object) -> list[dict[str, str]]:
     if not isinstance(targets, list) or not targets or len(targets) > MAX_CONNECTION_TARGETS:
         _fail(
             "operator_input_parse_failed",
@@ -442,7 +453,107 @@ def _parse_connection_targets(path: Path, source: bytes) -> dict[str, Any]:
             path,
             "connection target sandbox hostnames must be unique",
         )
-    return {"targets": semantic_targets}
+    return semantic_targets
+
+
+def _parse_connection_targets(path: Path, source: bytes) -> dict[str, Any]:
+    value = _connection_targets_document(path, source)
+    if set(value) != {"targets"}:
+        _fail(
+            "operator_input_parse_failed",
+            path,
+            "connection-targets@1 requires exactly the targets key",
+        )
+    return {"targets": _connection_targets_semantic(path, value["targets"])}
+
+
+def _notice_text(
+    path: Path,
+    key: str,
+    value: object,
+    *,
+    maximum: int,
+) -> str:
+    if (
+        not isinstance(value, str)
+        or not value.strip()
+        or value != value.strip()
+        or len(value) > maximum
+        or any(ord(character) < 0x20 or ord(character) == 0x7F for character in value)
+    ):
+        _fail(
+            "operator_input_parse_failed",
+            path,
+            f"{key} must contain 1 through {maximum} safe characters without outer whitespace",
+        )
+    if "secret://" in value.casefold() or "${" in value:
+        _fail(
+            "operator_input_secret_forbidden",
+            path,
+            "connection-targets@2 notice fields are public and have no secret injection point",
+        )
+    return value
+
+
+def _notice_href(path: Path, value: object) -> str:
+    href = _notice_text(
+        path,
+        "notice_href",
+        value,
+        maximum=MAX_NOTICE_HREF_CHARACTERS,
+    )
+    parsed = urlsplit(href)
+    if (
+        parsed.scheme != "https"
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.fragment
+    ):
+        _fail(
+            "operator_input_parse_failed",
+            path,
+            "notice_href must be one absolute HTTPS URL without credentials or fragment",
+        )
+    return href
+
+
+def _parse_connection_targets_v2(path: Path, source: bytes) -> dict[str, Any]:
+    value = _connection_targets_document(path, source)
+    if set(value) != CONNECTION_TARGET_V2_KEYS:
+        _fail(
+            "operator_input_parse_failed",
+            path,
+            "connection-targets@2 requires targets and the four notice fields",
+        )
+    return {
+        "targets": _connection_targets_semantic(path, value["targets"]),
+        "notices": [
+            {
+                "heading": _notice_text(
+                    path,
+                    "notice_heading",
+                    value["notice_heading"],
+                    maximum=MAX_LABEL_CHARACTERS,
+                ),
+                "body": _notice_text(
+                    path,
+                    "notice_body",
+                    value["notice_body"],
+                    maximum=MAX_NOTICE_BODY_CHARACTERS,
+                ),
+                "link": {
+                    "href": _notice_href(path, value["notice_href"]),
+                    "label": _notice_text(
+                        path,
+                        "notice_label",
+                        value["notice_label"],
+                        maximum=MAX_LABEL_CHARACTERS,
+                    ),
+                },
+            }
+        ],
+    }
 
 
 def _parse_toml_document(path: Path, source: bytes) -> dict[str, Any]:
@@ -625,6 +736,14 @@ def _parse_adapter(adapter: str, path: Path, relative_path: str) -> dict[str, An
                 f"{adapter} requires exact path {CONNECTION_TARGETS_PATH}",
             )
         return _parse_connection_targets(path, _read_source(path))
+    if adapter == CONNECTION_TARGETS_V2_ADAPTER:
+        if relative_path != CONNECTION_TARGETS_PATH:
+            _fail(
+                "operator_input_path_invalid",
+                path,
+                f"{adapter} requires exact path {CONNECTION_TARGETS_PATH}",
+            )
+        return _parse_connection_targets_v2(path, _read_source(path))
     if adapter == MINECRAFT_PLUGINS_ADAPTER:
         if relative_path != MINECRAFT_PLUGINS_PATH:
             _fail(
