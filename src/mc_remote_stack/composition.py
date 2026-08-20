@@ -23,6 +23,7 @@ from .deployment_update import (
     DeploymentUpdatePlan,
     DeploymentUpdateResult,
     _acquire_transaction_lock,
+    _adapt_candidate_order,
     _copy_project_source,
     _DockerUpdateHost,
     _ensure_no_active_transaction,
@@ -33,6 +34,7 @@ from .deployment_update import (
     _release_transaction_lock,
     _snapshot_paths,
     _updates_root,
+    _validate_in_place_transition,
     apply_deployment_update,
     load_deployment_update_plan,
 )
@@ -42,7 +44,7 @@ from .render import render_toml_project, verify_toml_render_output
 from .resolver import load_lock, resolve_project
 from .runtime_artifacts import expected_mcremote_mount
 from .runtime_content import HomepageTree, import_homepage_tree, import_runtime_file
-from .toml_project import load_order, update_order_scalar
+from .toml_project import load_order
 
 
 class CompositionContractError(ValueError):
@@ -192,11 +194,14 @@ def _public_routes(lock: dict[str, Any]) -> dict[str, Any]:
         for item in lock.get("operator_inputs", [])
         if item.get("role") == "public-routes"
     ]
-    if len(matches) != 1 or matches[0].get("adapter") != "public-routes@2":
+    if len(matches) != 1 or matches[0].get("adapter") not in {
+        "public-routes@1",
+        "public-routes@2",
+    }:
         _fail(
             "composition_source_lock_invalid",
             "operator_inputs.public-routes",
-            "canonicalization requires one public-routes@2 input",
+            "canonicalization requires one recognized public-routes input",
         )
     return matches[0]["semantic"]
 
@@ -457,11 +462,13 @@ def _prepare_composition_candidate(
     destination: Path,
     *,
     target_profile: str,
+    target_preset: str,
+    input_overrides: dict[tuple[str, str], str],
+    data_root: Traversable,
     composition: OverlayComposition,
     homepage: HomepageTree,
 ) -> None:
     _copy_project_source(project_root.resolve(), destination, output)
-    update_order_scalar(destination, ("deployment", "profile"), target_profile)
     order_path = destination / "mc-remote.toml"
     document = tomlkit.parse(order_path.read_text(encoding="utf-8"))
     _add_operator_input(
@@ -495,6 +502,13 @@ def _prepare_composition_candidate(
         destination / "operator/minecraft-backup/backup.toml",
         _backup_toml(composition.backup_path),
     )
+    _adapt_candidate_order(
+        destination,
+        target_profile=target_profile,
+        target_preset=target_preset,
+        input_overrides=input_overrides,
+        data_root=data_root,
+    )
     load_order(destination)
 
 
@@ -502,44 +516,16 @@ def _validate_composition_transition(
     source: dict[str, Any],
     target: dict[str, Any],
 ) -> None:
-    immutable = (
-        "deployment",
-        "environment",
-        "runtime",
-        "world",
-        "network",
-        "agreements",
-        "secret_references",
-        "components",
-        "artifacts",
+    additions = frozenset(
+        {"minecraft-plugins", "homepage-static", "minecraft-backup"}
     )
-    if any(source.get(key) != target.get(key) for key in immutable):
-        _fail(
-            "composition_transition_changed_release",
-            "deployment.composition",
-            "canonicalization must not change release, stateful identity, network, or artifacts",
-        )
-    if source["input"]["preset"] != target["input"]["preset"]:
-        _fail(
-            "composition_transition_changed_release",
-            "input.preset",
-            "canonicalization keeps the exact release preset",
-        )
-    source_profile = source["input"]["profile"]["ref"]
+    _validate_in_place_transition(
+        source,
+        target,
+        allowed_operator_input_additions=additions,
+        allow_renderer_adapter_change=True,
+    )
     target_profile = target["input"]["profile"]["ref"]
-    source_family, _, source_revision = source_profile.partition("@")
-    target_family, _, target_revision = target_profile.partition("@")
-    if (
-        source_family != target_family
-        or not source_revision.isdigit()
-        or not target_revision.isdigit()
-        or int(target_revision) <= int(source_revision)
-    ):
-        _fail(
-            "composition_profile_invalid",
-            target_profile,
-            "target must advance the same profile family",
-        )
     controls = set(target["render_plan"]["required_security_controls"])
     if not {
         "exact-peripheral-plugin-set",
@@ -553,11 +539,7 @@ def _validate_composition_transition(
         )
     source_roles = {item["role"] for item in source["operator_inputs"]}
     target_roles = {item["role"] for item in target["operator_inputs"]}
-    if target_roles != source_roles | {
-        "minecraft-plugins",
-        "homepage-static",
-        "minecraft-backup",
-    }:
+    if target_roles != source_roles | additions:
         _fail(
             "composition_operator_inputs_invalid",
             "operator_inputs",
@@ -648,6 +630,8 @@ def _plan_canonical_composition_locked(
     output: Path,
     *,
     target_profile: str,
+    target_preset: str,
+    input_overrides: dict[tuple[str, str], str],
     docker_context: str,
     data_root: Traversable,
     host: CompositionPlanHost | None = None,
@@ -707,6 +691,9 @@ def _plan_canonical_composition_locked(
             output,
             candidate,
             target_profile=target_profile,
+            target_preset=target_preset,
+            input_overrides=input_overrides,
+            data_root=data_root,
             composition=composition,
             homepage=homepage,
         )
@@ -754,6 +741,8 @@ def plan_canonical_composition(
     output: Path,
     *,
     target_profile: str,
+    target_preset: str,
+    input_overrides: dict[tuple[str, str], str],
     docker_context: str,
     data_root: Traversable,
     host: CompositionPlanHost | None = None,
@@ -768,6 +757,8 @@ def plan_canonical_composition(
             project_root,
             output,
             target_profile=target_profile,
+            target_preset=target_preset,
+            input_overrides=input_overrides,
             docker_context=docker_context,
             data_root=data_root,
             host=host,

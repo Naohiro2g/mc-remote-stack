@@ -141,13 +141,19 @@ provenance復元作業を除去する。
 ```text
 mcrctl deployment composition plan \
   --project <project> \
-  --to-profile vps-server@10
+  --to-profile vps-server@10 \
+  --to-preset public-web-paper@4 \
+  --set-input public-routes.wirescope=wirescope-beta.mc-remote.com
 
 mcrctl deployment composition apply \
   --project <project> \
   --plan-id <generated-plan-id> \
   --yes
 ```
+
+現行public betaでは、旧route adapter、WireScope同梱releaseへの前進、overlay canonicalizationを一つの
+candidateへ投影する。旧homepage overlayが新Caddyfileを隠すため、通常updateとcanonicalizationを別々の
+中間状態として実行しない。
 
 `plan`はlive containerのCompose provenanceを自動取得し、既知の形だけを型へ変換する。周辺plugin JARは
 filenameとSHA-256を持つ`minecraft-plugins@1`、homepage treeは決定論的inventory digestを持つ

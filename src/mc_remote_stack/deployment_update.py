@@ -232,6 +232,26 @@ def _update_operator_input_scalar(
     _atomic_replace(path, tomlkit.dumps(document).encode("utf-8"))
 
 
+def _adapt_candidate_order(
+    destination: Path,
+    *,
+    target_profile: str,
+    target_preset: str,
+    input_overrides: dict[tuple[str, str], str],
+    data_root: Traversable,
+) -> None:
+    """Project release identities and typed-input adapters into one candidate."""
+
+    update_order_scalar(destination, ("deployment", "profile"), target_profile)
+    update_order_scalar(destination, ("environment", "preset"), target_preset)
+    profile = load_profile(target_profile, data_root=data_root)
+    for required in profile.data.get("operator_input_roles", []):
+        _update_operator_adapter(destination, required["id"], required["adapter"])
+    for (role, key), value in sorted(input_overrides.items()):
+        _update_operator_input_scalar(destination, role, key, value)
+    load_order(destination)
+
+
 def _prepare_candidate_order(
     project_root: Path,
     output: Path,
@@ -245,14 +265,13 @@ def _prepare_candidate_order(
     """Create a lossless candidate order and adapt its typed-input identities."""
 
     _copy_project_source(project_root.resolve(), destination, output)
-    update_order_scalar(destination, ("deployment", "profile"), target_profile)
-    update_order_scalar(destination, ("environment", "preset"), target_preset)
-    profile = load_profile(target_profile, data_root=data_root)
-    for required in profile.data.get("operator_input_roles", []):
-        _update_operator_adapter(destination, required["id"], required["adapter"])
-    for (role, key), value in sorted(input_overrides.items()):
-        _update_operator_input_scalar(destination, role, key, value)
-    load_order(destination)
+    _adapt_candidate_order(
+        destination,
+        target_profile=target_profile,
+        target_preset=target_preset,
+        input_overrides=input_overrides,
+        data_root=data_root,
+    )
 
 
 def _family(ref: str) -> str:
@@ -277,6 +296,9 @@ def _volume_map(lock: dict[str, Any]) -> dict[str, str]:
 def _validate_in_place_transition(
     source: dict[str, Any],
     target: dict[str, Any],
+    *,
+    allowed_operator_input_additions: frozenset[str] = frozenset(),
+    allow_renderer_adapter_change: bool = False,
 ) -> None:
     """Allow release projection changes while protecting stateful identities."""
 
@@ -331,29 +353,37 @@ def _validate_in_place_transition(
     target_inputs = {
         item["role"]: item["path"] for item in target.get("operator_inputs", [])
     }
-    if source_inputs != target_inputs:
+    added_inputs = set(target_inputs) - set(source_inputs)
+    retained_inputs = {
+        role: path for role, path in target_inputs.items() if role in source_inputs
+    }
+    if (
+        retained_inputs != source_inputs
+        or added_inputs != set(allowed_operator_input_additions)
+    ):
         _fail(
             "update_operator_input_shape_changed",
             "operator_inputs",
-            "first generic update slice requires the same typed-input roles and paths",
+            "release projection changed typed-input roles or retained paths outside "
+            "the reviewed allowance",
         )
     source_render = source["render_plan"]
     target_render = target["render_plan"]
-    source_projection = (
-        source_render["adapter"],
+    if (
         source_render["services"],
         source_render["volume_roles"],
-    )
-    target_projection = (
-        target_render["adapter"],
+    ) != (
         target_render["services"],
         target_render["volume_roles"],
-    )
-    if source_projection != target_projection:
+    ) or (
+        not allow_renderer_adapter_change
+        and source_render["adapter"] != target_render["adapter"]
+    ):
         _fail(
             "update_runtime_shape_changed",
             "render_plan",
-            "first generic update slice requires the same adapter, services, and volume roles",
+            "release projection changed services, volume roles, or the renderer "
+            "outside the reviewed allowance",
         )
     source_controls = set(source_render["required_security_controls"])
     target_controls = set(target_render["required_security_controls"])

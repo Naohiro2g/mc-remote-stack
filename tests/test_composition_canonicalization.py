@@ -1,9 +1,11 @@
 import hashlib
 import inspect
+from importlib.resources import files
 from pathlib import Path
 
 import pytest
 
+from mc_remote_stack.cli import build_parser
 from mc_remote_stack.composition import (
     CompositionContractError,
     DiscoveredPlugin,
@@ -11,6 +13,7 @@ from mc_remote_stack.composition import (
     _inspect_overlay_composition,
     _plan_canonical_composition_locked,
     _prepare_composition_candidate,
+    _validate_composition_transition,
 )
 from mc_remote_stack.deployment_update import _plan_deployment_update_locked
 from mc_remote_stack.runtime_content import import_homepage_tree
@@ -22,7 +25,7 @@ def test_transaction_prepare_cleanup_never_uses_an_absolute_path_sentinel() -> N
         _plan_deployment_update_locked,
         _plan_canonical_composition_locked,
     ):
-        assert '/__moved__' not in inspect.getsource(function)
+        assert "/__moved__" not in inspect.getsource(function)
 
 
 def _source_lock(tmp_path: Path) -> dict:
@@ -162,6 +165,25 @@ def test_overlay_inspection_recognizes_the_exact_public_runtime_composition(
     assert inspected.external_config_path == tmp_path / "runtime-config"
 
 
+def test_overlay_inspection_accepts_the_pre_wirescope_public_route_input(
+    tmp_path: Path,
+) -> None:
+    generated, plugin_overlay, homepage_overlay = _write_realistic_overlays(tmp_path)
+    source_lock = _source_lock(tmp_path)
+    routes = source_lock["operator_inputs"][0]
+    routes["adapter"] = "public-routes@1"
+    routes["semantic"].pop("wirescope")
+
+    inspected = _inspect_overlay_composition(
+        (plugin_overlay, homepage_overlay),
+        source_output=generated,
+        source_lock=source_lock,
+    )
+
+    assert len(inspected.plugins) == 1
+    assert inspected.homepage_source.name == "a" * 64
+
+
 def test_overlay_inspection_rejects_unknown_service_mutation(tmp_path: Path) -> None:
     generated, plugin_overlay, homepage_overlay = _write_realistic_overlays(tmp_path)
     plugin_overlay.write_text(
@@ -219,18 +241,18 @@ def test_overlay_inspection_rejects_external_config_drift(tmp_path: Path) -> Non
     assert exc_info.value.reason == "composition_external_config_drift"
 
 
-def test_composition_candidate_adds_only_typed_inputs_and_keeps_release(
+def test_composition_candidate_converges_release_routes_and_typed_inputs(
     tmp_path: Path,
 ) -> None:
     source = init_toml_project(
         tmp_path / "deployment",
         deployment_name="official-public-beta",
-        profile="vps-server@9",
+        profile="vps-server@8",
         environment_identity="official-public-beta",
         channel="beta",
         exposure="public",
         purpose="integration",
-        preset="public-web-paper@4",
+        preset="public-web-paper@3",
         artifact_store=str(tmp_path / "artifacts"),
         runtime_volumes={
             "caddy-config": "caddy-config",
@@ -243,6 +265,50 @@ def test_composition_candidate_adds_only_typed_inputs_and_keeps_release(
         mcremote_port=25575,
         minecraft_eula=True,
     ).root
+    with (source / "mc-remote.toml").open("a", encoding="utf-8") as stream:
+        stream.write(
+            '''
+[[operator_inputs]]
+role = "public-routes"
+adapter = "public-routes@1"
+path = "operator/public-routes/routes.toml"
+
+[[operator_inputs]]
+role = "minecraft-server"
+adapter = "minecraft-server@1"
+path = "operator/minecraft-server/server.toml"
+
+[[operator_inputs]]
+role = "connection-targets"
+adapter = "connection-targets@1"
+path = "operator/connection-targets/targets.toml"
+'''
+        )
+    routes = source / "operator/public-routes/routes.toml"
+    routes.parent.mkdir(parents=True)
+    routes.write_text(
+        '''homepage = "mc-remote.com"
+homepage_aliases = ["www.mc-remote.com"]
+scratch = "scratch-beta.mc-remote.com"
+bridge = "bridge-beta.mc-remote.com"
+minecraft = "sb-beta.mc-remote.com"
+''',
+        encoding="utf-8",
+    )
+    server = source / "operator/minecraft-server/server.toml"
+    server.parent.mkdir(parents=True)
+    server.write_text('motd = "McRemote Sandbox Server"\n', encoding="utf-8")
+    targets = source / "operator/connection-targets/targets.toml"
+    targets.parent.mkdir(parents=True)
+    targets.write_text(
+        '''default_sandbox = "sb-beta.mc-remote.com"
+[[targets]]
+id = "beta"
+label = "公開ベータ"
+sandbox = "sb-beta.mc-remote.com"
+''',
+        encoding="utf-8",
+    )
     output = source / "generated"
     output.mkdir()
     plugin_source = tmp_path / "WorldEdit.jar"
@@ -272,6 +338,11 @@ def test_composition_candidate_adds_only_typed_inputs_and_keeps_release(
         output,
         candidate,
         target_profile="vps-server@10",
+        target_preset="public-web-paper@4",
+        input_overrides={
+            ("public-routes", "wirescope"): "wirescope-beta.mc-remote.com"
+        },
+        data_root=files("mc_remote_stack").joinpath("data"),
         composition=composition,
         homepage=homepage,
     )
@@ -279,11 +350,128 @@ def test_composition_candidate_adds_only_typed_inputs_and_keeps_release(
     order = load_order(candidate).order
     assert order["deployment"]["profile"] == "vps-server@10"
     assert order["environment"]["preset"] == "public-web-paper@4"
-    roles = {item["role"] for item in order["operator_inputs"]}
-    assert roles == {"minecraft-plugins", "homepage-static", "minecraft-backup"}
+    inputs = {item["role"]: item for item in order["operator_inputs"]}
+    assert set(inputs) == {
+        "public-routes",
+        "minecraft-server",
+        "connection-targets",
+        "minecraft-plugins",
+        "homepage-static",
+        "minecraft-backup",
+    }
+    assert inputs["public-routes"]["adapter"] == "public-routes@2"
+    assert "wirescope-beta.mc-remote.com" in (
+        candidate / "operator/public-routes/routes.toml"
+    ).read_text(encoding="utf-8")
     assert "WorldEdit.jar" in (
         candidate / "operator/minecraft-plugins/plugins.toml"
     ).read_text(encoding="utf-8")
     assert str(backup) in (
         candidate / "operator/minecraft-backup/backup.toml"
     ).read_text(encoding="utf-8")
+
+
+def _composition_transition_lock(*, target: bool) -> dict:
+    lock = {
+        "deployment": {"name": "official-public-beta"},
+        "environment": {
+            "identity": "official-public-beta",
+            "channel": "beta",
+            "exposure": "public",
+            "purpose": "integration",
+        },
+        "input": {
+            "profile": {"ref": "vps-server@10" if target else "vps-server@8"},
+            "preset": {
+                "ref": "public-web-paper@4" if target else "public-web-paper@3"
+            },
+        },
+        "runtime": {
+            "artifact_store": "/artifacts",
+            "volumes": [
+                {"role": "caddy-config", "identity": "caddy-config"},
+                {"role": "caddy-data", "identity": "caddy-data"},
+                {"role": "minecraft-data", "identity": "minecraft-data"},
+            ],
+        },
+        "world": {"identity": "official-public-beta-world"},
+        "network": {
+            "bind_address": "0.0.0.0",
+            "java_port": 25565,
+            "mcremote_port": 25575,
+        },
+        "agreements": {"minecraft_eula": True},
+        "secret_references": [],
+        "render_plan": {
+            "adapter": "compose@12" if target else "compose@10",
+            "services": ["caddy", "scratch", "bridge", "minecraft"],
+            "volume_roles": ["caddy-config", "caddy-data", "minecraft-data"],
+            "required_security_controls": ["online-mode"],
+        },
+        "operator_inputs": [
+            {"role": "public-routes", "path": "operator/public-routes/routes.toml"},
+            {
+                "role": "minecraft-server",
+                "path": "operator/minecraft-server/server.toml",
+            },
+            {
+                "role": "connection-targets",
+                "path": "operator/connection-targets/targets.toml",
+            },
+        ],
+    }
+    if target:
+        lock["render_plan"]["required_security_controls"].extend(
+            [
+                "exact-peripheral-plugin-set",
+                "content-addressed-homepage",
+                "explicit-backup-bind",
+            ]
+        )
+        lock["operator_inputs"].extend(
+            [
+                {
+                    "role": "minecraft-plugins",
+                    "path": "operator/minecraft-plugins/plugins.toml",
+                },
+                {
+                    "role": "homepage-static",
+                    "path": "operator/homepage-static/homepage.toml",
+                },
+                {
+                    "role": "minecraft-backup",
+                    "path": "operator/minecraft-backup/backup.toml",
+                },
+            ]
+        )
+    return lock
+
+
+def test_composition_transition_allows_one_reviewed_release_convergence() -> None:
+    _validate_composition_transition(
+        _composition_transition_lock(target=False),
+        _composition_transition_lock(target=True),
+    )
+
+
+def test_composition_cli_accepts_release_and_route_convergence_inputs() -> None:
+    args = build_parser().parse_args(
+        [
+            "deployment",
+            "composition",
+            "plan",
+            "--project",
+            "/deployment",
+            "--to-profile",
+            "vps-server@10",
+            "--to-preset",
+            "public-web-paper@4",
+            "--set-input",
+            "public-routes.wirescope=wirescope-beta.mc-remote.com",
+        ]
+    )
+
+    assert args.to_preset == "public-web-paper@4"
+    assert args.set_input == [
+        "public-routes.wirescope=wirescope-beta.mc-remote.com"
+    ]
