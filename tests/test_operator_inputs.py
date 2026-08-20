@@ -7,6 +7,7 @@ from mc_remote_stack.operator_inputs import (
     OperatorInputError,
     _parse_connection_targets,
     _parse_connection_targets_v2,
+    _parse_connection_targets_v3,
     _parse_homepage_static,
     _parse_minecraft_backup,
     _parse_minecraft_plugins,
@@ -440,6 +441,67 @@ sandbox = "sb-beta.mc-remote.example"
 
     with pytest.raises(OperatorInputError):
         _parse_connection_targets_v2(tmp_path / "targets.toml", b"\n".join(lines) + b"\n")
+
+
+def test_connection_targets_v3_preserves_ordered_public_notice_feed(
+    tmp_path: Path,
+) -> None:
+    source = '''[[targets]]
+id = "beta"
+label = "公開ベータ"
+sandbox = "sb-beta.mc-remote.com"
+
+[[notices]]
+heading = "今後のリリース予定"
+body = "10月RC版、年内に安定版リリース予定です。"
+href = "https://mc-remote.com"
+label = "公式サイトを見る"
+
+[[notices]]
+heading = "WireScope（ワイヤースコープ）ライブ画面"
+body = "ScratchとMinecraftの通信を観察できます。"
+href = "https://wirescope-beta.mc-remote.com/"
+label = "WireScopeを見る"
+'''.encode()
+
+    semantic = _parse_connection_targets_v3(tmp_path / "targets.toml", source)
+
+    assert [notice["heading"] for notice in semantic["notices"]] == [
+        "今後のリリース予定",
+        "WireScope（ワイヤースコープ）ライブ画面",
+    ]
+    assert semantic["notices"][0]["link"] == {
+        "href": "https://mc-remote.com",
+        "label": "公式サイトを見る",
+    }
+
+
+def test_connection_targets_v3_rejects_empty_notice_feed(tmp_path: Path) -> None:
+    source = b'''[[targets]]
+id = "beta"
+label = "Beta"
+sandbox = "sb-beta.mc-remote.com"
+'''
+
+    with pytest.raises(OperatorInputError) as exc_info:
+        _parse_connection_targets_v3(tmp_path / "targets.toml", source)
+
+    assert exc_info.value.reason == "operator_input_parse_failed"
+
+
+def test_bundled_public_beta_notice_feed_is_valid_and_ordered() -> None:
+    source = (
+        Path(__file__).resolve().parents[1]
+        / "examples/operator-inputs/public-beta-connection-targets-b4.toml"
+    )
+
+    semantic = _parse_connection_targets_v3(source, source.read_bytes())
+
+    assert semantic["targets"][0]["sandbox"] == "sb-beta.mc-remote.com"
+    assert [notice["heading"] for notice in semantic["notices"]] == [
+        "今後のリリース予定",
+        "WireScope（ワイヤースコープ）ライブ画面",
+    ]
 
 
 def test_public_routes_v2_requires_distinct_wirescope_hostname(tmp_path: Path) -> None:

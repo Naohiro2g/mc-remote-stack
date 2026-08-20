@@ -1073,7 +1073,7 @@ def doctor_toml_project(
 
     scratch_runtime_status = "not-applicable"
     wirescope_status = "not-applicable"
-    if lock["render_plan"]["adapter_revision"] in {"9", "10", "11"}:
+    if lock["render_plan"]["adapter_revision"] in {"9", "10", "11", "12", "13"}:
         runtime_path = output / "runtime" / "scratch.json"
         try:
             expected_runtime = json.loads(runtime_path.read_text(encoding="utf-8"))
@@ -1093,7 +1093,7 @@ def doctor_toml_project(
             expected=expected_runtime,
         )
         scratch_runtime_status = "current"
-        if lock["render_plan"]["adapter_revision"] == "11":
+        if lock["render_plan"]["adapter_revision"] in {"11", "12", "13"}:
             expected_wirescope_url = f"https://{routes['wirescope']}/"
             if expected_runtime.get("wirescope_url") != expected_wirescope_url:
                 _fail(

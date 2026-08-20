@@ -242,7 +242,8 @@ def _locked_connection_input(lock: dict[str, Any]) -> dict[str, Any] | None:
     operator_input = matches[0]
     semantic = operator_input["semantic"]
     if (
-        operator_input["adapter"] not in {"connection-targets@1", "connection-targets@2"}
+        operator_input["adapter"]
+        not in {"connection-targets@1", "connection-targets@2", "connection-targets@3"}
         or operator_input["path"] != "operator/connection-targets/targets.toml"
         or operator_input["semantic_sha256"] != semantic_sha256(semantic)
     ):
@@ -252,7 +253,7 @@ def _locked_connection_input(lock: dict[str, Any]) -> dict[str, Any] | None:
             "locked connection-targets adapter identity or semantic digest is invalid",
         )
     expected_keys = {"targets"}
-    if operator_input["adapter"] == "connection-targets@2":
+    if operator_input["adapter"] in {"connection-targets@2", "connection-targets@3"}:
         expected_keys.add("notices")
     if set(semantic) != expected_keys:
         _render_fail(
@@ -273,6 +274,25 @@ def _locked_connection_notices(lock: dict[str, Any]) -> list[dict[str, Any]]:
         return []
     value = _locked_connection_input(lock)
     return [] if value is None else value.get("notices", [])
+
+
+def _locked_scratch_release_notice(lock: dict[str, Any]) -> dict[str, Any]:
+    presentation = lock.get("presentation")
+    render_presentation = lock.get("render_plan", {}).get("presentation")
+    if presentation != render_presentation or not isinstance(presentation, dict):
+        _render_fail(
+            "render_plan_invalid",
+            "render_plan.presentation",
+            "preset presentation must exactly match the lock projection",
+        )
+    notice = presentation.get("scratch_release_notice")
+    if not isinstance(notice, dict):
+        _render_fail(
+            "render_plan_invalid",
+            "presentation.scratch_release_notice",
+            "compose@13 requires one preset-owned Scratch release notice",
+        )
+    return notice
 
 
 def _locked_minecraft_server(lock: dict[str, Any]) -> dict[str, Any]:
@@ -1398,6 +1418,36 @@ def _compose_v12(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str]]:
     return compose, rendered_files
 
 
+def _compose_v13(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str]]:
+    compose, rendered_files = _compose_v12(lock)
+    runtime_path = "runtime/scratch.json"
+    try:
+        runtime_config = json.loads(rendered_files[runtime_path])
+        release_notice = _locked_scratch_release_notice(lock)
+    except (KeyError, TypeError, json.JSONDecodeError) as exc:
+        _render_fail(
+            "scratch_runtime_config_invalid",
+            runtime_path,
+            f"compose@13 requires Scratch runtime JSON and one preset release notice: {exc}",
+        )
+    notices = runtime_config.get("notices") if isinstance(runtime_config, dict) else None
+    if not isinstance(notices, list) or not notices:
+        _render_fail(
+            "scratch_runtime_config_invalid",
+            f"{runtime_path}.notices",
+            "compose@13 requires a non-empty operator notice feed",
+        )
+    runtime_config["notices"] = [*notices, release_notice]
+    rendered_files[runtime_path] = (
+        json.dumps(runtime_config, ensure_ascii=False, indent=2) + "\n"
+    )
+    rendered_files = {
+        relative: content.replace("compose@12", "compose@13")
+        for relative, content in rendered_files.items()
+    }
+    return compose, rendered_files
+
+
 def _write_synced(path: Path, content: bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("wb") as stream:
@@ -1752,6 +1802,49 @@ def _stage_compose_v12(lock: dict[str, Any], staging: Path) -> tuple[str, ...]:
     return rendered_paths
 
 
+def _stage_compose_v13(lock: dict[str, Any], staging: Path) -> tuple[str, ...]:
+    compose, rendered_files = _compose_v13(lock)
+    assets, manifest_source = _verified_wirescope_assets(lock)
+    _write_synced(
+        staging / "compose.yaml",
+        yaml.safe_dump(compose, sort_keys=False, allow_unicode=True).encode("utf-8"),
+    )
+    for relative, content in rendered_files.items():
+        _write_synced(staging / PurePosixPath(relative), content.encode("utf-8"))
+    wirescope_paths: list[str] = []
+    for relative, content in assets:
+        output_path = f"wirescope/{relative}"
+        _write_synced(staging / PurePosixPath(output_path), content)
+        wirescope_paths.append(output_path)
+    detached_path = "wirescope/wirescope-app.manifest.json"
+    _write_synced(staging / detached_path, manifest_source)
+    wirescope_paths.append(detached_path)
+    rendered_paths = ("compose.yaml", *rendered_files, *wirescope_paths)
+    manifest = {
+        "schema_version": 1,
+        "adapter": "compose",
+        "adapter_revision": "13",
+        "lock_identity": lock["lock_identity"],
+        "render_plan_sha256": lock["render_plan"]["semantic_sha256"],
+        "files": [
+            {
+                "path": relative,
+                "sha256": _sha256_file(staging / PurePosixPath(relative)),
+            }
+            for relative in rendered_paths
+        ],
+    }
+    _write_synced(
+        staging / "render-manifest.json",
+        (json.dumps(manifest, ensure_ascii=False, indent=2) + "\n").encode("utf-8"),
+    )
+    directories = {staging}
+    directories.update(path.parent for path in staging.rglob("*") if path.is_file())
+    for directory in sorted(directories, key=lambda path: len(path.parts), reverse=True):
+        _fsync_directory(directory)
+    return rendered_paths
+
+
 def _stage_current(lock: dict[str, Any], staging: Path) -> tuple[str, ...]:
     revision = lock["render_plan"]["adapter_revision"]
     if revision == "1":
@@ -1778,6 +1871,8 @@ def _stage_current(lock: dict[str, Any], staging: Path) -> tuple[str, ...]:
         return _stage_compose_v11(lock, staging)
     if revision == "12":
         return _stage_compose_v12(lock, staging)
+    if revision == "13":
+        return _stage_compose_v13(lock, staging)
     _render_fail("unsupported_renderer", "render_plan", f"unsupported renderer: compose@{revision}")
 
 
@@ -1823,7 +1918,7 @@ def _load_managed_manifest(output: Path) -> dict[str, Any] | None:
         }
         or manifest.get("schema_version") != 1
         or manifest.get("adapter") != "compose"
-        or manifest.get("adapter_revision") not in {"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"}
+        or manifest.get("adapter_revision") not in {"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13"}
         or not isinstance(manifest.get("files"), list)
     ):
         _render_fail("render_output_tampered", manifest_path, "managed render manifest shape is invalid")
@@ -1952,7 +2047,22 @@ def _load_current_toml_render_lock(
         lock = load_lock(project_root, data_root=data_root)
     adapter = lock["render_plan"]["adapter"]
     adapter_revision = lock["render_plan"]["adapter_revision"]
-    if adapter != "compose" or adapter_revision not in {"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"}:
+    supported_revisions = {
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9",
+        "10",
+        "11",
+        "12",
+        "13",
+    }
+    if adapter != "compose" or adapter_revision not in supported_revisions:
         _render_fail(
             "unsupported_renderer",
             "render_plan",

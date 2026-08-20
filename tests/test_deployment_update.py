@@ -196,6 +196,75 @@ path = "operator/minecraft-backup/backup.toml"
     assert targets["notice_href"] == "https://wirescope-beta.mc-remote.com/"
 
 
+def test_candidate_order_replaces_whole_typed_input_from_reviewed_file(
+    tmp_path: Path,
+) -> None:
+    source = _public_order(tmp_path)
+    order_path = source / "mc-remote.toml"
+    order_path.write_text(
+        order_path.read_text(encoding="utf-8")
+        + '''
+[[operator_inputs]]
+role = "minecraft-plugins"
+adapter = "minecraft-plugins@1"
+path = "operator/minecraft-plugins/plugins.toml"
+
+[[operator_inputs]]
+role = "homepage-static"
+adapter = "homepage-static@1"
+path = "operator/homepage-static/homepage.toml"
+
+[[operator_inputs]]
+role = "minecraft-backup"
+adapter = "minecraft-backup@1"
+path = "operator/minecraft-backup/backup.toml"
+''',
+        encoding="utf-8",
+    )
+    for relative in (
+        "operator/minecraft-plugins/plugins.toml",
+        "operator/homepage-static/homepage.toml",
+        "operator/minecraft-backup/backup.toml",
+    ):
+        path = source / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("placeholder = true\n", encoding="utf-8")
+    candidate = tmp_path / "candidate"
+    reviewed = tmp_path / "reviewed-targets.toml"
+    reviewed.write_text(
+        '''[[targets]]
+id = "beta"
+label = "公開ベータ"
+sandbox = "sb-beta.mc-remote.com"
+
+[[notices]]
+heading = "今後のリリース予定"
+body = "10月RC版、年内に安定版リリース予定です。"
+href = "https://mc-remote.com"
+label = "公式サイトを見る"
+''',
+        encoding="utf-8",
+    )
+
+    _prepare_candidate_order(
+        source,
+        source / "generated",
+        candidate,
+        target_profile="vps-server@12",
+        target_preset="public-web-paper@5",
+        input_overrides={},
+        input_files={"connection-targets": reviewed},
+        data_root=files("mc_remote_stack").joinpath("data"),
+    )
+
+    order = tomllib.loads((candidate / "mc-remote.toml").read_text(encoding="utf-8"))
+    adapters = {item["role"]: item["adapter"] for item in order["operator_inputs"]}
+    assert adapters["connection-targets"] == "connection-targets@3"
+    assert (
+        candidate / "operator/connection-targets/targets.toml"
+    ).read_bytes() == reviewed.read_bytes()
+
+
 def _transition_lock(*, target: bool = False) -> dict:
     return {
         "deployment": {"name": "official-public-beta"},
@@ -642,6 +711,8 @@ def test_cli_exposes_two_command_update_without_volume_or_compose_path_arguments
                 "public-web-paper@4",
                 "--set-input",
                 "public-routes.wirescope=wirescope-beta.mc-remote.com",
+                "--replace-input",
+                f"connection-targets={tmp_path / 'reviewed-targets.toml'}",
             ]
         )
         == 0
@@ -650,6 +721,9 @@ def test_cli_exposes_two_command_update_without_volume_or_compose_path_arguments
         received["input_overrides"]
         == {("public-routes", "wirescope"): "wirescope-beta.mc-remote.com"}
     )
+    assert received["input_files"] == {
+        "connection-targets": tmp_path / "reviewed-targets.toml"
+    }
     assert (
         main(
             [

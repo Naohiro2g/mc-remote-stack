@@ -977,6 +977,86 @@ def test_compose_v9_projects_typed_public_notice(
     assert json.loads(rendered["runtime/scratch.json"])["notices"] == notices
 
 
+def test_compose_v13_appends_preset_release_notice_after_operator_feed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    operator_notices = [
+        {
+            "heading": "今後のリリース予定",
+            "body": "10月RC版、年内に安定版リリース予定です。",
+            "link": {"href": "https://mc-remote.com", "label": "公式サイトを見る"},
+        },
+        {
+            "heading": "WireScope（ワイヤースコープ）ライブ画面",
+            "body": "ScratchとMinecraftの通信を観察できます。",
+            "link": {
+                "href": "https://wirescope-beta.mc-remote.com/",
+                "label": "WireScopeを見る",
+            },
+        },
+    ]
+    release_notice = {
+        "heading": "マイクラリモコンScratchクライアント ver.2100.0.0b4",
+        "body": "リリース情報は「こちら」。",
+        "link": {
+            "href": "https://github.com/Naohiro2g/scratch-editor/releases#release-v2100.0.0b4",
+            "label": "こちら",
+        },
+    }
+    monkeypatch.setattr(
+        render_module,
+        "_compose_v12",
+        lambda _lock: (
+            {"services": {}},
+            {
+                "runtime/scratch.json": json.dumps(
+                    {"notices": operator_notices}, ensure_ascii=False
+                )
+                + "\n"
+            },
+        ),
+    )
+
+    _compose, rendered = render_module._compose_v13(
+        {
+            "presentation": {"scratch_release_notice": release_notice},
+            "render_plan": {
+                "presentation": {"scratch_release_notice": release_notice}
+            },
+        }
+    )
+
+    assert json.loads(rendered["runtime/scratch.json"])["notices"] == [
+        *operator_notices,
+        release_notice,
+    ]
+
+
+def test_compose_v13_rejects_release_notice_projection_mismatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        render_module,
+        "_compose_v12",
+        lambda _lock: (
+            {"services": {}},
+            {"runtime/scratch.json": json.dumps({"notices": [{}]}) + "\n"},
+        ),
+    )
+
+    with pytest.raises(RenderContractError) as exc_info:
+        render_module._compose_v13(
+            {
+                "presentation": {"scratch_release_notice": {"heading": "one"}},
+                "render_plan": {
+                    "presentation": {"scratch_release_notice": {"heading": "two"}}
+                },
+            }
+        )
+
+    assert exc_info.value.reason == "render_plan_invalid"
+
+
 def test_compose_v10_uses_writable_world_scoped_session_store(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

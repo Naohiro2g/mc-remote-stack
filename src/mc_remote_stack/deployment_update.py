@@ -232,12 +232,44 @@ def _update_operator_input_scalar(
     _atomic_replace(path, tomlkit.dumps(document).encode("utf-8"))
 
 
+def _replace_operator_input_file(
+    project_root: Path,
+    role: str,
+    source_path: Path,
+) -> None:
+    loaded = load_order(project_root)
+    matching = [
+        item
+        for item in loaded.order.get("operator_inputs", [])
+        if item["role"] == role
+    ]
+    if len(matching) != 1:
+        _fail(
+            "update_operator_input_missing",
+            f"operator_inputs.{role}",
+            "input replacement requires exactly one existing operator input role",
+        )
+    if source_path.is_symlink() or not source_path.is_file():
+        _fail(
+            "update_input_file_invalid",
+            source_path,
+            "replacement input must be one existing regular non-symlink file",
+        )
+    try:
+        content = source_path.read_bytes()
+    except OSError as exc:
+        _fail("update_input_file_invalid", source_path, str(exc))
+    target = project_root / matching[0]["path"]
+    _atomic_replace(target, content)
+
+
 def _adapt_candidate_order(
     destination: Path,
     *,
     target_profile: str,
     target_preset: str,
     input_overrides: dict[tuple[str, str], str],
+    input_files: dict[str, Path] | None = None,
     data_root: Traversable,
 ) -> None:
     """Project release identities and typed-input adapters into one candidate."""
@@ -247,6 +279,16 @@ def _adapt_candidate_order(
     profile = load_profile(target_profile, data_root=data_root)
     for required in profile.data.get("operator_input_roles", []):
         _update_operator_adapter(destination, required["id"], required["adapter"])
+    replacements = {} if input_files is None else input_files
+    overlapping = {role for role, _key in input_overrides} & set(replacements)
+    if overlapping:
+        _fail(
+            "update_input_override_invalid",
+            ",".join(sorted(overlapping)),
+            "one role cannot use scalar overrides and whole-file replacement together",
+        )
+    for role, source_path in sorted(replacements.items()):
+        _replace_operator_input_file(destination, role, source_path)
     for (role, key), value in sorted(input_overrides.items()):
         _update_operator_input_scalar(destination, role, key, value)
     load_order(destination)
@@ -261,6 +303,7 @@ def _prepare_candidate_order(
     target_preset: str,
     input_overrides: dict[tuple[str, str], str],
     data_root: Traversable,
+    input_files: dict[str, Path] | None = None,
 ) -> None:
     """Create a lossless candidate order and adapt its typed-input identities."""
 
@@ -270,6 +313,7 @@ def _prepare_candidate_order(
         target_profile=target_profile,
         target_preset=target_preset,
         input_overrides=input_overrides,
+        input_files=input_files,
         data_root=data_root,
     )
 
@@ -1116,6 +1160,7 @@ def _plan_deployment_update_locked(
     target_profile: str,
     target_preset: str,
     input_overrides: dict[tuple[str, str], str],
+    input_files: dict[str, Path] | None = None,
     docker_context: str,
     data_root: Traversable,
     allow_unverified: bool = False,
@@ -1165,6 +1210,7 @@ def _plan_deployment_update_locked(
             target_preset=target_preset,
             input_overrides=input_overrides,
             data_root=data_root,
+            input_files=input_files,
         )
         resolve_project(
             candidate,
@@ -1248,6 +1294,7 @@ def plan_deployment_update(
     target_profile: str,
     target_preset: str,
     input_overrides: dict[tuple[str, str], str],
+    input_files: dict[str, Path] | None = None,
     docker_context: str,
     data_root: Traversable,
     allow_unverified: bool = False,
@@ -1268,6 +1315,7 @@ def plan_deployment_update(
             target_profile=target_profile,
             target_preset=target_preset,
             input_overrides=input_overrides,
+            input_files=input_files,
             docker_context=docker_context,
             data_root=data_root,
             allow_unverified=allow_unverified,

@@ -1082,3 +1082,20 @@ def test_public_notice_profile_keeps_b4_artifacts_and_requires_typed_notice() ->
         "required": True,
     }
     assert preset.ref == "public-web-paper@4"
+
+
+def test_public_notice_feed_has_preset_owned_release_notice() -> None:
+    profile = load_profile("vps-server@12")
+    preset = load_preset("public-web-paper@5")
+
+    assert profile.data["renderer"] == {"name": "compose", "revision": "13"}
+    assert {
+        item["id"]: item for item in profile.data["operator_input_roles"]
+    }["connection-targets"] == {
+        "id": "connection-targets",
+        "adapter": "connection-targets@3",
+        "required": True,
+    }
+    release_notice = preset.data["presentation"]["scratch_release_notice"]
+    assert release_notice["heading"].endswith("ver.2100.0.0b4")
+    assert release_notice["link"]["href"].endswith("#release-v2100.0.0b4")

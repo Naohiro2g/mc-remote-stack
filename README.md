@@ -200,11 +200,12 @@ uv run mcrctl render --project ./deployment --output ./deployment/generated
 
 The `official-vps` preset includes an optional `beta` instance. Setting `beta.enabled: true` renders a `minecraft-beta` service with independent data, backup, OCI image, Paper, and plugin locks. Stable and beta both use the standard `25565/tcp+udp` and `25575/tcp` ports and therefore run exclusively. The stable public names are unsuffixed (`scratch.mc-remote.com`, `bridge.mc-remote.com`, and `sb.mc-remote.com`); beta uses the `-beta` suffix.
 
-The b3 public-beta runtime-config path uses `vps-server@7`. It requires a non-empty Scratch
+The b3 public-beta runtime-config path introduced `vps-server@7`. It requires a non-empty Scratch
 `connection_targets` projection, lists `sb-beta.mc-remote.com` as the beta default, and emits a
-`notices` array. The array remains empty until the operator fixes the notice copy and URL. Resolve,
-render, and doctor fail closed when the target contract is missing, the default is absent from the
-list, or `notices` is not an array.
+`notices` array. The current `vps-server@12` projection takes an ordered operator notice feed and
+appends the preset-owned Scratch release notice last, so version information cannot disappear with
+an operational announcement edit. Resolve, render, and doctor fail closed when this contract is
+invalid.
 
 The append-only b4 target is `vps-server@8` / `public-web-paper@3`. It pins the released b4
 McRemote JAR and the deployment OCI images built from the final Scratch CI artifact. Public b4

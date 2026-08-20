@@ -105,36 +105,44 @@ homepage、backupを再現する。失敗時はplanがsnapshotした旧overlay�
 この記録はdeployment経路のsanitizedな実施結果であり、compatibility claimの正式ratifyではない。
 そのためunverified warningを消さず、knowledge側の正式evidenceは別gateとする。
 
-### Scratchお知らせを型付き入力で更新する
+### Scratchお知らせfeedを型付き入力で更新する
 
-`vps-server@11`は`connection-targets@2`を使い、接続先に加えて1件の公開noticeをoperator inputへ
-保持する。Scratch artifactを変えないため、presetは同じ`public-web-paper@4`を維持する。profileとpresetを
-同時に進めるための架空releaseを作らず、profileだけの前進または同じrelease内のnotice変更を通常updateで扱う。
+`vps-server@12`は`connection-targets@3`を使い、接続先と、上から新しい順の公開notice feedを
+operator inputへ保持する。初回のreview済み入力は
+`examples/operator-inputs/public-beta-connection-targets-b4.toml`である。
+
+Scratchクライアントの版情報は任意の運用告知にしない。`public-web-paper@5`が
+「マイクラリモコンScratchクライアント ver.2100.0.0b4」を所有し、rendererがoperator noticeの後、
+presetから自動的に末尾へ追加する。次版ではpresetの版表示とrelease URLをartifact setと一緒に更新する。
+
+複数noticeをshell引数へ分解せず、review済みTOMLを候補へ丸ごと渡す。
 
 ```sh
-NOTICE_HEADING='<review済み見出し>'
-NOTICE_BODY='<review済み本文>'
-NOTICE_HREF='https://<review済み公開URL>/'
-NOTICE_LABEL='<review済みリンク表示>'
+REVIEWED_NOTICE_INPUT="$MC_REMOTE_STACK/examples/operator-inputs/public-beta-connection-targets-b4.toml"
 
 "$MC_REMOTE_STACK/.venv/bin/mcrctl" deployment update plan \
   --project "$MC_REMOTE_PROJECT" \
   --docker-context default \
-  --to-profile vps-server@11 \
-  --to-preset public-web-paper@4 \
-  --set-input "connection-targets.notice_heading=$NOTICE_HEADING" \
-  --set-input "connection-targets.notice_body=$NOTICE_BODY" \
-  --set-input "connection-targets.notice_href=$NOTICE_HREF" \
-  --set-input "connection-targets.notice_label=$NOTICE_LABEL" \
+  --to-profile vps-server@12 \
+  --to-preset public-web-paper@5 \
+  --replace-input "connection-targets=$REVIEWED_NOTICE_INPUT" \
   --allow-unverified
 ```
 
-noticeは非秘密の見出し、本文、HTTPS URL、link labelをすべて必須とし、runtime JSONやcontainer内を
-手編集しない。同じprofile／presetで文面だけを変える場合も新しいplan IDを作ってapplyする。
+この入力から、次の順で3件を配信する。
+
+1. 「今後のリリース予定」— `https://mc-remote.com`
+2. 「WireScope（ワイヤースコープ）ライブ画面」— `https://wirescope-beta.mc-remote.com/`
+3. 「マイクラリモコンScratchクライアント ver.2100.0.0b4」— preset所有のrelease情報
+
+noticeは非秘密の見出し、本文、HTTPS URL、link labelを必須とし、runtime JSONやcontainer内を手編集しない。
+運用告知を変えるときは、現在のproject inputをproject外のreview用ファイルへcopyし、編集後の全体を
+`--replace-input`で新しいplanへ渡す。同じprofile／presetでも新しいplan IDを作り、適用後にdoctorと
+実配信JSONを確認する。
 
 notice linkは通常の`target=_blank`リンクであり、Scratch sourceのMessageChannel handoffを実行しない。
 WireScopeの観測を開始する正準入口はScratchブロック画面下部の「WireScopeを開く」である。noticeから
-WireScope appへ直接リンクする場合、遷移先は観測対象待ちになることを文面上で誤認させない。
+WireScope appへ直接リンクした画面が観測対象待ちになることは異常ではない。
 
 ### 以後のrelease更新
 

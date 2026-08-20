@@ -748,6 +748,20 @@ def _deployment_update_input_overrides(
     return result
 
 
+def _deployment_update_input_files(values: list[str]) -> dict[str, Path]:
+    result: dict[str, Path] = {}
+    for value in values:
+        role, separator, source = value.partition("=")
+        if not separator or not role or not source or role in result:
+            raise DeploymentUpdateContractError(
+                "update_input_file_invalid",
+                value,
+                "use one unique ROLE=PATH string per reviewed operator input file",
+            )
+        result[role] = Path(source)
+    return result
+
+
 def _cmd_deployment_update_plan(args: argparse.Namespace) -> int:
     project = Path(args.project)
     output = Path(args.output) if args.output else project / "generated"
@@ -757,12 +771,14 @@ def _cmd_deployment_update_plan(args: argparse.Namespace) -> int:
             docker_context=args.docker_context,
         )
         overrides = _deployment_update_input_overrides(args.set_input)
+        input_files = _deployment_update_input_files(args.replace_input)
         plan = plan_deployment_update(
             project,
             output,
             target_profile=args.to_profile,
             target_preset=args.to_preset,
             input_overrides=overrides,
+            input_files=input_files,
             docker_context=args.docker_context,
             data_root=_preset_data_root(),
             allow_unverified=args.allow_unverified,
@@ -1927,6 +1943,9 @@ def build_parser() -> argparse.ArgumentParser:
     deployment_update_plan_parser.add_argument("--to-profile", required=True)
     deployment_update_plan_parser.add_argument("--to-preset", required=True)
     deployment_update_plan_parser.add_argument("--set-input", action="append", default=[])
+    deployment_update_plan_parser.add_argument(
+        "--replace-input", action="append", default=[]
+    )
     deployment_update_plan_parser.add_argument("--allow-unverified", action="store_true")
     deployment_update_plan_parser.add_argument("--allow-eol", action="store_true")
     deployment_update_plan_parser.set_defaults(handler=_cmd_deployment_update_plan)
