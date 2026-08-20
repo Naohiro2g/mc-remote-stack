@@ -3,6 +3,7 @@ set -euo pipefail
 
 UV_BOOTSTRAP_VERSION=0.12.3
 MINIMUM_COMPOSE_VERSION=2.33.1
+RUNTIME_ROOT=/var/lib/mc-remote
 
 mode=check
 repair_project=
@@ -19,7 +20,9 @@ Usage:
 --check reports every missing operator prerequisite without changing the host.
 --install installs missing Ubuntu packages, pinned uv, Docker Engine/Compose when
 absent, and explicitly grants the current trusted sudo administrator direct
-Docker access. Re-login is required after group membership changes.
+Docker access. If the conventional runtime root exists, it also grants that
+operator traversal through its dedicated mcremote group. Re-login is required
+after group membership changes.
 --repair-project is accepted only with --install and only below
 $HOME/mc-remote-deployments; it repairs ownership left by historical root execution.
 --repair-artifact-store is accepted only with --install and only for
@@ -252,6 +255,7 @@ if ! version_at_least "$compose_version" "$MINIMUM_COMPOSE_VERSION"; then
   exit 2
 fi
 
+relogin_required=false
 if ! id -nG | tr ' ' '\n' | grep -Fxq docker; then
   if [[ "$mode" == check ]]; then
     echo "FAIL operator is not a member of the docker group" >&2
@@ -261,6 +265,26 @@ if ! id -nG | tr ' ' '\n' | grep -Fxq docker; then
   sudo groupadd --force docker
   sudo usermod -aG docker "$(id -un)"
   echo "RELOGIN REQUIRED: docker group membership was added for $(id -un)."
+  relogin_required=true
+fi
+
+if [[ -d "$RUNTIME_ROOT" && ! -x "$RUNTIME_ROOT" ]]; then
+  if [[ "$mode" == check ]]; then
+    echo "FAIL runtime root is not traversable by the deployment operator: $RUNTIME_ROOT" >&2
+    echo "Run this same script with --install, then log out and back in." >&2
+    exit 2
+  fi
+  runtime_group="$(sudo stat --format=%G -- "$RUNTIME_ROOT")"
+  if [[ "$runtime_group" != mcremote ]] || ! getent group "$runtime_group" >/dev/null; then
+    echo "FAIL runtime root must be owned by the dedicated mcremote group: $RUNTIME_ROOT" >&2
+    exit 2
+  fi
+  sudo usermod -aG "$runtime_group" "$(id -un)"
+  echo "RELOGIN REQUIRED: runtime group $runtime_group was added for $(id -un)."
+  relogin_required=true
+fi
+
+if [[ "$relogin_required" == true ]]; then
   echo "Log out and back in, then rerun this script with --check."
   exit 3
 fi

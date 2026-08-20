@@ -93,6 +93,11 @@ scriptはUbuntuのsupport対象versionだけを受理し、`ca-certificates`、`
 `uv`、Python 3.11、Docker Engine、Compose 2.33.1以上を準備する。Dockerが未導入の場合は
 Docker公式APT repositoryを使う。既存Dockerを未知の配布元から暗黙置換しない。
 
+既定runtime root `/var/lib/mc-remote` が存在し、専用`mcremote` groupだけにtraverseを許しているhostでは、
+同じ`--install`が信頼されたoperatorをそのruntime groupへ追加する。backup bind等をplan時に検査するための
+host path traversalであり、service所有権をoperatorへ移さない。別commandをsudo実行して回避せず、group追加後に
+logout/loginして`--check`を再実行する。
+
 この個人管理者はdeploymentを行う**信頼された運用者**であり、既にsudo管理者である。毎回
 `mcrctl`全体をsudo経由で実行する代わりに、明示的な承認のもとで`docker` groupへ追加する。Docker公式文書が
 警告する通り、このgroupはroot相当の権限を持つ。agent専用userや一般利用者を追加してはならない。

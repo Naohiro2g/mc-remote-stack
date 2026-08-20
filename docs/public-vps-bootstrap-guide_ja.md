@@ -160,6 +160,10 @@ root相当の権限であるため、この個人管理者だけへ明示的に�
 CLI全体をsudo実行せず、Docker操作だけをdirect socket accessで行う。開始gateの正典command名は
 `mcrctl operator check`であり、checkout外からは上記のexact executable pathで呼ぶ。
 
+`/var/lib/mc-remote`が専用`mcremote` groupの`0750`で存在するhostでは、同じbootstrapがtrusted
+operatorをruntime groupへ追加する。これはbackup bind等のhost pathをplan時に検査するためのtraverse権限で、
+runtime rootやbackupのownerを変更しない。追加後はDocker groupと同様にlogout/loginして`--check`を再実行する。
+
 過去のsudo実行でproject配下または宣言済みartifact storeがroot所有になっている場合は、別editorや一時copyで
 回避せず、正準bootstrapへexact pathを渡してownerを一度修復し、logout／login後にcheckを再実行する。
 

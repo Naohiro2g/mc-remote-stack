@@ -36,6 +36,7 @@ agent専用user、教材利用者、server利用者へは与えない。
 
 - `--check`: 変更せず不足を一括報告
 - `--install`: Git、固定uv、Python 3.11、Docker Engine、Compose 2.33.1以上を準備
+- `/var/lib/mc-remote`が存在するhostでは、専用`mcremote` runtime groupのtraverse権限も準備
 - `--repair-project <exact path>`: 歴史的なroot実行で壊れた一project treeのownerだけを修復
 - `--repair-artifact-store <exact path>`: 同じ原因で壊れた既定artifact storeだけを修復
 
