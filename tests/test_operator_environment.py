@@ -51,6 +51,39 @@ def test_operator_check_accepts_one_unprivileged_owner_with_complete_toolchain(t
     assert result.compose_version == "2.39.1"
 
 
+def test_operator_check_uses_the_bootstrap_uv_path_when_login_path_omits_it(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project = tmp_path / "deployment"
+    project.mkdir()
+    uv = tmp_path / ".local/bin/uv"
+    uv.parent.mkdir(parents=True)
+    uv.write_text("fixture\n", encoding="utf-8")
+    uv.chmod(0o700)
+    monkeypatch.setenv("PATH", "")
+    monkeypatch.setattr("mc_remote_stack.operator_environment.Path.home", lambda: tmp_path)
+
+    def runner(command: list[str], *, timeout: int) -> subprocess.CompletedProcess[str]:
+        if command == [str(uv), "--version"]:
+            return _completed(command, "uv 0.12.3\n")
+        if command == ["uv", "--version"]:
+            pytest.fail("operator check must use the bootstrap-resolved uv path")
+        return _healthy_runner(command, timeout=timeout)
+
+    result = check_operator_environment(
+        project,
+        docker_context="default",
+        effective_uid=project.stat().st_uid,
+        effective_user="operator",
+        runner=runner,
+        python_version=(3, 11, 9),
+    )
+
+    assert result.status == "ready"
+    assert result.uv_version == "uv 0.12.3"
+
+
 def test_operator_check_rejects_root_before_running_tools(tmp_path: Path) -> None:
     project = tmp_path / "deployment"
     project.mkdir()
