@@ -99,6 +99,10 @@ def test_public_vps_runbook_canonicalizes_live_overlays_before_normal_updates() 
     assert "sha256:9da2e50bacc8091308eb989bc9f3bf159528cc9f25b4afe00fa3282070ff8b5e" in current
     assert "render=current" in current
     assert "compatibility=unverified" in current
+    assert "--to-profile vps-server@11" in current
+    assert "connection-targets.notice_heading" in current
+    assert "connection-targets.notice_href" in current
+    assert "presetは同じ" in current
     assert "staleなMcRemote JAR" in current
     assert "render=current" in current
     assert "--preserve-compose-file" not in commands

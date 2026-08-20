@@ -931,6 +931,52 @@ def test_compose_v9_requires_explicit_scratch_target_and_emits_empty_notices(
     assert runtime["notices"] == []
 
 
+def test_compose_v9_projects_typed_public_notice(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime = {
+        "bridge_url": "wss://bridge-beta.mc-remote.example",
+        "default_sandbox": "sb-beta.mc-remote.example",
+        "connection_targets": [
+            {
+                "id": "beta",
+                "label": "Beta",
+                "sandbox": "sb-beta.mc-remote.example",
+            }
+        ],
+        "connection_enabled": True,
+        "release_identity": "scratch-b4",
+    }
+    notices = [
+        {
+            "heading": "WireScope beta",
+            "body": "Observe Scratch and Minecraft traffic.",
+            "link": {
+                "href": "https://wirescope-beta.mc-remote.example/",
+                "label": "Open WireScope",
+            },
+        }
+    ]
+    monkeypatch.setattr(
+        render_module,
+        "_compose_v8",
+        lambda _lock: (
+            {"services": {}},
+            {"runtime/scratch.json": json.dumps(runtime) + "\n"},
+        ),
+    )
+    monkeypatch.setattr(
+        render_module,
+        "_locked_connection_notices",
+        lambda _lock: notices,
+        raising=False,
+    )
+
+    _compose, rendered = render_module._compose_v9({"environment": {"channel": "beta"}})
+
+    assert json.loads(rendered["runtime/scratch.json"])["notices"] == notices
+
+
 def test_compose_v10_uses_writable_world_scoped_session_store(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

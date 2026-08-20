@@ -24,7 +24,7 @@ from mc_remote_stack.deployment_update import (
     _write_json,
     apply_deployment_update,
 )
-from mc_remote_stack.toml_project import init_toml_project
+from mc_remote_stack.toml_project import init_toml_project, update_order_scalar
 
 
 def _public_order(tmp_path: Path) -> Path:
@@ -129,6 +129,73 @@ def test_candidate_order_upgrades_required_adapter_and_typed_input_without_touch
     assert (source / "operator/public-routes/routes.toml").read_bytes() == before_routes
 
 
+def test_candidate_order_adds_notice_without_advancing_artifact_preset(
+    tmp_path: Path,
+) -> None:
+    source = _public_order(tmp_path)
+    update_order_scalar(source, ("deployment", "profile"), "vps-server@10")
+    update_order_scalar(source, ("environment", "preset"), "public-web-paper@4")
+    order_path = source / "mc-remote.toml"
+    order_path.write_text(
+        order_path.read_text(encoding="utf-8")
+        + '''
+[[operator_inputs]]
+role = "minecraft-plugins"
+adapter = "minecraft-plugins@1"
+path = "operator/minecraft-plugins/plugins.toml"
+
+[[operator_inputs]]
+role = "homepage-static"
+adapter = "homepage-static@1"
+path = "operator/homepage-static/homepage.toml"
+
+[[operator_inputs]]
+role = "minecraft-backup"
+adapter = "minecraft-backup@1"
+path = "operator/minecraft-backup/backup.toml"
+''',
+        encoding="utf-8",
+    )
+    for relative in (
+        "operator/minecraft-plugins/plugins.toml",
+        "operator/homepage-static/homepage.toml",
+        "operator/minecraft-backup/backup.toml",
+    ):
+        path = source / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("placeholder = true\n", encoding="utf-8")
+    candidate = tmp_path / "candidate"
+
+    _prepare_candidate_order(
+        source,
+        source / "generated",
+        candidate,
+        target_profile="vps-server@11",
+        target_preset="public-web-paper@4",
+        input_overrides={
+            ("connection-targets", "notice_heading"): "WireScope beta",
+            ("connection-targets", "notice_body"): "Observe traffic.",
+            ("connection-targets", "notice_href"): (
+                "https://wirescope-beta.mc-remote.com/"
+            ),
+            ("connection-targets", "notice_label"): "Open WireScope",
+        },
+        data_root=files("mc_remote_stack").joinpath("data"),
+    )
+
+    order = tomllib.loads((candidate / "mc-remote.toml").read_text(encoding="utf-8"))
+    targets = tomllib.loads(
+        (candidate / "operator/connection-targets/targets.toml").read_text(
+            encoding="utf-8"
+        )
+    )
+    adapters = {item["role"]: item["adapter"] for item in order["operator_inputs"]}
+    assert order["deployment"]["profile"] == "vps-server@11"
+    assert order["environment"]["preset"] == "public-web-paper@4"
+    assert adapters["connection-targets"] == "connection-targets@2"
+    assert targets["notice_href"] == "https://wirescope-beta.mc-remote.com/"
+
+
 def _transition_lock(*, target: bool = False) -> dict:
     return {
         "deployment": {"name": "official-public-beta"},
@@ -183,6 +250,13 @@ def _transition_lock(*, target: bool = False) -> dict:
 
 def test_in_place_transition_keeps_stateful_identity_and_allows_release_projection() -> None:
     _validate_in_place_transition(_transition_lock(), _transition_lock(target=True))
+
+
+def test_in_place_transition_allows_profile_only_projection() -> None:
+    target = _transition_lock(target=True)
+    target["input"]["preset"] = _transition_lock()["input"]["preset"]
+
+    _validate_in_place_transition(_transition_lock(), target)
 
 
 def test_in_place_transition_rejects_volume_rotation() -> None:

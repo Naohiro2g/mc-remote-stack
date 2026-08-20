@@ -339,13 +339,28 @@ def _validate_in_place_transition(
             "deployment.update",
             "generic in-place update cannot change profile or preset families",
         )
-    if _revision(target_profile) <= _revision(source_profile) or _revision(
-        target_preset
-    ) <= _revision(source_preset):
+    profile_revision = _revision(target_profile)
+    source_profile_revision = _revision(source_profile)
+    preset_revision = _revision(target_preset)
+    source_preset_revision = _revision(source_preset)
+    if (
+        profile_revision < source_profile_revision
+        or preset_revision < source_preset_revision
+    ):
         _fail(
             "update_not_forward",
             "deployment.update",
-            "normal update target must advance both profile and preset revisions",
+            "normal update cannot move either profile or preset revision backward",
+        )
+    if (
+        profile_revision == source_profile_revision
+        and preset_revision == source_preset_revision
+        and source.get("operator_inputs") == target.get("operator_inputs")
+    ):
+        _fail(
+            "update_no_change",
+            "deployment.update",
+            "same-release update requires one typed operator-input change",
         )
     source_inputs = {
         item["role"]: item["path"] for item in source.get("operator_inputs", [])
