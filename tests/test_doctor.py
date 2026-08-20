@@ -829,8 +829,10 @@ def test_doctor_rejects_live_port_drift_before_protocol_probe(tmp_path: Path) ->
     assert exc_info.value.reason == "doctor_network_mismatch"
 
 
-def test_doctor_accepts_public_minecraft_ports_from_compose_renderer_8(
+@pytest.mark.parametrize("renderer_revision", ["8", "13"])
+def test_doctor_accepts_public_minecraft_ports_from_public_compose_renderers(
     tmp_path: Path,
+    renderer_revision: str,
 ) -> None:
     output = tmp_path / "generated"
     output.mkdir()
@@ -839,7 +841,7 @@ def test_doctor_accepts_public_minecraft_ports_from_compose_renderer_8(
         "environment": {"identity": "official-public-beta"},
         "world": {"identity": "official-public-beta-world"},
         "lock_identity": "sha256:" + "1" * 64,
-        "render_plan": {"adapter_revision": "8"},
+        "render_plan": {"adapter_revision": renderer_revision},
         "runtime": {"artifact_store": str(tmp_path / "artifacts")},
         "components": [
             {"role": "mcremote-plugin", "artifact": "mcremote-jar"}

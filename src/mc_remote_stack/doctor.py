@@ -732,6 +732,7 @@ def _validate_container(
             "10",
             "11",
             "12",
+            "13",
         }:
             expected_ports["19132/udp"] = [
                 {
