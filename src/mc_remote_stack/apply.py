@@ -59,6 +59,13 @@ BOOTSTRAP_CONTRACTS = frozenset(
             "public",
             "integration",
         ),
+        (
+            "vps-server@9",
+            "public-web-paper@4",
+            "beta",
+            "public",
+            "integration",
+        ),
     }
 )
 DOCKER_CONTEXT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$")
@@ -540,7 +547,16 @@ def _check_ports(
 ) -> None:
     address = lock["network"]["bind_address"]
     ports = [lock["network"]["java_port"], lock["network"]["mcremote_port"]]
-    if lock["render_plan"]["adapter_revision"] in {"2", "3", "4", "7", "8", "9", "10"}:
+    if lock["render_plan"]["adapter_revision"] in {
+        "2",
+        "3",
+        "4",
+        "7",
+        "8",
+        "9",
+        "10",
+        "11",
+    }:
         ports = [80, 443, *ports]
     for port in ports:
         published = _run(

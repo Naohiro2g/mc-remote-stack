@@ -210,6 +210,13 @@ Minecraft data volume, survives an ordinary restart, and may be discarded with t
 It does not approve public long-lived credentials. Existing b3 runtimes use the resumable
 `mcrctl migration public-b4` path after the `vps-server@7` runtime-target projection is live.
 
+The append-only public b4 WireScope target is `vps-server@9` / `public-web-paper@4`.
+`public-routes@2` requires `wirescope-beta.mc-remote.com`, projects its HTTPS URL into the
+Scratch runtime config, and serves the verified ZIP plus detached manifest from a read-only
+Caddy docroot on that distinct origin. This surface provides only the Scratch cross-origin
+MessageChannel handoff; it does not add a public station, source ingress, or Minecraft control
+endpoint.
+
 `minecraft-stable` and `minecraft-beta` belong to separate Compose profiles, so an ordinary `docker compose up` starts neither Minecraft channel. On a 6 GB VPS, do not run stable and beta together. Use the generated exclusive switch operations, which announce the change, run `save-all flush`, stop gracefully, check the standard ports, and restore the previous instance on failure:
 
 ```sh

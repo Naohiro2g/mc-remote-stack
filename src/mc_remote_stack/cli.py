@@ -1129,6 +1129,8 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
         print("OK doctor protocol=responsive auth=required")
     if result.scratch_runtime_status == "current":
         print("OK doctor scratch-runtime=current")
+    if result.wirescope_status == "current":
+        print("OK doctor wirescope=current handoff=cross-origin")
     if result.compatibility_status == "unverified":
         print("WARN doctor compatibility=unverified")
     return 0

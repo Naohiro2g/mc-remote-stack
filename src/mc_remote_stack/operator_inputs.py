@@ -14,6 +14,7 @@ from .toml_project import LoadedOrder
 MINECRAFT_MOTD_ADAPTER = "minecraft-motd@1"
 MINECRAFT_MOTD_PATH = "operator/minecraft-motd/server.properties"
 PUBLIC_ROUTES_ADAPTER = "public-routes@1"
+PUBLIC_ROUTES_V2_ADAPTER = "public-routes@2"
 PUBLIC_ROUTES_PATH = "operator/public-routes/routes.toml"
 MINECRAFT_SERVER_ADAPTER = "minecraft-server@1"
 MINECRAFT_SERVER_PATH = "operator/minecraft-server/server.toml"
@@ -28,12 +29,14 @@ SUPPORTED_ADAPTERS = frozenset(
         MINECRAFT_MOTD_ADAPTER,
         MINECRAFT_SERVER_ADAPTER,
         PUBLIC_ROUTES_ADAPTER,
+        PUBLIC_ROUTES_V2_ADAPTER,
         CONNECTION_TARGETS_ADAPTER,
     }
 )
 PUBLIC_ROUTE_KEYS = frozenset(
     {"homepage", "homepage_aliases", "scratch", "bridge", "minecraft"}
 )
+PUBLIC_ROUTE_V2_KEYS = PUBLIC_ROUTE_KEYS | {"wirescope"}
 CONNECTION_TARGET_KEYS = frozenset({"id", "label", "sandbox"})
 CONNECTION_TARGET_ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
 DNS_NAME = re.compile(
@@ -170,7 +173,13 @@ def _public_dns_name(path: Path, key: str, value: object) -> str:
     return value
 
 
-def _parse_public_routes(path: Path, source: bytes) -> dict[str, Any]:
+def _parse_public_routes_for_keys(
+    path: Path,
+    source: bytes,
+    *,
+    adapter: str,
+    required_keys: frozenset[str],
+) -> dict[str, Any]:
     if source.startswith(b"\xef\xbb\xbf"):
         _fail("operator_input_encoding_invalid", path, "UTF-8 BOM is forbidden")
     try:
@@ -179,9 +188,9 @@ def _parse_public_routes(path: Path, source: bytes) -> dict[str, Any]:
         _fail("operator_input_encoding_invalid", path, str(exc))
     except tomllib.TOMLDecodeError as exc:
         _fail("operator_input_parse_failed", path, str(exc))
-    if set(value) != PUBLIC_ROUTE_KEYS:
-        missing = sorted(PUBLIC_ROUTE_KEYS - set(value))
-        extra = sorted(set(value) - PUBLIC_ROUTE_KEYS)
+    if set(value) != required_keys:
+        missing = sorted(required_keys - set(value))
+        extra = sorted(set(value) - required_keys)
         details = []
         if missing:
             details.append(f"missing: {', '.join(missing)}")
@@ -190,7 +199,7 @@ def _parse_public_routes(path: Path, source: bytes) -> dict[str, Any]:
         _fail(
             "operator_input_parse_failed",
             path,
-            f"public-routes@1 requires the exact public route keys ({'; '.join(details)})",
+            f"{adapter} requires the exact public route keys ({'; '.join(details)})",
         )
 
     aliases = value["homepage_aliases"]
@@ -202,7 +211,7 @@ def _parse_public_routes(path: Path, source: bytes) -> dict[str, Any]:
         )
     semantic: dict[str, Any] = {
         key: _public_dns_name(path, key, value[key])
-        for key in ("homepage", "scratch", "bridge", "minecraft")
+        for key in sorted(required_keys - {"homepage_aliases"})
     }
     semantic["homepage_aliases"] = sorted(
         _public_dns_name(path, f"homepage_aliases[{index}]", alias)
@@ -211,9 +220,7 @@ def _parse_public_routes(path: Path, source: bytes) -> dict[str, Any]:
     all_names = [
         semantic["homepage"],
         *semantic["homepage_aliases"],
-        semantic["scratch"],
-        semantic["bridge"],
-        semantic["minecraft"],
+        *(semantic[key] for key in sorted(required_keys - {"homepage", "homepage_aliases"})),
     ]
     if len(set(all_names)) != len(all_names):
         _fail(
@@ -222,6 +229,24 @@ def _parse_public_routes(path: Path, source: bytes) -> dict[str, Any]:
             "public route hostnames must be unique across all roles",
         )
     return semantic
+
+
+def _parse_public_routes(path: Path, source: bytes) -> dict[str, Any]:
+    return _parse_public_routes_for_keys(
+        path,
+        source,
+        adapter=PUBLIC_ROUTES_ADAPTER,
+        required_keys=PUBLIC_ROUTE_KEYS,
+    )
+
+
+def _parse_public_routes_v2(path: Path, source: bytes) -> dict[str, Any]:
+    return _parse_public_routes_for_keys(
+        path,
+        source,
+        adapter=PUBLIC_ROUTES_V2_ADAPTER,
+        required_keys=PUBLIC_ROUTE_V2_KEYS,
+    )
 
 
 def _parse_minecraft_server(path: Path, source: bytes) -> dict[str, Any]:
@@ -425,6 +450,14 @@ def _parse_adapter(adapter: str, path: Path, relative_path: str) -> dict[str, An
                 f"{adapter} requires exact path {PUBLIC_ROUTES_PATH}",
             )
         return _parse_public_routes(path, _read_source(path))
+    if adapter == PUBLIC_ROUTES_V2_ADAPTER:
+        if relative_path != PUBLIC_ROUTES_PATH:
+            _fail(
+                "operator_input_path_invalid",
+                path,
+                f"{adapter} requires exact path {PUBLIC_ROUTES_PATH}",
+            )
+        return _parse_public_routes_v2(path, _read_source(path))
     if adapter == MINECRAFT_SERVER_ADAPTER:
         if relative_path != MINECRAFT_SERVER_PATH:
             _fail(

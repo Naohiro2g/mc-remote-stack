@@ -5,7 +5,9 @@ import json
 import os
 import re
 import shutil
+import stat
 import tempfile
+import zipfile
 from collections.abc import Callable
 from dataclasses import dataclass
 from importlib.resources import files
@@ -190,7 +192,7 @@ def _locked_public_routes(lock: dict[str, Any]) -> dict[str, Any]:
     operator_input = matches[0]
     semantic = operator_input["semantic"]
     if (
-        operator_input["adapter"] != "public-routes@1"
+        operator_input["adapter"] not in {"public-routes@1", "public-routes@2"}
         or operator_input["path"] != "operator/public-routes/routes.toml"
         or operator_input["semantic_sha256"] != semantic_sha256(semantic)
     ):
@@ -200,6 +202,8 @@ def _locked_public_routes(lock: dict[str, Any]) -> dict[str, Any]:
             "locked public-routes adapter identity or semantic digest is invalid",
         )
     expected_keys = {"homepage", "homepage_aliases", "scratch", "bridge", "minecraft"}
+    if operator_input["adapter"] == "public-routes@2":
+        expected_keys.add("wirescope")
     if set(semantic) != expected_keys:
         _render_fail(
             "render_plan_invalid",
@@ -980,6 +984,234 @@ def _compose_v10(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str]]:
     return compose, rendered_files
 
 
+MAX_WIRESCOPE_ARCHIVE_BYTES = 16 * 1024 * 1024
+MAX_WIRESCOPE_ASSETS = 512
+
+
+def _safe_wirescope_asset_path(name: str) -> PurePosixPath:
+    path = PurePosixPath(name)
+    if (
+        not name
+        or "\\" in name
+        or "\x00" in name
+        or path.is_absolute()
+        or any(part in {"", ".", ".."} for part in path.parts)
+    ):
+        _render_fail("wirescope_artifact_invalid", name, "WireScope asset path is unsafe")
+    return path
+
+
+def _verified_wirescope_assets(
+    lock: dict[str, Any],
+) -> tuple[list[tuple[str, bytes]], bytes]:
+    archive_component = _component_for_role(lock, "wirescope-app")
+    manifest_component = _component_for_role(lock, "wirescope-manifest")
+    archive_artifact = _artifact_for_component(lock, archive_component)
+    manifest_artifact = _artifact_for_component(lock, manifest_component)
+    artifact_store = Path(lock["runtime"]["artifact_store"])
+    archive_filename, archive_sha256, archive_path = _verify_artifact_file(
+        artifact_store, archive_artifact
+    )
+    manifest_filename, _manifest_sha256, manifest_path = _verify_artifact_file(
+        artifact_store, manifest_artifact
+    )
+    if archive_filename != "wirescope-app.zip" or manifest_filename != (
+        "wirescope-app.manifest.json"
+    ):
+        _render_fail(
+            "wirescope_artifact_invalid",
+            "artifacts.wirescope",
+            "compose@11 requires the canonical WireScope archive and manifest filenames",
+        )
+    manifest_source = manifest_path.read_bytes()
+    try:
+        manifest = json.loads(manifest_source)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        _render_fail(
+            "wirescope_manifest_invalid",
+            manifest_path,
+            f"detached manifest is not valid UTF-8 JSON: {exc}",
+        )
+    archive_record = manifest.get("archive") if isinstance(manifest, dict) else None
+    protocols = manifest.get("protocols") if isinstance(manifest, dict) else None
+    asset_records = manifest.get("assets") if isinstance(manifest, dict) else None
+    if (
+        manifest.get("manifest_schema") != "mcremote.wirescope.app-manifest"
+        or manifest.get("manifest_version") != 1
+        or not isinstance(archive_record, dict)
+        or archive_record.get("file") != archive_filename
+        or archive_record.get("format") != "zip"
+        or archive_record.get("format_version") != 1
+        or archive_record.get("sha256") != archive_sha256
+        or not isinstance(protocols, dict)
+        or protocols.get("observer_schema")
+        != {"name": "mcremote.observer", "version": 1}
+        or protocols.get("observer_session") != 1
+        or protocols.get("scratch_handoff") != 1
+        or protocols.get("station_attach") != 1
+        or not isinstance(asset_records, list)
+        or not asset_records
+        or len(asset_records) > MAX_WIRESCOPE_ASSETS
+    ):
+        _render_fail(
+            "wirescope_manifest_invalid",
+            manifest_path,
+            "detached manifest does not identify the locked b4 schema/session/handoff contract",
+        )
+    expected_assets: dict[str, tuple[int, str]] = {}
+    for index, record in enumerate(asset_records):
+        if (
+            not isinstance(record, dict)
+            or set(record) != {"path", "bytes", "sha256"}
+            or not isinstance(record.get("path"), str)
+            or not isinstance(record.get("bytes"), int)
+            or isinstance(record.get("bytes"), bool)
+            or record["bytes"] < 0
+            or not isinstance(record.get("sha256"), str)
+            or re.fullmatch(r"[0-9a-f]{64}", record["sha256"]) is None
+        ):
+            _render_fail(
+                "wirescope_manifest_invalid",
+                f"assets[{index}]",
+                "asset inventory entry is invalid",
+            )
+        asset_name = _safe_wirescope_asset_path(record["path"]).as_posix()
+        if asset_name in expected_assets:
+            _render_fail(
+                "wirescope_manifest_invalid",
+                f"assets[{index}]",
+                "asset inventory contains a duplicate path",
+            )
+        expected_assets[asset_name] = (record["bytes"], record["sha256"])
+    if "index.html" not in expected_assets:
+        _render_fail(
+            "wirescope_manifest_invalid",
+            "assets",
+            "WireScope artifact must contain index.html",
+        )
+
+    extracted: list[tuple[str, bytes]] = []
+    total_bytes = 0
+    try:
+        with zipfile.ZipFile(archive_path) as archive:
+            infos = archive.infolist()
+            if archive.testzip() is not None:
+                _render_fail(
+                    "wirescope_artifact_invalid",
+                    archive_path,
+                    "WireScope archive failed CRC verification",
+                )
+            observed_names: set[str] = set()
+            for info in infos:
+                name = _safe_wirescope_asset_path(info.filename).as_posix()
+                unix_mode = info.external_attr >> 16
+                if info.is_dir() or (unix_mode and stat.S_ISLNK(unix_mode)):
+                    _render_fail(
+                        "wirescope_artifact_invalid",
+                        name,
+                        "directories and symbolic links are forbidden in the WireScope archive",
+                    )
+                if name in observed_names:
+                    _render_fail(
+                        "wirescope_artifact_invalid",
+                        name,
+                        "WireScope archive contains a duplicate path",
+                    )
+                observed_names.add(name)
+                total_bytes += info.file_size
+                if total_bytes > MAX_WIRESCOPE_ARCHIVE_BYTES:
+                    _render_fail(
+                        "wirescope_artifact_invalid",
+                        archive_path,
+                        "WireScope archive exceeds the extracted-size limit",
+                    )
+                content = archive.read(info)
+                expected = expected_assets.get(name)
+                if expected != (len(content), hashlib.sha256(content).hexdigest()):
+                    _render_fail(
+                        "wirescope_artifact_invalid",
+                        name,
+                        "WireScope asset does not match the detached manifest",
+                    )
+                extracted.append((name, content))
+    except zipfile.BadZipFile as exc:
+        _render_fail(
+            "wirescope_artifact_invalid",
+            archive_path,
+            f"WireScope archive is not a valid ZIP: {exc}",
+        )
+    if {name for name, _content in extracted} != set(expected_assets):
+        _render_fail(
+            "wirescope_artifact_invalid",
+            archive_path,
+            "WireScope archive inventory does not exactly match the detached manifest",
+        )
+    return sorted(extracted), manifest_source
+
+
+def _compose_v11(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str]]:
+    compose, rendered_files = _compose_v10(lock)
+    routes = _locked_public_routes(lock)
+    if "wirescope" not in routes:
+        _render_fail(
+            "render_plan_invalid",
+            "operator_inputs.public-routes.semantic.wirescope",
+            "compose@11 requires the public WireScope hostname",
+        )
+    _verified_wirescope_assets(lock)
+    runtime_path = "runtime/scratch.json"
+    runtime = json.loads(rendered_files[runtime_path])
+    runtime["wirescope_url"] = f"https://{routes['wirescope']}/"
+    rendered_files[runtime_path] = json.dumps(runtime, ensure_ascii=False, indent=2) + "\n"
+
+    scratch_block = (
+        f"{routes['scratch']} {{\n"
+        "    reverse_proxy scratch:8080\n"
+        "}"
+    )
+    scratch_with_referrer = (
+        f"{routes['scratch']} {{\n"
+        '    header Referrer-Policy "strict-origin-when-cross-origin"\n'
+        "    reverse_proxy scratch:8080\n"
+        "}"
+    )
+    caddyfile = rendered_files["Caddyfile"]
+    if scratch_block not in caddyfile:
+        _render_fail(
+            "render_plan_invalid",
+            "Caddyfile.scratch",
+            "compose@11 could not locate the canonical Scratch route",
+        )
+    caddyfile = caddyfile.replace(scratch_block, scratch_with_referrer, 1)
+    caddyfile += f'''\n{routes["wirescope"]} {{
+    root * /srv/wirescope
+    header {{
+        Cross-Origin-Opener-Policy "unsafe-none"
+        Referrer-Policy "no-referrer"
+        X-Content-Type-Options "nosniff"
+        Cache-Control "no-store"
+        Content-Security-Policy "default-src 'none'; script-src 'self'; style-src 'self'; \
+connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+    }}
+    file_server
+}}
+'''
+    rendered_files["Caddyfile"] = caddyfile.replace("compose@10", "compose@11")
+    rendered_files = {
+        relative: content.replace("compose@10", "compose@11")
+        for relative, content in rendered_files.items()
+    }
+    compose["services"]["caddy"]["volumes"].append(
+        {
+            "type": "bind",
+            "source": "./wirescope",
+            "target": "/srv/wirescope",
+            "read_only": True,
+        }
+    )
+    return compose, rendered_files
+
+
 def _write_synced(path: Path, content: bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("wb") as stream:
@@ -1248,6 +1480,49 @@ def _stage_compose_v10(lock: dict[str, Any], staging: Path) -> tuple[str, ...]:
     )
 
 
+def _stage_compose_v11(lock: dict[str, Any], staging: Path) -> tuple[str, ...]:
+    compose, rendered_files = _compose_v11(lock)
+    assets, manifest_source = _verified_wirescope_assets(lock)
+    _write_synced(
+        staging / "compose.yaml",
+        yaml.safe_dump(compose, sort_keys=False, allow_unicode=True).encode("utf-8"),
+    )
+    for relative, content in rendered_files.items():
+        _write_synced(staging / PurePosixPath(relative), content.encode("utf-8"))
+    wirescope_paths: list[str] = []
+    for relative, content in assets:
+        output_path = f"wirescope/{relative}"
+        _write_synced(staging / PurePosixPath(output_path), content)
+        wirescope_paths.append(output_path)
+    detached_path = "wirescope/wirescope-app.manifest.json"
+    _write_synced(staging / detached_path, manifest_source)
+    wirescope_paths.append(detached_path)
+    rendered_paths = ("compose.yaml", *rendered_files, *wirescope_paths)
+    manifest = {
+        "schema_version": 1,
+        "adapter": "compose",
+        "adapter_revision": "11",
+        "lock_identity": lock["lock_identity"],
+        "render_plan_sha256": lock["render_plan"]["semantic_sha256"],
+        "files": [
+            {
+                "path": relative,
+                "sha256": _sha256_file(staging / PurePosixPath(relative)),
+            }
+            for relative in rendered_paths
+        ],
+    }
+    _write_synced(
+        staging / "render-manifest.json",
+        (json.dumps(manifest, ensure_ascii=False, indent=2) + "\n").encode("utf-8"),
+    )
+    directories = {staging}
+    directories.update(path.parent for path in staging.rglob("*") if path.is_file())
+    for directory in sorted(directories, key=lambda path: len(path.parts), reverse=True):
+        _fsync_directory(directory)
+    return rendered_paths
+
+
 def _stage_current(lock: dict[str, Any], staging: Path) -> tuple[str, ...]:
     revision = lock["render_plan"]["adapter_revision"]
     if revision == "1":
@@ -1270,6 +1545,8 @@ def _stage_current(lock: dict[str, Any], staging: Path) -> tuple[str, ...]:
         return _stage_compose_v9(lock, staging)
     if revision == "10":
         return _stage_compose_v10(lock, staging)
+    if revision == "11":
+        return _stage_compose_v11(lock, staging)
     _render_fail("unsupported_renderer", "render_plan", f"unsupported renderer: compose@{revision}")
 
 
@@ -1315,7 +1592,7 @@ def _load_managed_manifest(output: Path) -> dict[str, Any] | None:
         }
         or manifest.get("schema_version") != 1
         or manifest.get("adapter") != "compose"
-        or manifest.get("adapter_revision") not in {"1", "2", "3", "4", "5", "6", "7", "8", "9", "10"}
+        or manifest.get("adapter_revision") not in {"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11"}
         or not isinstance(manifest.get("files"), list)
     ):
         _render_fail("render_output_tampered", manifest_path, "managed render manifest shape is invalid")
@@ -1444,7 +1721,7 @@ def _load_current_toml_render_lock(
         lock = load_lock(project_root, data_root=data_root)
     adapter = lock["render_plan"]["adapter"]
     adapter_revision = lock["render_plan"]["adapter_revision"]
-    if adapter != "compose" or adapter_revision not in {"1", "2", "3", "4", "5", "6", "7", "8", "9", "10"}:
+    if adapter != "compose" or adapter_revision not in {"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11"}:
         _render_fail(
             "unsupported_renderer",
             "render_plan",
