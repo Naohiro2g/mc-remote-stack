@@ -7,7 +7,8 @@ MinecraftとMcRemoteのpublic betaを構築する。provider、実IP、個人名
 ## 0. 現在の完成範囲
 
 新規b3用`vps-server@6` / `public-web-paper@2`に加え、公開b4 targetの
-`vps-server@8` / `public-web-paper@3`を実装済みである。b4はb3の公開境界を維持しながら、
+`vps-server@8` / `public-web-paper@3`とWireScope公開handoffを含む
+`vps-server@9` / `public-web-paper@4`を実装済みである。b4はb3の公開境界を維持しながら、
 最終Scratch / Bridge artifact、McRemote b4、通常restartを越えるsession recordを固定する。
 次を一つのpublic bootstrapまたはreview済みmigration transactionとして扱う。
 
@@ -27,8 +28,55 @@ MinecraftとMcRemoteのpublic betaを構築する。provider、実IP、個人名
 - official homepage content artifact（現在はCaddyが明示的なhealth landingを返す）
 - provider / host firewall、DNS、TLSの変更
 - HTTPS / WSSの外部smokeを行うdoctor claim
-- backup / restore、upgrade、既存world import、stable / beta排他切替
-- 一般化した任意version間のin-place migration（b2→b3とb3→b4だけを個別に許可する）
+- backup / restore、既存world import、stable / beta排他切替
+- stateful schema変更やprofile family変更を含む任意version間migration
+
+## 1. 通常のrelease更新
+
+同じprofile／preset family内で、deployment、world、network、volume identityを変えない更新は
+release固有migrationではなく、次の二commandを正準経路とする。planは不足するexact HTTPS artifactを
+content-addressed storeへ取得し、live Minecraft containerのCompose labelから追加Composeの順序と
+digestを自動snapshotする。container ID、Compose path、volume名、source／target lock SHAを人が
+会話から転記しない。
+
+現在の公開betaへWireScope hostnameを投影するv8→v9更新は次でplanする。
+
+```sh
+MC_REMOTE_STACK="$HOME/mc-remote-stack"
+MC_REMOTE_PROJECT="$HOME/mc-remote-deployments/official-public-beta"
+
+"$MC_REMOTE_STACK/.venv/bin/mcrctl" deployment update plan \
+  --project "$MC_REMOTE_PROJECT" \
+  --docker-context default \
+  --to-profile vps-server@9 \
+  --to-preset public-web-paper@4 \
+  --set-input public-routes.wirescope=wirescope-beta.mc-remote.com \
+  --allow-unverified
+```
+
+planはsource／target release、lock差分、`stateful-volumes=in-place`、自動取得したCompose file数、
+限定rollback方針とplan IDを一度に表示する。target renderと全artifact、実効Compose、現行doctorが
+停止前に通らなければplanを作らない。表示された一つのplan IDだけをreviewし、適用する。
+
+```sh
+REVIEWED_UPDATE_PLAN="sha256:<planで確認した64-hex>"
+
+"$MC_REMOTE_STACK/.venv/bin/mcrctl" deployment update apply \
+  --project "$MC_REMOTE_PROJECT" \
+  --plan-id "$REVIEWED_UPDATE_PLAN" \
+  --yes
+```
+
+通常更新ではstateful volumeは同じidentityのまま使い、world全copyや新volume作成を行わない。
+target起動またはdoctor失敗時は旧order／lock／renderをpublishし直してsource containerを再起動する。
+これはworld、session、pairing、接続の完全復元ではない。保存済みScratch `.sb3`／Pythonコードを
+再pairing後に再実行できることが既定の回復基準である。retryは同じplan IDのapplyを再実行する。
+
+この通常節では`--target-volume`、`--preserve-compose-file`を指定せず、Compose pathを手入力しない。
+`migration public-b3`／`migration public-b4`は過去の非canonical runtimeを救済したhistory-only commandであり、
+将来release用に複製しない。
+
+## 2. 新規host bootstrapと歴史的救済
 
 ### 運用者環境はdeploymentの一部
 
@@ -141,7 +189,7 @@ transactionは`.mcrctl/migrations/public-b3/`へsource render、target candidate
 残しているが、新規VPSのapply経路ではない。archiveやprivate inventoryをこのrunbookの
 実行時依存先にしない。
 
-## 1. 対象と人間checkpoint
+## 3. 対象と人間checkpoint
 
 作業前に人間が次を決める。
 
@@ -154,7 +202,7 @@ transactionは`.mcrctl/migrations/public-b3/`へsource render、target candidate
 既存worldやserviceに保存価値がない場合も、対象を推測して削除しない。read-only discoveryで
 実対象を確定し、削除対象と再構築後の到達条件を人間がreviewしてからmutationへ進む。
 
-## 2. read-only discovery
+## 4. read-only discovery
 
 対象hostへ個人鍵でSSHし、mutation前の状態を記録する。
 
@@ -195,7 +243,7 @@ sudo systemctl --failed
 
 private host名、IP、provider/account実値はbackstage、秘密を含むraw logはGit外へ置く。
 
-## 3. host baseline
+## 5. host baseline
 
 新規hostの個人管理者作成、SSH hardening、Docker導入は
 [`fresh host bootstrap guide`](fresh-host-bootstrap-guide_ja.md)を使う。既存hostは観測済みの
@@ -204,7 +252,7 @@ private host名、IP、provider/account実値はbackstage、秘密を含むraw l
 管理者をrootful `docker` groupへ暗黙追加しない。Docker mutationは人間のsudo checkpointとし、
 agent支援時は[`agent-assisted bootstrap guide`](agent-assisted-bootstrap-guide_ja.md)の境界に従う。
 
-## 4. stack checkoutの検証
+## 6. stack checkoutの検証
 
 target host上の人間管理checkoutを用意する。
 
@@ -221,7 +269,7 @@ bootstrap期はglobal `mcrctl`やPATH変更を要求しない。以後、checkou
 別directoryやsudo checkpointではreview済みcheckoutのexact
 `/path/to/mc-remote-stack/.venv/bin/mcrctl`を使う。
 
-## 5. public deployment project
+## 7. public deployment project
 
 source checkout外に、一環境だけのprojectを作る。
 
@@ -310,7 +358,7 @@ provider filter、host firewall、Docker publishの三層を後で照合する�
 project rootは最大`0750`、order / lockは最大`0640`とする。world、artifact bytes、backup、
 secretをprojectへ入れない。
 
-## 6. EULAとunverified compatibility
+## 8. EULAとunverified compatibility
 
 EULAは人間が内容を確認してから明示記録する。
 
@@ -333,7 +381,7 @@ eol_reason = ""
 理由を空欄、定型の無意味な文、恒久defaultにしない。正式evidence着地後はcompatibility recordを
 別変更で追加し、新規resolveからacknowledgement不要へ移す。
 
-## 7. resolve / plan / artifact / render
+## 9. resolve / plan / artifact / render
 
 ```sh
 cd "$MC_REMOTE_STACK"
@@ -362,7 +410,7 @@ unverified警告がある間、`plan`は内容を表示してstatus 1を返す�
 
 reviewしたlock identityを人間が別に控える。shellでlockから自動抽出してapplyへ直結しない。
 
-## 8. existing hostのcutover gate
+## 10. existing hostのcutover gate
 
 新規hostなら次節へ進む。既存hostではbootstrap用`mcrctl apply`を使わず、専用の
 `mcrctl migration auth-enforcement`を使う。Docker / Composeをrunbookから直接操作してこの境界を迂回しない。
@@ -443,7 +491,7 @@ target成功へ進む。state JSONを手編集せず、旧volumeを削除せず�
 このCLIはunit / deterministic transaction試験まで実装済みである。live適用結果は実施時のdoctor結果と
 transaction phaseで記録する。限定的な追加Compose保存をcanonical migration完了と同一視しない。
 
-## 8.1 Scratch runtime configのfail-closed境界
+## 10.1 Scratch runtime configのfail-closed境界
 
 `vps-server@7` / `compose@9`では、Scratchを持つ公開profileの`connection-targets@1`を必須にする。
 未指定のorderはresolveで、空配列または`default_sandbox`を含まないlockはrenderで拒否する。beta channelの
@@ -471,7 +519,7 @@ sandbox = "sb-beta.mc-remote.com"
 成功時は`OK doctor scratch-runtime=current`を出す。
 `default_sandbox`だけを配信してScratch内蔵stable fallbackへ委ねる構成は正常系にしない。
 
-## 8.2 public b4 cutover
+## 10.2 public b4 cutover（history-only）
 
 公開b4のtargetは`vps-server@8` / `compose@10` / `public-web-paper@3`である。exact artifactは次で固定する。
 
@@ -537,7 +585,7 @@ planのsource / target lock、3 volume、preserved compositionをreviewしてapp
 完了後はtoken無しhelloの`auth_required`、新規pairing、ScratchのCatalog Picker / pose / WireScope、
 通常restart後の期限内session token再利用を確認する。お知らせの文面とURLが未確定の間は`notices: []`を維持する。
 
-## 9. bootstrap apply
+## 11. bootstrap apply
 
 applyを含む全`mcrctl` commandは、projectを所有する同じ非root operatorで実行する。
 Docker accessがなければapplyへ進まず、運用者bootstrapを修復する。checkout、venv、order、lock、
@@ -570,7 +618,7 @@ applyはDocker / Compose、canonical render、current lock、port、container、
 container環境値をprogressへ混ぜない。失敗detailはstderr（空ならstdout）の最後の非空行を
 制御文字除去・秘密値mask・長さ制限したものだけであり、完全なDocker出力ではない。
 
-## 10. doctorとpublic reachability
+## 12. doctorとpublic reachability
 
 対象host上のread-only doctor:
 
@@ -613,7 +661,7 @@ sudo iptables -S DOCKER-USER
 sudo iptables -S MC_REMOTE_INGRESS
 ```
 
-## 11. restartabilityと証跡
+## 13. restartabilityと証跡
 
 同じorder / lock / generated treeでdoctorを再実行し、作業を中断しても再開できるhandoffを残す。
 
@@ -634,7 +682,7 @@ sudo iptables -S MC_REMOTE_INGRESS
 knowledge ownerへevidence draftとしてhandoffする。rawはGit外、private inventoryはbackstage、
 公開可能なrunbookと実装は本repoへ置く。
 
-## 12. 残る完成度phase
+## 14. 残る完成度phase
 
 Caddy、Scratch、Bridgeのcore transactionは`vps-server@5`へ取り込んだ。過去の6GB official
 VPSで実証したTLS / WSS / rollbackを現行SSOTの自動claimとして完成させる残作業は次である。

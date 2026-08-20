@@ -15,10 +15,14 @@
   通常更新の二command／手編集ゼロSLOを固定した。
 - [ ] 現行public betaのrecovery plugin／homepage overlayをtyped input／locked componentへcanonicalizeし、
   `render=additional-compose-files`を通常状態から除く。
-- [ ] `mcrctl deployment update plan/apply`を実装し、source／target identity、artifact、effective Compose、
-  route、credential checkpoint、rollback inputを一つのdurable planへ束縛する。
-- [ ] generic update完成後、`migration public-b3/public-b4`をhistory-onlyへ凍結し、public runbook先頭を
-  現行の通常更新だけで完走できる構成へ再編集する。新しい`public-bN` subcommandは追加しない。
+- [x] `mcrctl deployment update plan/apply`の第1sliceを実装した。same-volumeのprofile／preset family更新、
+  typed input candidate、artifact取得、live Compose provenance自動snapshot、source／target lock、限定rollbackを
+  一つのdurable planへ束縛した。target doctor失敗時は旧projectionを再起動し、world／session／pairingの
+  完全復元とは主張しない。
+- [x] `migration public-b3/public-b4`をhistory-only表記へ凍結し、public runbook先頭を二commandの通常更新へ
+  再編集した。新しい`public-bN` subcommandは追加しない。
+- [ ] generic planの単発errorをblocker一覧へ拡張し、credential health、profile要求時のDNS／TLS／外部HTTP、
+  停止時間見積りを同じplanへ加える。
 
 ## 2026-08-18 b4 code-first recovery gate [→DEC 2026-08-18-01]
 

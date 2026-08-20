@@ -17,8 +17,8 @@
 - [CLI検証環境の分担計画](docs/cli-validation-environment-plan_ja.md): ローカル、ケータリングPC、
   ホームサーバー、稼働中VPSの役割と安全な検証順
 - [fresh host bootstrap](docs/fresh-host-bootstrap-guide_ja.md): 個人管理者ユーザー、SSH、安全な開始点、現行 `mcrctl` の停止境界
-- [public VPS bootstrap](docs/public-vps-bootstrap-guide_ja.md): `vps-server@5`のread-only discovery、
-  exact multi-service plan/apply、public doctor、既存host cutover、残るreadiness phase
+- [public VPS bootstrap](docs/public-vps-bootstrap-guide_ja.md): 二commandのsame-volume通常更新、
+  新規host bootstrap、b2〜b4の歴史的救済、public doctor、残るreadiness phase
 - [Wake-on-LAN optional operation field note](docs/wake-on-lan-field-note_ja.md): 準24時間運用でWoLを
   重視しつつhardware要件にしない理由、directed broadcast、Python / `wakeonlan`、
   power stateごとの検証・証跡境界
@@ -215,6 +215,13 @@ hash-onlyで保存する。通常restartは越えるが、world交換時の認�
 `wirescope_url`を投影する。Caddyはexact ZIPとdetached manifestを照合・展開したread-only
 docrootを別originで配信する。これはScratchのcross-origin MessageChannel handoffだけを提供し、
 public station、source ingress、Minecraft control endpointを追加しない。
+
+同じprofile／preset family内の通常更新は、`mcrctl deployment update plan`に続けて
+`mcrctl deployment update apply`を実行する。planは停止前にexact HTTPS artifactを取得し、live containerの
+Compose provenanceから追加fileを自動snapshotし、stateful volume identityを維持する。applyはreview済みの
+plan IDだけを受け、target doctor失敗時はsource order／lock／renderとcontainerを再起動する。world変更、
+session、pairing、接続の完全復元とは主張しない。`migration public-b3/public-b4`は歴史的救済であり、
+将来release用に複製しない。
 
 `minecraft-dev`にはComposeの`staging` profileが付くため、通常の`docker compose up`では起動しない。6GB VPSではprod/devを同時起動せず、生成された排他切替scriptを使う。scriptは1分前から告知し、`save-all flush`、graceful stop、接続確認を行い、失敗時は元のinstanceへ戻す。
 

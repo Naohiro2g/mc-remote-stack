@@ -54,6 +54,27 @@ def test_public_vps_runbook_never_runs_mcrctl_through_sudo() -> None:
     assert "docker group" in guide
 
 
+def test_public_vps_runbook_puts_generic_same_volume_update_before_history() -> None:
+    guide = (REPO_ROOT / "docs" / "public-vps-bootstrap-guide_ja.md").read_text(
+        encoding="utf-8"
+    )
+    current = guide.split("## 1. 通常のrelease更新", 1)[1].split(
+        "## 2. 新規host bootstrapと歴史的救済", 1
+    )[0]
+    commands = "\n".join(re.findall(r"```sh\n(.*?)```", current, re.S))
+
+    assert "mcrctl\" deployment update plan" in current
+    assert "--to-profile vps-server@9" in current
+    assert "--to-preset public-web-paper@4" in current
+    assert "public-routes.wirescope=wirescope-beta.mc-remote.com" in current
+    assert "mcrctl\" deployment update apply" in current
+    assert "--plan-id \"$REVIEWED_UPDATE_PLAN\"" in current
+    assert "stateful volumeは同じidentity" in current
+    assert "Compose pathを手入力しない" in current
+    assert "--target-volume" not in commands
+    assert "--preserve-compose-file" not in commands
+
+
 def test_public_vps_runbook_uses_resumable_auth_migration_transaction() -> None:
     guide = (REPO_ROOT / "docs" / "public-vps-bootstrap-guide_ja.md").read_text(
         encoding="utf-8"
@@ -88,7 +109,7 @@ def test_public_b3_runbook_reuses_exact_runtime_compose_provenance() -> None:
     guide = (REPO_ROOT / "docs" / "public-vps-bootstrap-guide_ja.md").read_text(
         encoding="utf-8"
     )
-    section = guide.split("### 現行b2 VPSの停止境界", 1)[1].split("## 1.", 1)[0]
+    section = guide.split("### 現行b2 VPSの停止境界", 1)[1].split("## 3.", 1)[0]
 
     assert "com.docker.compose.project.config_files" in section
     assert '--preserve-compose-file "$SOURCE_RECOVERY_COMPOSE"' in section
