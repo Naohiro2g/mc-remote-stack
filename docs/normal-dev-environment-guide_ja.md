@@ -47,7 +47,8 @@ cd "$HOME/mc-remote-stack"
 tools/bootstrap-ubuntu-operator.sh --check
 ```
 
-不足がある場合だけ、人間operatorが同じscriptのinstall modeを実行する。
+exact set未凍結中は`--install`を実行しない。不足toolchainはpreflight結果として返し、hostを変更せず停止する。
+exact set凍結後、coordinatorがhost installを明示許可した場合だけ、人間operatorが同じscriptのinstall modeを実行する。
 
 ```sh
 tools/bootstrap-ubuntu-operator.sh --install
@@ -83,7 +84,10 @@ EXACT_PRESET_REF=""  # exact set未凍結中は設定しない
 - knowledge contract commitとauthorized next action
 - exact preset refとpreset semantic digest
 - protocol、Minecraft、Paper、Java floor
-- McRemoteのpush済みsource commit、artifact名、version、bytes、SHA-256、credential-free HTTPS取得元
+- McRemoteのpush済みsource commit、artifact名、version、bytes、SHA-256、および次のいずれかの取得契約
+  - credential-free HTTPS origin
+  - repository／full commit／recipe／toolchain／build input／output SHA-256を含む`git-build provenance`と、
+    coordinatorが指名する`review済みbytes import`のhandoff
 - Scratch／Bridgeのpush済みcommit、CI run／artifact ID／digest、展開後inventory
 - Python wheel／sdistのversion、bytes、SHA-256、Python floor
 - WireScope ZIP／detached manifestのbytes、SHA-256、schema／handoff version

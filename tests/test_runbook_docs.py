@@ -254,6 +254,8 @@ def test_normal_dev_runbook_is_server_only_and_gate_coordinator_driven() -> None
     assert "BOOTSTRAP_CONTRACTS" in guide
     assert "profile追加だけでは初回applyを許可しない" in guide
     assert "mcrctl operator check" in guide
+    assert "exact set未凍結中は`--install`を実行しない" in guide
+    assert "coordinatorがhost installを明示許可" in guide
     assert "別portを選ぶ" not in guide
     assert "backstage inventoryで所有者、用途、期待状態を確定" in guide
     assert "未知のlistenerを許容しない" in guide
@@ -261,6 +263,13 @@ def test_normal_dev_runbook_is_server_only_and_gate_coordinator_driven() -> None
     assert "mcrctl plan" in guide
     assert "mcrctl artifact fetch" in guide
     assert "mcrctl artifact import-reviewed" in guide
+    assert (
+        "McRemoteのpush済みsource commit、artifact名、version、bytes、SHA-256、"
+        "credential-free HTTPS取得元"
+        not in guide
+    )
+    assert "git-build provenance" in guide
+    assert "review済みbytes import" in guide
     assert "normal-dev-exact-preset.template.toml" in guide
     assert "mcrctl render" in guide
     assert "mcrctl apply" in guide
