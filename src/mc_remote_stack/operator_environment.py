@@ -7,6 +7,7 @@ import json
 import os
 import re
 import shutil
+import socket
 import subprocess
 import sys
 import tomllib
@@ -36,6 +37,10 @@ class CommandRunner(Protocol):
     ) -> subprocess.CompletedProcess[str]: ...
 
 
+class PortProbe(Protocol):
+    def __call__(self, address: str, port: int) -> None: ...
+
+
 @dataclass(frozen=True)
 class OperatorEnvironmentResult:
     status: str
@@ -48,6 +53,7 @@ class OperatorEnvironmentResult:
     docker_context: str
     docker_version: str
     compose_version: str
+    bootstrap_ports: tuple[int, int] | None = None
 
 
 def _default_runner(
@@ -181,6 +187,62 @@ def _declared_artifact_store(project: Path) -> Path | None:
     return Path(artifact_store)
 
 
+def _declared_network(project: Path) -> tuple[str, tuple[tuple[str, int], ...]]:
+    order_path = project / "mc-remote.toml"
+    try:
+        order = tomllib.loads(order_path.read_text(encoding="utf-8"))
+        network = order["network"]
+        address = network["bind_address"]
+        java_port = network["java_port"]
+        mcremote_port = network["mcremote_port"]
+    except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError, KeyError, TypeError) as exc:
+        _fail(
+            "operator_project_order_invalid",
+            order_path,
+            f"cannot identify the bootstrap network: {exc}",
+        )
+    if not isinstance(address, str) or not address:
+        _fail(
+            "operator_project_order_invalid",
+            "network.bind_address",
+            "bind_address must be one non-empty address",
+        )
+    ports = (("network.java_port", java_port), ("network.mcremote_port", mcremote_port))
+    if any(not isinstance(port, int) or isinstance(port, bool) or not 1 <= port <= 65535 for _, port in ports):
+        _fail(
+            "operator_project_order_invalid",
+            "network",
+            "java_port and mcremote_port must be distinct TCP ports in 1..65535",
+        )
+    if java_port == mcremote_port:
+        _fail(
+            "operator_project_order_invalid",
+            "network",
+            "java_port and mcremote_port must be distinct",
+        )
+    return address, ports
+
+
+def _default_port_probe(address: str, port: int) -> None:
+    family = socket.AF_INET6 if ":" in address else socket.AF_INET
+    with socket.socket(family, socket.SOCK_STREAM) as probe:
+        probe.bind((address, port))
+
+
+def _validate_bootstrap_ports(project: Path, probe: PortProbe) -> tuple[int, int]:
+    address, ports = _declared_network(project)
+    for path, port in ports:
+        try:
+            probe(address, port)
+        except OSError as exc:
+            _fail(
+                "operator_port_unavailable",
+                path,
+                f"declared TCP port {port} cannot be bound on the target host: {exc}",
+            )
+    return ports[0][1], ports[1][1]
+
+
 def _validate_artifact_store(path: Path, uid: int) -> None:
     if not path.exists():
         parent = path.parent
@@ -232,6 +294,8 @@ def check_operator_environment(
     effective_user: str | None = None,
     runner: CommandRunner = _default_runner,
     python_version: tuple[int, int, int] | None = None,
+    check_bootstrap_ports: bool = False,
+    port_probe: PortProbe = _default_port_probe,
 ) -> OperatorEnvironmentResult:
     """Verify one durable operator identity before deployment work starts."""
 
@@ -323,6 +387,10 @@ def check_operator_environment(
             "Docker Compose 2.33.1 or newer is required for the locked network gateway contract",
         )
 
+    bootstrap_ports = (
+        _validate_bootstrap_ports(project, port_probe) if check_bootstrap_ports else None
+    )
+
     return OperatorEnvironmentResult(
         status="ready",
         operator=operator,
@@ -334,4 +402,5 @@ def check_operator_environment(
         docker_context=docker_context,
         docker_version=docker,
         compose_version=compose,
+        bootstrap_ports=bootstrap_ports,
     )

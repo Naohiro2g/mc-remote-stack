@@ -482,6 +482,7 @@ def _cmd_operator_check(args: argparse.Namespace) -> int:
         result = check_operator_environment(
             Path(args.project),
             docker_context=args.docker_context,
+            check_bootstrap_ports=args.bootstrap_ports,
         )
     except OperatorEnvironmentError as exc:
         return _print_structured_failure("operator check", exc)
@@ -494,6 +495,12 @@ def _cmd_operator_check(args: argparse.Namespace) -> int:
         f"docker={result.docker_version} compose={result.compose_version}"
     )
     print(f"OK operator docker-context={result.docker_context} access=direct")
+    if result.bootstrap_ports is not None:
+        java_port, mcremote_port = result.bootstrap_ports
+        print(
+            "OK operator bootstrap-network=ready "
+            f"java-port={java_port} mcremote-port={mcremote_port}"
+        )
     return 0
 
 
@@ -1893,6 +1900,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     operator_check_parser.add_argument("--project", required=True)
     operator_check_parser.add_argument("--docker-context", default="default")
+    operator_check_parser.add_argument(
+        "--bootstrap-ports",
+        action="store_true",
+        help="verify that the order's declared TCP ports are bindable before artifact fetch",
+    )
     operator_check_parser.set_defaults(handler=_cmd_operator_check)
 
     plan_parser = subparsers.add_parser("plan", help="show deployment intent and blockers")

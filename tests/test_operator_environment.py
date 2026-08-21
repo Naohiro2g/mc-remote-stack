@@ -51,6 +51,72 @@ def test_operator_check_accepts_one_unprivileged_owner_with_complete_toolchain(t
     assert result.compose_version == "2.39.1"
 
 
+def test_operator_check_can_preflight_declared_bootstrap_ports(tmp_path: Path) -> None:
+    project = tmp_path / "deployment"
+    project.mkdir()
+    (project / "mc-remote.toml").write_text(
+        f'''[runtime]
+artifact_store = "{tmp_path / 'artifacts'}"
+
+[network]
+bind_address = "192.0.2.10"
+java_port = 25566
+mcremote_port = 25576
+''',
+        encoding="utf-8",
+    )
+    probes: list[tuple[str, int]] = []
+
+    result = check_operator_environment(
+        project,
+        docker_context="default",
+        effective_uid=project.stat().st_uid,
+        effective_user="operator",
+        runner=_healthy_runner,
+        python_version=(3, 11, 9),
+        check_bootstrap_ports=True,
+        port_probe=lambda address, port: probes.append((address, port)),
+    )
+
+    assert probes == [("192.0.2.10", 25566), ("192.0.2.10", 25576)]
+    assert result.bootstrap_ports == (25566, 25576)
+
+
+def test_operator_check_rejects_an_occupied_bootstrap_port(tmp_path: Path) -> None:
+    project = tmp_path / "deployment"
+    project.mkdir()
+    (project / "mc-remote.toml").write_text(
+        f'''[runtime]
+artifact_store = "{tmp_path / 'artifacts'}"
+
+[network]
+bind_address = "127.0.0.1"
+java_port = 25566
+mcremote_port = 25576
+''',
+        encoding="utf-8",
+    )
+
+    def occupied(_address: str, port: int) -> None:
+        if port == 25576:
+            raise OSError("Address already in use")
+
+    with pytest.raises(OperatorEnvironmentError) as caught:
+        check_operator_environment(
+            project,
+            docker_context="default",
+            effective_uid=project.stat().st_uid,
+            effective_user="operator",
+            runner=_healthy_runner,
+            python_version=(3, 11, 9),
+            check_bootstrap_ports=True,
+            port_probe=occupied,
+        )
+
+    assert caught.value.reason == "operator_port_unavailable"
+    assert caught.value.path == "network.mcremote_port"
+
+
 def test_operator_check_uses_the_bootstrap_uv_path_when_login_path_omits_it(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
