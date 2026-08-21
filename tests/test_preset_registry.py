@@ -924,6 +924,113 @@ def test_bundled_b4_session_persistence_fix_requires_credential_profile() -> Non
     verify_preset_catalog()
 
 
+def test_bundled_b5_normal_dev_preset_uses_frozen_git_build_provenance() -> None:
+    policy = load_catalog_policy()
+    catalog = load_preset_catalog()
+    preset = load_preset("mcremote-paper@7")
+
+    assert preset.data["requirements"] == {
+        "profile_capabilities": [
+            "compose",
+            "paper",
+            "persistent-world",
+            "credential-rollback-separated",
+            "mcremote-auth-enforced",
+            "mcremote-session-only",
+        ],
+        "allowed_channels": ["dev"],
+        "required_claims": ["profile-render", "protocol-hello"],
+    }
+    assert preset.data["components"] == [
+        {
+            "id": "minecraft-runtime",
+            "role": "minecraft-runtime",
+            "artifact": "minecraft-image",
+        },
+        {
+            "id": "paper-server",
+            "role": "paper-server",
+            "artifact": "paper-jar",
+            "minecraft_version": "1.21.11",
+        },
+        {
+            "id": "mcremote-paper",
+            "role": "mcremote-plugin",
+            "artifact": "mcremote-jar",
+            "protocol": "22.0.0",
+        },
+    ]
+    assert preset.data["artifacts"] == [
+        {
+            "id": "minecraft-image",
+            "kind": "oci",
+            "version": "2026.7.2-java21",
+            "locator": "docker.io/itzg/minecraft-server",
+            "digest": (
+                "sha256:7f69fd6688e03495c8a8f5a46e8a8e82001b4465f4b55bdcd024c02c3624d8c8"
+            ),
+        },
+        {
+            "id": "paper-jar",
+            "kind": "https-file",
+            "version": "1.21.11-132",
+            "filename": "paper-1.21.11-132.jar",
+            "sha256": (
+                "5ffef465eeeb5f2a3c23a24419d97c51afd7dbb4923ff42df9a3f58bba1ccfba"
+            ),
+            "origin": (
+                "https://fill-data.papermc.io/v1/objects/"
+                "5ffef465eeeb5f2a3c23a24419d97c51afd7dbb4923ff42df9a3f58bba1ccfba/"
+                "paper-1.21.11-132.jar"
+            ),
+        },
+        {
+            "id": "mcremote-jar",
+            "kind": "git-build",
+            "version": "2200.0.0b5",
+            "repository": "https://github.com/Naohiro2g/McRemote.git",
+            "commit": "ef025ce511e12bf2e8a111e3a8c15ac561ca2be9",
+            "source_subdirectory": ".",
+            "recipe": "./gradlew --no-daemon --console=plain clean build",
+            "recipe_sha256": (
+                "61a4999e31c2b29703836ba5d1e8917de1042ac2ff02cd6142b59862d8280e34"
+            ),
+            "toolchain": (
+                "Gradle 8.14 wrapper + Amazon Corretto JDK 21.0.10+7-LTS "
+                "linux-amd64; see toolchain-manifest.txt"
+            ),
+            "toolchain_sha256": (
+                "88e5d8ed9b5f3be3b812813971fa4f339d48eec4ab14512a142aae74df35883c"
+            ),
+            "build_input_sha256": (
+                "f8ee956984904870990e062ace5d920f1f7b34497f1885c9ac19c46a5a298eee"
+            ),
+            "output_filename": "mc-remote-1.21.11-2200.0.0b5.jar",
+            "output_sha256": (
+                "17cdc457a886dd1d37c8e969e5406016460599636f55fdeb584af0012c61aeb6"
+            ),
+        },
+    ]
+    assert "f293e63a77f178bc8d3cba8276e95124f2ee6b3eca77c15867a6fc5e5f166531" not in str(
+        preset.data
+    )
+    assert next(
+        entry for entry in policy["presets"] if entry["ref"] == "mcremote-paper@7"
+    ) == {
+        "ref": "mcremote-paper@7",
+        "status": "active",
+        "available_since": "2026-08-22",
+    }
+    catalog_entry = next(
+        entry
+        for entry in catalog["preset_catalog"]["presets"]
+        if entry["ref"] == "mcremote-paper@7"
+    )
+    assert catalog_entry["compatibility_status"] == "unverified"
+    assert catalog_entry["compatibility_records"] == []
+    verify_preset_catalog()
+
+
 def test_bundled_home_auth_b3_preset_is_exact_jar_only_rollback_target() -> None:
     policy = load_catalog_policy()
     catalog = load_preset_catalog()
