@@ -281,6 +281,28 @@ def test_normal_dev_runbook_is_server_only_and_gate_coordinator_driven() -> None
     assert "ケータリング" not in guide
 
 
+def test_normal_dev_runbook_documents_reasoned_unverified_acknowledgement() -> None:
+    guide = (REPO_ROOT / "docs" / "normal-dev-environment-guide_ja.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert "[acknowledgements]" in guide
+    assert "allow_unverified = true" in guide
+    assert (
+        'unverified_reason = "b5 exact compatibility set integration evidence is being established"'
+        in guide
+    )
+    assert "acknowledgement_reason_required" in guide
+    assert "unverified_not_acknowledged" in guide
+    assert "orderとlockを手編集しない" in guide
+    assert "gate coordinatorへ戻す" in guide
+    assert '"$MCRCTL" validate --project "$MC_REMOTE_PROJECT"' in guide
+    assert '"$MCRCTL" resolve --project "$MC_REMOTE_PROJECT" --allow-unverified' in guide
+    mcrctl_assignment = 'MCRCTL="$MC_REMOTE_STACK/.venv/bin/mcrctl"'
+    validate_command = '"$MCRCTL" validate --project "$MC_REMOTE_PROJECT"'
+    assert guide.index(mcrctl_assignment) < guide.index(validate_command)
+
+
 def test_normal_dev_exact_preset_template_has_review_slots_without_candidate_values() -> None:
     template = (
         REPO_ROOT / "examples" / "normal-dev-exact-preset.template.toml"
