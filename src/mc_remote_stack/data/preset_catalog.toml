@@ -3,7 +3,7 @@ schema_version = 1
 [preset_catalog]
 generator = "mcrctl-preset-catalog-v1"
 canonicalization = "jcs-rfc8785-v1"
-source_sha256 = "69818c9bcd6526e5d20b68311f2fb56a2a1d8825614dd1be3217f7d07828ecae"
+source_sha256 = "581f7cc47536a82badedc8359f5d740a3e962568c4ac7f4bd25706ee80bd689b"
 
 [[preset_catalog.presets]]
 ref = "mcremote-paper@1"
@@ -73,7 +73,7 @@ compatibility_records = ["2026-08-18-b4-code-preservation-recovery-live-human", 
 
 [[preset_catalog.presets]]
 ref = "mcremote-paper@7"
-content_sha256 = "3a946efb9ff0240d4623d38593c2f2611096c0ee0cacdca4077ac403dde9bb8b"
+content_sha256 = "ce5dafda624b71a0253d5f7f5af7703a75a84c9861ba6a44a508ffc25008c77d"
 description = "Exact frozen b5 server-side compatibility set for normal dev integration"
 status = "active"
 available_since = "2026-08-22"

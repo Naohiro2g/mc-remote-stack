@@ -997,7 +997,7 @@ def test_bundled_b5_normal_dev_preset_uses_frozen_git_build_provenance() -> None
             ),
             "toolchain": (
                 "Gradle 8.14 wrapper + Amazon Corretto JDK 21.0.10+7-LTS "
-                "linux-amd64; see toolchain-manifest.txt"
+                "linux-amd64"
             ),
             "toolchain_sha256": (
                 "88e5d8ed9b5f3be3b812813971fa4f339d48eec4ab14512a142aae74df35883c"
@@ -1011,6 +1011,9 @@ def test_bundled_b5_normal_dev_preset_uses_frozen_git_build_provenance() -> None
             ),
         },
     ]
+    toolchain = preset.data["artifacts"][2]["toolchain"]
+    assert "see " not in toolchain
+    assert ".txt" not in toolchain
     assert "f293e63a77f178bc8d3cba8276e95124f2ee6b3eca77c15867a6fc5e5f166531" not in str(
         preset.data
     )
