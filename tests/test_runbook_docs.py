@@ -248,6 +248,8 @@ def test_normal_dev_runbook_is_server_only_and_gate_coordinator_driven() -> None
     assert "GUI、browser、Minecraft Launcherをserver hostへ導入しない" in guide
     assert "EXACT_PRESET_REF" in guide
     assert "exact set未凍結中は設定しない" in guide
+    assert "BOOTSTRAP_CONTRACTS" in guide
+    assert "profile追加だけでは初回applyを許可しない" in guide
     assert "mcrctl operator check" in guide
     assert "mcrctl resolve" in guide
     assert "mcrctl plan" in guide

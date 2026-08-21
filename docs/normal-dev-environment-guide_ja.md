@@ -90,6 +90,10 @@ Stackの現行`artifact fetch`はlockにあるcredential-free HTTPS fileを取�
 componentは、exact set凍結前に恒久取得元を用意するか、別途review済みのimport経路が必要である。
 未push commit、local build、`/tmp`、movingな「latest」は入力にしない。
 
+profile追加だけでは初回applyを許可しない。exact presetを登録する変更で、`BOOTSTRAP_CONTRACTS`へ
+`home-server@5`、そのexact preset、`dev`、選択したexposure、`integration`の組をappendする。
+それまではresolve後のlockが存在してもapplyを`bootstrap_contract_unsupported`でfail closedにする。
+
 ## 4. order／lockの骨格
 
 exact setとLAN bindが批准された後、手書きTOMLではなく`init`で一environment一projectを作る。
