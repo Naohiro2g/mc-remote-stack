@@ -3,7 +3,7 @@ schema_version = 1
 [preset_catalog]
 generator = "mcrctl-preset-catalog-v1"
 canonicalization = "jcs-rfc8785-v1"
-source_sha256 = "96df0c5209863530db028be9fb5c9f5f9466d74696facef2a02aae45068e80f2"
+source_sha256 = "581f7cc47536a82badedc8359f5d740a3e962568c4ac7f4bd25706ee80bd689b"
 
 [[preset_catalog.presets]]
 ref = "mcremote-paper@1"
@@ -70,6 +70,17 @@ required_profile_capabilities = ["compose", "credential-rollback-separated", "pa
 allowed_channels = ["alpha"]
 compatibility_status = "verified"
 compatibility_records = ["2026-08-18-b4-code-preservation-recovery-live-human", "2026-08-18-b4-session-persistence-home-alpha"]
+
+[[preset_catalog.presets]]
+ref = "mcremote-paper@7"
+content_sha256 = "ce5dafda624b71a0253d5f7f5af7703a75a84c9861ba6a44a508ffc25008c77d"
+description = "Exact frozen b5 server-side compatibility set for normal dev integration"
+status = "active"
+available_since = "2026-08-22"
+required_profile_capabilities = ["compose", "credential-rollback-separated", "mcremote-auth-enforced", "mcremote-session-only", "paper", "persistent-world"]
+allowed_channels = ["dev"]
+compatibility_status = "unverified"
+compatibility_records = []
 
 [[preset_catalog.presets]]
 ref = "mcremote-paper-auth-b3@1"

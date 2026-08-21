@@ -300,6 +300,23 @@ def test_notice_feed_public_vps_bootstrap_contract_is_supported(tmp_path: Path) 
     )
 
 
+def test_b5_normal_dev_bootstrap_contract_is_supported(tmp_path: Path) -> None:
+    _project, _data_root, _output, lock = _prepared_current_alpha_project(tmp_path)
+    lock["input"]["profile"]["ref"] = "home-server@5"
+    lock["input"]["preset"]["ref"] = "mcremote-paper@7"
+    lock["environment"].update(
+        channel="dev",
+        exposure="lan-only",
+        purpose="integration",
+    )
+
+    _validate_bootstrap_contract(
+        lock,
+        allow_unverified=True,
+        allow_eol=False,
+    )
+
+
 def test_previous_public_vps_contract_is_rejected(tmp_path: Path) -> None:
     _project, _data_root, _output, lock = _prepared_public_project(tmp_path)
     lock["input"]["profile"]["ref"] = "vps-server@4"

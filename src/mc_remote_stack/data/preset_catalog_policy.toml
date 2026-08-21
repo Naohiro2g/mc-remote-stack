@@ -56,6 +56,11 @@ status = "active"
 available_since = "2026-08-18"
 
 [[presets]]
+ref = "mcremote-paper@7"
+status = "active"
+available_since = "2026-08-22"
+
+[[presets]]
 ref = "mcremote-paper-auth-b3@1"
 status = "active"
 available_since = "2026-08-17"
