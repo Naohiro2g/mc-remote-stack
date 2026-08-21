@@ -16,7 +16,7 @@ knowledge contractは`2026-08-21-03`／`2026-08-21-04`。b5 gateのexact setが�
 - purpose: `integration`
 - exposure: `lan-only`
 - profile: `home-server@5`
-- server側候補port: Minecraft Java `25566`、McRemote `25576`
+- server側標準port: Minecraft Java `25565`、McRemote `25575`
 
 `home-server@5`は`home-server@3`のserver側topologyを再利用するappend-only revisionである。
 Compose serviceはMinecraft／Paper／McRemoteだけとし、world、credential store、revocation authorityを
@@ -29,9 +29,9 @@ Compose serviceはMinecraft／Paper／McRemoteだけとし、world、credential 
 
 ```text
 開発者workstation                         server host
-Minecraft client ─── LAN/TCP 25566 ───> Minecraft/Paper
-Scratch browser ──> local Bridge ──────> McRemote TCP 25576
-Python process ─────────────────────────> McRemote TCP 25576
+Minecraft client ─── LAN/TCP 25565 ───> Minecraft/Paper
+Scratch browser ──> local Bridge ──────> McRemote TCP 25575
+Python process ─────────────────────────> McRemote TCP 25575
 WireScope browser <── workstation内のMessageChannel／loopback station
 ```
 
@@ -64,8 +64,11 @@ artifact store、local Docker contextをまとめて検査する。
   --bootstrap-ports
 ```
 
-server側の予定portにlistenerがあれば、既存runtimeを停止・上書きせず別portを選ぶ。LAN bindの実値、
-host／network firewall、開発者workstationからの到達性は人間checkpointである。addressをhost名から推測しない。
+server側の標準portにlistenerがあればpreflightを停止し、別portを選んで回避しない。backstage管理下のhostでは、
+全service／listenerについてbackstage inventoryで所有者、用途、期待状態を確定する。未知のlistenerを許容しない。
+予期しないlistenerがあればenvironment readinessを取り下げ、人間の明示承認後に停止するかreview済みmanaged stateへ
+写像してから同じ標準portを再検査する。LAN bindの実値、host／network firewall、開発者workstationからの到達性は
+人間checkpointである。addressをhost名から推測しない。
 
 ## 3. exact set受領前の停止点
 
@@ -132,8 +135,8 @@ REVIEWED_DEV_BIND_ADDRESS="<private inventoryで確認したLAN bind address>"
   --volume credential-revocations=dev-integration-credential-revocations \
   --world-identity dev-integration-world \
   --bind-address "$REVIEWED_DEV_BIND_ADDRESS" \
-  --java-port 25566 \
-  --mcremote-port 25576
+  --java-port 25565 \
+  --mcremote-port 25575
 ```
 
 orderは論理identity、profile／preset ref、三volume、world、bind、port、EULA acknowledgementを持つ。

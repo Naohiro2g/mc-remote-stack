@@ -242,8 +242,10 @@ def test_normal_dev_runbook_is_server_only_and_gate_coordinator_driven() -> None
     assert "dev-integration" in guide
     assert "channel: `dev`" in guide
     assert "exposure: `lan-only`" in guide
-    assert "25566" in guide
-    assert "25576" in guide
+    assert "25565" in guide
+    assert "25575" in guide
+    assert "25566" not in guide
+    assert "25576" not in guide
     assert "Minecraft client" in guide
     assert "開発者workstation" in guide
     assert "GUI、browser、Minecraft Launcherをserver hostへ導入しない" in guide
@@ -252,6 +254,9 @@ def test_normal_dev_runbook_is_server_only_and_gate_coordinator_driven() -> None
     assert "BOOTSTRAP_CONTRACTS" in guide
     assert "profile追加だけでは初回applyを許可しない" in guide
     assert "mcrctl operator check" in guide
+    assert "別portを選ぶ" not in guide
+    assert "backstage inventoryで所有者、用途、期待状態を確定" in guide
+    assert "未知のlistenerを許容しない" in guide
     assert "mcrctl resolve" in guide
     assert "mcrctl plan" in guide
     assert "mcrctl artifact fetch" in guide
