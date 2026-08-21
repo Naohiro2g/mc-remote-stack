@@ -16,6 +16,7 @@ from .artifacts import (
     ArtifactFetchError,
     fetch_locked_artifacts,
     import_recovery_archive,
+    import_reviewed_artifact,
 )
 from .auth_migration import (
     AuthMigrationContractError,
@@ -1607,6 +1608,32 @@ def _cmd_artifact_fetch(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_artifact_import_reviewed(args: argparse.Namespace) -> int:
+    try:
+        imported = import_reviewed_artifact(
+            Path(args.project),
+            Path(args.source),
+            artifact_id=args.artifact_id,
+            expected_sha256=args.expected_sha256,
+            data_root=_preset_data_root(),
+        )
+    except (
+        ArtifactFetchError,
+        PresetDataError,
+        ProjectOrderError,
+        ResolutionError,
+    ) as exc:
+        return _print_structured_failure("artifact import-reviewed", exc)
+    except OSError as exc:
+        print(f"FAIL artifact import-reviewed: {exc}")
+        return 2
+    print(
+        f"OK artifact status={imported.status} id={imported.id} "
+        f"sha256={imported.sha256} path={imported.path}"
+    )
+    return 0
+
+
 def _cmd_backup_transfer(args: argparse.Namespace) -> int:
     project, status = _load_backup_project(
         args.project,
@@ -2205,6 +2232,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     fetch_parser.add_argument("--project", required=True)
     fetch_parser.set_defaults(handler=_cmd_artifact_fetch)
+    import_reviewed_parser = artifact_subparsers.add_parser(
+        "import-reviewed",
+        help="import one reviewed git-build output named by the current TOML lock",
+    )
+    import_reviewed_parser.add_argument("source")
+    import_reviewed_parser.add_argument("--project", required=True)
+    import_reviewed_parser.add_argument("--artifact-id", required=True)
+    import_reviewed_parser.add_argument("--expected-sha256", required=True)
+    import_reviewed_parser.set_defaults(handler=_cmd_artifact_import_reviewed)
     import_archive_parser = artifact_subparsers.add_parser(
         "import-archive",
         help="import only lock-named JARs from a recovery ZIP",

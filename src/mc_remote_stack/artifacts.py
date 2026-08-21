@@ -3,6 +3,8 @@
 import hashlib
 import http.client
 import os
+import re
+import stat
 import tempfile
 import urllib.error
 import zipfile
@@ -329,6 +331,184 @@ def fetch_locked_artifacts(
         )
         for artifact in artifacts
     ]
+
+
+def import_reviewed_artifact(
+    project_root: Path,
+    source_path: Path,
+    *,
+    artifact_id: str,
+    expected_sha256: str,
+    data_root: Traversable,
+) -> FetchedArtifact:
+    """Import one reviewed git-build output named by the current TOML lock."""
+
+    project_root = project_root.resolve()
+    inspection = inspect_lock(project_root, data_root=data_root)
+    lock_path = project_root / "mc-remote.lock.toml"
+    if inspection.status == "missing":
+        _fetch_fail(
+            "lock_missing",
+            lock_path,
+            "resolve the project before importing a reviewed artifact",
+        )
+    if inspection.status == "stale":
+        _fetch_fail(
+            "stale_lock",
+            lock_path,
+            "order or exact bundled input changed; run mcrctl resolve explicitly",
+        )
+    lock = load_lock(project_root, data_root=data_root)
+    matches = [artifact for artifact in lock["artifacts"] if artifact["id"] == artifact_id]
+    if len(matches) != 1:
+        _fetch_fail(
+            "artifact_not_locked",
+            f"artifacts.{artifact_id}",
+            f"current lock must name the artifact exactly once; found {len(matches)}",
+        )
+    artifact = matches[0]
+    if artifact["kind"] != "git-build":
+        _fetch_fail(
+            "artifact_import_kind_unsupported",
+            f"artifacts.{artifact_id}.kind",
+            "reviewed import accepts only git-build output; use artifact fetch for HTTPS files",
+        )
+
+    locked_sha256 = artifact["output_sha256"]
+    if re.fullmatch(r"[0-9a-f]{64}", expected_sha256) is None:
+        _fetch_fail(
+            "artifact_review_digest_invalid",
+            f"artifacts.{artifact_id}.output_sha256",
+            "--expected-sha256 must be exactly 64 lowercase hexadecimal characters",
+        )
+    if expected_sha256 != locked_sha256:
+        _fetch_fail(
+            "artifact_review_digest_mismatch",
+            f"artifacts.{artifact_id}.output_sha256",
+            f"reviewed SHA-256 {expected_sha256} does not match current lock",
+        )
+
+    source_path = source_path.expanduser().absolute()
+    source_label = f"artifacts.{artifact_id}.reviewed-source"
+    if source_path.name != artifact["output_filename"]:
+        _fetch_fail(
+            "artifact_filename_mismatch",
+            source_label,
+            f"reviewed file must be named {artifact['output_filename']}",
+        )
+    try:
+        source_stat = source_path.lstat()
+    except OSError as exc:
+        _fetch_fail("artifact_source_invalid", source_label, str(exc))
+    if stat.S_ISLNK(source_stat.st_mode) or not stat.S_ISREG(source_stat.st_mode):
+        _fetch_fail(
+            "artifact_source_invalid",
+            source_label,
+            "reviewed source must be a regular file and not a symlink",
+        )
+    if source_stat.st_size > MAX_ARTIFACT_BYTES:
+        _fetch_fail(
+            "artifact_too_large",
+            source_label,
+            f"source exceeds the {MAX_ARTIFACT_BYTES}-byte artifact limit",
+        )
+
+    digest_store = Path(lock["runtime"]["artifact_store"]).resolve() / "sha256"
+    try:
+        digest_store.mkdir(mode=0o755, parents=True, exist_ok=True)
+    except OSError as exc:
+        _fetch_fail("artifact_store_write_failed", digest_store, str(exc))
+    if digest_store.is_symlink() or not digest_store.is_dir():
+        _fetch_fail(
+            "artifact_store_write_failed",
+            digest_store,
+            "content-addressed store must be a directory",
+        )
+
+    destination = digest_store / locked_sha256
+    temporary_path: Path | None = None
+    try:
+        open_flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+        source_descriptor = os.open(source_path, open_flags)
+        try:
+            if not stat.S_ISREG(os.fstat(source_descriptor).st_mode):
+                _fetch_fail(
+                    "artifact_source_invalid",
+                    source_label,
+                    "reviewed source changed before it could be read",
+                )
+            with os.fdopen(source_descriptor, "rb") as source:
+                source_descriptor = -1
+                with tempfile.NamedTemporaryFile(
+                    dir=digest_store,
+                    prefix=".import-reviewed-",
+                    delete=False,
+                ) as temporary:
+                    temporary_path = Path(temporary.name)
+                    digest = hashlib.sha256()
+                    size = 0
+                    while chunk := source.read(1024 * 1024):
+                        size += len(chunk)
+                        if size > MAX_ARTIFACT_BYTES:
+                            _fetch_fail(
+                                "artifact_too_large",
+                                source_label,
+                                f"source exceeds the {MAX_ARTIFACT_BYTES}-byte artifact limit",
+                            )
+                        digest.update(chunk)
+                        temporary.write(chunk)
+                    temporary.flush()
+                    os.fsync(temporary.fileno())
+        finally:
+            if source_descriptor >= 0:
+                os.close(source_descriptor)
+
+        actual_sha256 = digest.hexdigest()
+        if actual_sha256 != locked_sha256:
+            _fetch_fail(
+                "artifact_digest_mismatch",
+                source_label,
+                f"{artifact_id}: reviewed bytes do not match current lock",
+            )
+        temporary_path.chmod(0o644)
+        if _verify_store_entry(
+            destination,
+            artifact_id=artifact_id,
+            expected_sha256=locked_sha256,
+        ):
+            status = "present"
+        else:
+            try:
+                os.link(temporary_path, destination)
+            except FileExistsError:
+                _verify_store_entry(
+                    destination,
+                    artifact_id=artifact_id,
+                    expected_sha256=locked_sha256,
+                )
+                status = "present"
+            else:
+                directory_descriptor = os.open(digest_store, os.O_RDONLY)
+                try:
+                    os.fsync(directory_descriptor)
+                finally:
+                    os.close(directory_descriptor)
+                status = "imported"
+    except ArtifactFetchError:
+        raise
+    except OSError as exc:
+        _fetch_fail("artifact_import_failed", source_label, str(exc))
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
+
+    return FetchedArtifact(
+        artifact_id,
+        artifact["output_filename"],
+        locked_sha256,
+        destination,
+        status,
+    )
 
 
 def _append_recovery_artifacts(artifacts: list[tuple[str, dict]], locked: dict, prefix: str = "") -> None:

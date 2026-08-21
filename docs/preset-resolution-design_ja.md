@@ -841,6 +841,27 @@ mcrctl doctor --project <path> [--output <path>] \
 fetchはartifact bytesをCASへ準備するだけであり、OCI pull、Compose起動、volume作成、
 server接続、applyを行わない。
 
+#### 16.1.1 reviewed git-build output import
+
+`mcrctl artifact import-reviewed <source> --project <path> --artifact-id <id>
+--expected-sha256 <sha256>`は、release assetを先行作成せず、review済みのgit build outputをcurrent lockへ
+結び付けてCASへ入れる最小経路である。
+
+- current orderに対して`unchanged`なself-verifying lockだけを入力にする。
+- `artifact-id`がlock内で一意な`kind = "git-build"`を指すことを要求する。HTTPS fileは`artifact fetch`を使う。
+- CLIのreview digest、lockの`output_sha256`、source bytesのSHA-256を三者一致させる。
+- source filenameはlockの`output_filename`と一致させ、symlinkと非regular fileを拒否する。
+- 512 MiBを上限とし、同一filesystemのtemporary fileへcopy／fsyncした後、create-if-absentで
+  `<runtime.artifact_store>/sha256/<output_sha256>`へpublishする。
+- existing entryは毎回再hashする。一致なら`present`、不一致なら上書きせず`artifact_store_tampered`で停止する。
+- 一時的なtransfer URL、download credential、CI runの保持期限はlock identityへ含めない。一方、repository、full commit、
+  recipe／toolchain／build input、output digestはpreset／lockの`git-build` provenanceとして保持する。
+- command自身はclone、build、download、render、applyを行わない。import元fileを恒久配布元とは主張せず、別hostでの
+  再現にはreview済みbytesの移送またはCAS backupが必要である。
+
+この経路は、担当worktreeのmoving outputや未知のlocal buildを採用するsurfaceではない。gate coordinatorが凍結した
+exact setと、その値を登録したreview済みpreset／current lockが先に存在しなければ使用しない。
+
 ### 16.2 `compose@1` render contract
 
 `home-server@1` / `home-server@2` のrendererは`compose@1`とし、TOML projectでは次だけを生成する。

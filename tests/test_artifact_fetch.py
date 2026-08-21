@@ -9,6 +9,7 @@ import mc_remote_stack.cli as cli_module
 from mc_remote_stack.artifacts import (
     ArtifactFetchError,
     fetch_locked_artifacts,
+    import_reviewed_artifact,
 )
 from mc_remote_stack.cli import main
 from mc_remote_stack.toml_project import update_order_scalar
@@ -68,6 +69,199 @@ def _fixture_opener(calls: list[str]):
         )
 
     return open_url
+
+
+def _git_build_fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
+    return _render_fixture(
+        tmp_path,
+        mcremote_artifact_source=f'''[[artifacts]]
+id = "mcremote-jar"
+kind = "git-build"
+version = "2200.0.0b5"
+repository = "https://github.com/Naohiro2g/McRemote"
+commit = "{40 * '1'}"
+source_subdirectory = "."
+recipe = "./gradlew clean test build"
+recipe_sha256 = "{64 * '2'}"
+toolchain = "Java 21 + Gradle wrapper"
+toolchain_sha256 = "{64 * '3'}"
+build_input_sha256 = "{64 * '4'}"
+output_filename = "mcremote-fixture.jar"
+output_sha256 = "{PLUGIN_SHA256}"''',
+    )
+
+
+def test_import_reviewed_artifact_publishes_exact_git_build_bytes_atomically(
+    tmp_path: Path,
+) -> None:
+    project, data_root, artifact_store = _git_build_fixture(tmp_path)
+    destination = artifact_store / "sha256" / PLUGIN_SHA256
+    destination.unlink()
+    reviewed = tmp_path / "mcremote-fixture.jar"
+    reviewed.write_bytes(PLUGIN_BYTES)
+
+    imported = import_reviewed_artifact(
+        project,
+        reviewed,
+        artifact_id="mcremote-jar",
+        expected_sha256=PLUGIN_SHA256,
+        data_root=data_root,
+    )
+
+    assert (imported.id, imported.status, imported.sha256) == (
+        "mcremote-jar",
+        "imported",
+        PLUGIN_SHA256,
+    )
+    assert destination.read_bytes() == PLUGIN_BYTES
+    assert destination.stat().st_mode & 0o777 == 0o644
+    assert not list(destination.parent.glob(".import-reviewed-*"))
+
+
+def test_import_reviewed_artifact_rehashes_existing_entry_without_replacing_it(
+    tmp_path: Path,
+) -> None:
+    project, data_root, artifact_store = _git_build_fixture(tmp_path)
+    destination = artifact_store / "sha256" / PLUGIN_SHA256
+    before = destination.stat().st_mtime_ns
+    reviewed = tmp_path / "mcremote-fixture.jar"
+    reviewed.write_bytes(PLUGIN_BYTES)
+
+    imported = import_reviewed_artifact(
+        project,
+        reviewed,
+        artifact_id="mcremote-jar",
+        expected_sha256=PLUGIN_SHA256,
+        data_root=data_root,
+    )
+
+    assert imported.status == "present"
+    assert destination.stat().st_mtime_ns == before
+
+
+@pytest.mark.parametrize(
+    ("mutation", "reason"),
+    [
+        ("wrong-review-digest", "artifact_review_digest_mismatch"),
+        ("wrong-source-bytes", "artifact_digest_mismatch"),
+        ("wrong-filename", "artifact_filename_mismatch"),
+        ("symlink-source", "artifact_source_invalid"),
+        ("unsupported-kind", "artifact_import_kind_unsupported"),
+    ],
+)
+def test_import_reviewed_artifact_fails_closed_before_store_mutation(
+    tmp_path: Path,
+    mutation: str,
+    reason: str,
+) -> None:
+    if mutation == "unsupported-kind":
+        project, data_root, artifact_store = _render_fixture(tmp_path)
+    else:
+        project, data_root, artifact_store = _git_build_fixture(tmp_path)
+    destination = artifact_store / "sha256" / PLUGIN_SHA256
+    destination.unlink()
+    reviewed = tmp_path / "mcremote-fixture.jar"
+    reviewed.write_bytes(PLUGIN_BYTES)
+    expected = PLUGIN_SHA256
+    if mutation == "wrong-review-digest":
+        expected = "f" * 64
+    elif mutation == "wrong-source-bytes":
+        reviewed.write_bytes(b"not the reviewed bytes")
+    elif mutation == "wrong-filename":
+        reviewed = reviewed.rename(tmp_path / "renamed.jar")
+    elif mutation == "symlink-source":
+        target = tmp_path / "actual.jar"
+        reviewed.rename(target)
+        reviewed.symlink_to(target)
+
+    with pytest.raises(ArtifactFetchError, match=reason):
+        import_reviewed_artifact(
+            project,
+            reviewed,
+            artifact_id="mcremote-jar",
+            expected_sha256=expected,
+            data_root=data_root,
+        )
+
+    assert not destination.exists()
+    assert not list((artifact_store / "sha256").glob(".import-reviewed-*"))
+
+
+def test_import_reviewed_artifact_refuses_to_overwrite_tampered_store_entry(
+    tmp_path: Path,
+) -> None:
+    project, data_root, artifact_store = _git_build_fixture(tmp_path)
+    destination = artifact_store / "sha256" / PLUGIN_SHA256
+    destination.write_bytes(b"tampered")
+    reviewed = tmp_path / "mcremote-fixture.jar"
+    reviewed.write_bytes(PLUGIN_BYTES)
+
+    with pytest.raises(ArtifactFetchError, match="artifact_store_tampered"):
+        import_reviewed_artifact(
+            project,
+            reviewed,
+            artifact_id="mcremote-jar",
+            expected_sha256=PLUGIN_SHA256,
+            data_root=data_root,
+        )
+
+    assert destination.read_bytes() == b"tampered"
+
+
+def test_import_reviewed_artifact_rejects_stale_lock_before_source_or_store_access(
+    tmp_path: Path,
+) -> None:
+    project, data_root, artifact_store = _git_build_fixture(tmp_path)
+    destination = artifact_store / "sha256" / PLUGIN_SHA256
+    destination.unlink()
+    reviewed = tmp_path / "mcremote-fixture.jar"
+    reviewed.write_bytes(PLUGIN_BYTES)
+    update_order_scalar(project, ("network", "java_port"), 25566)
+
+    with pytest.raises(ArtifactFetchError, match="stale_lock"):
+        import_reviewed_artifact(
+            project,
+            reviewed,
+            artifact_id="mcremote-jar",
+            expected_sha256=PLUGIN_SHA256,
+            data_root=data_root,
+        )
+
+    assert not destination.exists()
+    assert not list((artifact_store / "sha256").glob(".import-reviewed-*"))
+
+
+def test_cli_import_reviewed_reports_lock_identity_without_source_path(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    project, data_root, artifact_store = _git_build_fixture(tmp_path)
+    (artifact_store / "sha256" / PLUGIN_SHA256).unlink()
+    reviewed = tmp_path / "mcremote-fixture.jar"
+    reviewed.write_bytes(PLUGIN_BYTES)
+    monkeypatch.setattr(cli_module, "_preset_data_root", lambda: data_root)
+
+    assert (
+        main(
+            [
+                "artifact",
+                "import-reviewed",
+                str(reviewed),
+                "--project",
+                str(project),
+                "--artifact-id",
+                "mcremote-jar",
+                "--expected-sha256",
+                PLUGIN_SHA256,
+            ]
+        )
+        == 0
+    )
+
+    output = capsys.readouterr().out
+    assert f"status=imported id=mcremote-jar sha256={PLUGIN_SHA256}" in output
+    assert str(reviewed) not in output
 
 
 def test_fetch_locked_artifacts_downloads_only_exact_https_files(tmp_path: Path) -> None:

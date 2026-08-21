@@ -1,4 +1,5 @@
 import re
+import tomllib
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -254,6 +255,8 @@ def test_normal_dev_runbook_is_server_only_and_gate_coordinator_driven() -> None
     assert "mcrctl resolve" in guide
     assert "mcrctl plan" in guide
     assert "mcrctl artifact fetch" in guide
+    assert "mcrctl artifact import-reviewed" in guide
+    assert "normal-dev-exact-preset.template.toml" in guide
     assert "mcrctl render" in guide
     assert "mcrctl apply" in guide
     assert "mcrctl doctor" in guide
@@ -262,3 +265,22 @@ def test_normal_dev_runbook_is_server_only_and_gate_coordinator_driven() -> None
     assert "candidate deployは未許可" in guide
     assert "sudo mcrctl" not in guide
     assert "ケータリング" not in guide
+
+
+def test_normal_dev_exact_preset_template_has_review_slots_without_candidate_values() -> None:
+    template = (
+        REPO_ROOT / "examples" / "normal-dev-exact-preset.template.toml"
+    ).read_text(encoding="utf-8")
+
+    assert 'allowed_channels = ["dev"]' in template
+    assert 'kind = "git-build"' in template
+    assert 'id = "mcremote-jar"' in template
+    assert 'repository = "<REVIEWED_HTTPS_REPOSITORY>"' in template
+    assert 'commit = "<REVIEWED_FULL_COMMIT_SHA>"' in template
+    assert 'output_sha256 = "<REVIEWED_OUTPUT_SHA256>"' in template
+    assert 'BOOTSTRAP_CONTRACT = ["home-server@5"' in template
+    parsed = tomllib.loads(template)
+    assert parsed["requirements"]["allowed_channels"] == ["dev"]
+    assert parsed["artifacts"][-1]["kind"] == "git-build"
+    assert "6214a6a5efe5180c1cd0f374089736908b07ee34" not in template
+    assert "f293e63a77f178bc8d3cba8276e95124f2ee6b3eca77c15867a6fc5e5f166531" not in template

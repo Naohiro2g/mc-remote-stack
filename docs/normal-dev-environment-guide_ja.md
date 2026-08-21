@@ -86,9 +86,21 @@ EXACT_PRESET_REF=""  # exact set未凍結中は設定しない
 - WireScope ZIP／detached manifestのbytes、SHA-256、schema／handoff version
 - queue、ring、poll、handle、particle、work、timeoutの確定runtime policy値とfixture identity
 
-Stackの現行`artifact fetch`はlockにあるcredential-free HTTPS fileを取得する。期限付きCI artifactしか無い
-componentは、exact set凍結前に恒久取得元を用意するか、別途review済みのimport経路が必要である。
-未push commit、local build、`/tmp`、movingな「latest」は入力にしない。
+exact presetとbootstrap tupleのreview入力枠は
+[`examples/normal-dev-exact-preset.template.toml`](../examples/normal-dev-exact-preset.template.toml)
+に置く。これはresolverが読むbundled presetではなく、placeholderを残したまま使用できないreview checklistである。
+exact set受領後の別PRで、全placeholderをreview済み値へ置換したappend-only presetをregistryへ追加し、catalogを
+再生成する。同じPRで、template冒頭に示すexact 5-tupleだけを`BOOTSTRAP_CONTRACTS`へappendする。
+
+`artifact fetch`はlockにあるcredential-free HTTPS fileを取得する。GitHub Releaseを先行作成せずに固定する
+McRemote JARは`kind = "git-build"`としてsource／build provenanceとoutput SHA-256をpreset／lockへ固定し、
+coordinatorがreviewした同一bytesだけを`mcrctl artifact import-reviewed`でCASへ入れる。取得時の一時URLや認証は
+lock identityにせず、import後の`<artifact_store>/sha256/<output_sha256>`をdeploy入力とする。期限付きCI artifactを
+恒久originとして参照しない。未push commit、担当worktreeの`build/libs`、`/tmp`、movingな「latest」は入力にしない。
+
+Scratch／Bridge、Python、WireScopeのexact identityは横断compatibility setに必要だが、このserver-only profileで
+hostへ配備するartifactではない。b5のために未使用artifactやworkstation runtimeをserver presetへ混入せず、
+coordinatorの統一実施票と各componentのdistribution metadataで照合する。
 
 profile追加だけでは初回applyを許可しない。exact presetを登録する変更で、`BOOTSTRAP_CONTRACTS`へ
 `home-server@5`、そのexact preset、`dev`、選択したexposure、`integration`の組をappendする。
@@ -132,7 +144,7 @@ instance値、compatibility statusを固定する。lockを手編集しない。
 
 この節はcoordinatorがexact setとcandidate deployを許可した後だけ実行する。
 正準操作入口は`mcrctl operator check` → `mcrctl validate` → `mcrctl accept-eula` →
-`mcrctl resolve` → `mcrctl plan` → `mcrctl artifact fetch` → `mcrctl render` →
+`mcrctl resolve` → `mcrctl plan` → `mcrctl artifact fetch` → `mcrctl artifact import-reviewed` → `mcrctl render` →
 `mcrctl apply` → `mcrctl doctor`の順である。
 
 ```sh
@@ -147,13 +159,22 @@ MCRCTL="$MC_REMOTE_STACK/.venv/bin/mcrctl"
 "$MCRCTL" resolve --project "$MC_REMOTE_PROJECT" --allow-unverified
 "$MCRCTL" plan --project "$MC_REMOTE_PROJECT"
 "$MCRCTL" artifact fetch --project "$MC_REMOTE_PROJECT"
+"$MCRCTL" artifact import-reviewed "$REVIEWED_MCREMOTE_JAR" \
+  --project "$MC_REMOTE_PROJECT" \
+  --artifact-id mcremote-jar \
+  --expected-sha256 "$REVIEWED_MCREMOTE_SHA256"
 "$MCRCTL" render \
   --project "$MC_REMOTE_PROJECT" \
   --output "$MC_REMOTE_PROJECT/generated"
 ```
 
-`plan`で表示したlock identity、artifact、三volume、world、LAN bind／portを人間が確認する。artifact取得と
-renderが成功するまでruntimeを変更しない。承認したlockだけを初回bootstrapする。
+`REVIEWED_MCREMOTE_JAR`と`REVIEWED_MCREMOTE_SHA256`は、coordinatorがexact setで指名したfileとdigestだけを
+設定する。importはcurrentかつself-verifyingなlockの`git-build` artifact一件に限定し、filenameとdigestを再検査する。
+既存CAS entryが同digestなら再hashして`present`、不一致なら上書きせず停止する。source fileはsymlinkを拒否し、
+同一filesystem内のtemporary fileからcreate-if-absentでpublishする。この操作はbuild、download、render、applyを行わない。
+
+`plan`で表示したlock identity、artifact、三volume、world、LAN bind／portを人間が確認する。HTTPS artifact取得、
+review済みgit-build outputのimport、renderが成功するまでruntimeを変更しない。承認したlockだけを初回bootstrapする。
 
 ```sh
 REVIEWED_LOCK_IDENTITY="sha256:<planで確認した64-hex>"

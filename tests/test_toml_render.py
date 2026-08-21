@@ -31,7 +31,16 @@ def _preset_source(
     *,
     revision: str = "1",
     allowed_channel: str = "beta",
+    mcremote_artifact_source: str | None = None,
 ) -> str:
+    if mcremote_artifact_source is None:
+        mcremote_artifact_source = f'''[[artifacts]]
+id = "mcremote-jar"
+kind = "https-file"
+version = "2100.0.0b2"
+filename = "mcremote-fixture.jar"
+sha256 = "{PLUGIN_SHA256}"
+origin = "https://example.invalid/mcremote-fixture.jar"'''
     return f"""schema_version = 1
 
 [preset]
@@ -76,13 +85,7 @@ filename = "paper-fixture.jar"
 sha256 = "{PAPER_SHA256}"
 origin = "https://example.invalid/paper-fixture.jar"
 
-[[artifacts]]
-id = "mcremote-jar"
-kind = "https-file"
-version = "2100.0.0b2"
-filename = "mcremote-fixture.jar"
-sha256 = "{PLUGIN_SHA256}"
-origin = "https://example.invalid/mcremote-fixture.jar"
+{mcremote_artifact_source}
 """
 
 
@@ -97,6 +100,7 @@ def _render_fixture(
     profile_revision: str = "4",
     exposure: str = "isolated",
     bind_address: str = "127.0.0.1",
+    mcremote_artifact_source: str | None = None,
 ) -> tuple[Path, Path, Path]:
     data_root = _data_root(tmp_path, "render-data")
     profile_path = (
@@ -127,6 +131,7 @@ def _render_fixture(
         _preset_source(
             revision=preset_revision,
             allowed_channel=channel,
+            mcremote_artifact_source=mcremote_artifact_source,
         ),
         encoding="utf-8",
     )
