@@ -151,8 +151,9 @@ instance値、compatibility statusを固定する。lockを手編集しない。
 
 この節はcoordinatorがexact setとcandidate deployを許可した後だけ実行する。
 正準操作入口は`mcrctl operator check` → `mcrctl validate` → `mcrctl accept-eula` →
-`mcrctl resolve` → `mcrctl plan` → `mcrctl artifact fetch` → `mcrctl artifact import-reviewed` → `mcrctl render` →
-`mcrctl apply` → `mcrctl doctor`の順である。
+理由付きunverified acknowledgementの設定 → `mcrctl validate` → `mcrctl resolve` → `mcrctl plan` →
+`mcrctl artifact fetch` → `mcrctl artifact import-reviewed` → `mcrctl render` → `mcrctl apply` →
+`mcrctl doctor`の順である。
 
 ```sh
 MCRCTL="$MC_REMOTE_STACK/.venv/bin/mcrctl"
@@ -163,8 +164,53 @@ MCRCTL="$MC_REMOTE_STACK/.venv/bin/mcrctl"
   --bootstrap-ports
 "$MCRCTL" validate --project "$MC_REMOTE_PROJECT"
 "$MCRCTL" accept-eula --project "$MC_REMOTE_PROJECT" --yes
+```
+
+### 5.1 理由付きunverified acknowledgement
+
+exact presetのcompatibility evidenceがまだ`unverified`であり、gate coordinatorがそのexact setの使用を
+明示許可した場合だけ設定する。これはMinecraft EULAの承認、compatibility検証の完了、恒久的な既定値の
+いずれでもない。
+
+`init`が作った`mc-remote.toml`をtext editorで開き、既存の`[acknowledgements]`にある次の2 scalarだけを
+更新する。tableやkeyを重複追加せず、理由には現在のgateと実施目的を具体的に記す。次はb5 gateで使用する
+理由の例であり、後続gateへそのまま転用しない。
+
+```toml
+[acknowledgements]
+allow_unverified = true
+unverified_reason = "b5 exact compatibility set integration evidence is being established"
+allow_eol = false
+eol_reason = ""
+```
+
+設定後は`validate`を再実行し、`OK validate format=toml order=valid`を確認する。続いて、実行ごとの
+one-shot確認である`--allow-unverified`を付けて`resolve`する。orderの永続設定だけ、またはone-shot flag
+だけでは成功しない。
+
+```sh
+"$MCRCTL" validate --project "$MC_REMOTE_PROJECT"
 "$MCRCTL" resolve --project "$MC_REMOTE_PROJECT" --allow-unverified
 "$MCRCTL" plan --project "$MC_REMOTE_PROJECT"
+```
+
+成功条件は次のすべてである。
+
+- `validate`がorderをvalidと判定する。
+- `resolve`が`OK resolve status=created`または`status=unchanged`を返す。
+- `plan`がcoordinator指定のprofile／preset／artifact／volume／bind／portとreview対象のlock identityを示す。
+- `PLAN selection=preset compatibility=unverified`とcompatibility warningだけが、今回許容した未検証境界として残る。
+- lockを手編集せず、`resolve`が生成したlock identityを`plan`でreviewできる。
+
+`acknowledgement_reason_required`なら、`allow_unverified = true`に対応する理由が非空かつ具体的かをorderで
+直し、`validate`から再開する。`unverified_not_acknowledged`なら、order側の2 scalarと、当該`resolve`／`apply`
+に付けるone-shot `--allow-unverified`の両方を確認する。それ以外のfailure、またはplanに予期しないidentity差分が
+あれば停止し、order／lock／generated treeとreasonを保持してgate coordinatorへ戻す。失敗を回避するために
+profile／preset、acknowledgement以外のorderとlockを手編集しない。
+
+上のacknowledgement設定と再`validate`／`resolve`／`plan`を完了してから、artifact処理へ進む。
+
+```sh
 "$MCRCTL" artifact fetch --project "$MC_REMOTE_PROJECT"
 "$MCRCTL" artifact import-reviewed "$REVIEWED_MCREMOTE_JAR" \
   --project "$MC_REMOTE_PROJECT" \
