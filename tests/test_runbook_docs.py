@@ -1,4 +1,5 @@
 import re
+import tomllib
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -228,3 +229,72 @@ def test_fresh_host_guide_keeps_canonicalized_local_content_recoverable() -> Non
     assert "artifact store全体" in guide
     assert "trees/sha256" in guide
     assert "配布元が確立した意味ではない" in guide
+
+
+def test_normal_dev_runbook_is_server_only_and_gate_coordinator_driven() -> None:
+    guide = (REPO_ROOT / "docs" / "normal-dev-environment-guide_ja.md").read_text(
+        encoding="utf-8"
+    )
+    readme = (REPO_ROOT / "README_ja.md").read_text(encoding="utf-8")
+
+    assert "normal-dev-environment-guide_ja.md" in readme
+    assert "home-server@5" in guide
+    assert "dev-integration" in guide
+    assert "channel: `dev`" in guide
+    assert "exposure: `lan-only`" in guide
+    assert "25565" in guide
+    assert "25575" in guide
+    assert "25566" not in guide
+    assert "25576" not in guide
+    assert "Minecraft client" in guide
+    assert "開発者workstation" in guide
+    assert "GUI、browser、Minecraft Launcherをserver hostへ導入しない" in guide
+    assert "EXACT_PRESET_REF" in guide
+    assert "exact set未凍結中は設定しない" in guide
+    assert "BOOTSTRAP_CONTRACTS" in guide
+    assert "profile追加だけでは初回applyを許可しない" in guide
+    assert "mcrctl operator check" in guide
+    assert "exact set未凍結中は`--install`を実行しない" in guide
+    assert "coordinatorがhost installを明示許可" in guide
+    assert "別portを選ぶ" not in guide
+    assert "backstage inventoryで所有者、用途、期待状態を確定" in guide
+    assert "未知のlistenerを許容しない" in guide
+    assert "mcrctl resolve" in guide
+    assert "mcrctl plan" in guide
+    assert "mcrctl artifact fetch" in guide
+    assert "mcrctl artifact import-reviewed" in guide
+    assert (
+        "McRemoteのpush済みsource commit、artifact名、version、bytes、SHA-256、"
+        "credential-free HTTPS取得元"
+        not in guide
+    )
+    assert "git-build provenance" in guide
+    assert "review済みbytes import" in guide
+    assert "normal-dev-exact-preset.template.toml" in guide
+    assert "mcrctl render" in guide
+    assert "mcrctl apply" in guide
+    assert "mcrctl doctor" in guide
+    assert "mcrctl deployment update plan" in guide
+    assert "mcrctl deployment update apply" in guide
+    assert "candidate deployは未許可" in guide
+    assert "sudo mcrctl" not in guide
+    assert "ケータリング" not in guide
+
+
+def test_normal_dev_exact_preset_template_has_review_slots_without_candidate_values() -> None:
+    template = (
+        REPO_ROOT / "examples" / "normal-dev-exact-preset.template.toml"
+    ).read_text(encoding="utf-8")
+
+    assert 'allowed_channels = ["dev"]' in template
+    assert 'kind = "git-build"' in template
+    assert 'id = "mcremote-jar"' in template
+    assert 'repository = "<REVIEWED_HTTPS_REPOSITORY>"' in template
+    assert 'commit = "<REVIEWED_FULL_COMMIT_SHA>"' in template
+    assert 'output_sha256 = "<REVIEWED_OUTPUT_SHA256>"' in template
+    assert 'BOOTSTRAP_CONTRACT = ["home-server@5"' in template
+    parsed = tomllib.loads(template)
+    assert parsed["requirements"]["allowed_channels"] == ["dev"]
+    assert parsed["artifacts"][-1]["kind"] == "git-build"
+    assert "6214a6a5efe5180c1cd0f374089736908b07ee34" not in template
+    assert "f293e63a77f178bc8d3cba8276e95124f2ee6b3eca77c15867a6fc5e5f166531" not in template

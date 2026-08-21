@@ -677,6 +677,40 @@ def test_bundled_credential_profile_declares_separate_backend_roles() -> None:
     ]
 
 
+def test_bundled_normal_dev_profile_reuses_server_topology_with_dev_policy() -> None:
+    alpha = load_profile("home-server@3")
+    dev = load_profile("home-server@5")
+
+    assert dev.data["renderer"] == alpha.data["renderer"] == {
+        "name": "compose",
+        "revision": "5",
+    }
+    assert dev.data["services"] == alpha.data["services"] == [
+        {"id": "minecraft", "role": "minecraft"}
+    ]
+    assert dev.data["volume_roles"] == alpha.data["volume_roles"]
+    assert dev.data["environment"] == {
+        "allowed_channels": ["dev"],
+        "allowed_exposures": ["isolated", "lan-only"],
+        "allowed_purposes": ["integration"],
+    }
+    assert dev.data["capabilities"]["provided"] == [
+        "compose",
+        "paper",
+        "persistent-world",
+        "credential-rollback-separated",
+        "mcremote-auth-enforced",
+        "mcremote-session-only",
+    ]
+    assert dev.data["policy"]["required_security_controls"] == [
+        "online-mode",
+        "rcon-disabled",
+        "credential-authority-write-set-separated",
+        "mcremote-auth-enforced",
+        "mcremote-session-only",
+    ]
+
+
 def test_bundled_current_profiles_require_mcremote_auth_enforcement() -> None:
     home = load_profile("home-server@4")
     public = load_profile("vps-server@5")

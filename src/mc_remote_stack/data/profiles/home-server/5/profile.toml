@@ -1,0 +1,68 @@
+schema_version = 1
+
+[profile]
+name = "home-server"
+revision = "5"
+description = "Single-host server-side dev integration topology with separated credential state"
+
+[capabilities]
+provided = [
+  "compose",
+  "paper",
+  "persistent-world",
+  "credential-rollback-separated",
+  "mcremote-auth-enforced",
+  "mcremote-session-only",
+]
+required_component_roles = ["minecraft-runtime", "paper-server", "mcremote-plugin"]
+
+[environment]
+allowed_channels = ["dev"]
+allowed_exposures = ["isolated", "lan-only"]
+allowed_purposes = ["integration"]
+
+[policy]
+required_security_controls = [
+  "online-mode",
+  "rcon-disabled",
+  "credential-authority-write-set-separated",
+  "mcremote-auth-enforced",
+  "mcremote-session-only",
+]
+instance_fields = [
+  "deployment.name",
+  "environment.identity",
+  "runtime.artifact_store",
+  "runtime.volumes",
+  "world.identity",
+  "network.bind_address",
+  "network.java_port",
+  "network.mcremote_port",
+  "agreements.minecraft_eula",
+]
+override_allowlist = ["capacity.memory"]
+
+[renderer]
+name = "compose"
+revision = "5"
+
+[[operator_input_roles]]
+id = "minecraft-motd"
+adapter = "minecraft-motd@1"
+required = false
+
+[[services]]
+id = "minecraft"
+role = "minecraft"
+
+[[volume_roles]]
+id = "minecraft-data"
+kind = "world"
+
+[[volume_roles]]
+id = "credential-store"
+kind = "runtime-data"
+
+[[volume_roles]]
+id = "credential-revocations"
+kind = "security-state"
