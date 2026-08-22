@@ -19,8 +19,8 @@
 - [fresh host bootstrap](docs/fresh-host-bootstrap-guide_ja.md): 個人管理者ユーザー、SSH、安全な開始点、現行 `mcrctl` の停止境界
 - [public VPS bootstrap](docs/public-vps-bootstrap-guide_ja.md): 二commandのsame-volume通常更新、
   新規host bootstrap、b2〜b4の歴史的救済、public doctor、残るreadiness phase
-- [通常dev環境](docs/normal-dev-environment-guide_ja.md): server側だけを別hostへ置き、開発者workstationの
-  Minecraft／Scratch／Python／WireScopeから検証する`dev-integration`のpreflight、初回apply、更新経路
+- [通常dev環境](docs/normal-dev-environment-guide_ja.md): server側だけをhost-native systemd runtimeとして
+  別hostへ置き、開発者workstationから使う`dev-integration`のcheck／install／verify経路
 - [Wake-on-LAN optional operation field note](docs/wake-on-lan-field-note_ja.md): 準24時間運用でWoLを
   重視しつつhardware要件にしない理由、directed broadcast、Python / `wakeonlan`、
   power stateごとの検証・証跡境界

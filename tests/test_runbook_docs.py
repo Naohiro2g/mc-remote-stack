@@ -238,7 +238,9 @@ def test_normal_dev_runbook_is_server_only_and_gate_coordinator_driven() -> None
     readme = (REPO_ROOT / "README_ja.md").read_text(encoding="utf-8")
 
     assert "normal-dev-environment-guide_ja.md" in readme
-    assert "home-server@5" in guide
+    assert "host-native" in readme
+    assert "host-native" in guide
+    assert "systemd" in guide
     assert "dev-integration" in guide
     assert "channel: `dev`" in guide
     assert "exposure: `lan-only`" in guide
@@ -249,58 +251,36 @@ def test_normal_dev_runbook_is_server_only_and_gate_coordinator_driven() -> None
     assert "Minecraft client" in guide
     assert "開発者workstation" in guide
     assert "GUI、browser、Minecraft Launcherをserver hostへ導入しない" in guide
-    assert "EXACT_PRESET_REF" in guide
-    assert "exact set未凍結中は設定しない" in guide
-    assert "BOOTSTRAP_CONTRACTS" in guide
-    assert "profile追加だけでは初回applyを許可しない" in guide
-    assert "mcrctl operator check" in guide
-    assert "exact set未凍結中は`--install`を実行しない" in guide
-    assert "coordinatorがhost installを明示許可" in guide
+    assert "host-native-dev-runtime.sh check" in guide
+    assert "host-native-dev-runtime.sh install" in guide
+    assert "host-native-dev-runtime.sh verify" in guide
+    assert "mcremote credential bootstrap" in guide
+    assert "Credential domain: HEALTHY" in guide
+    assert "Server started at port 25575" in guide
+    assert "Done (" in guide
+    assert "WorkingDirectory=/srv/mc-remote/dev-integration/data" in guide
     assert "別portを選ぶ" not in guide
     assert "backstage inventoryで所有者、用途、期待状態を確定" in guide
     assert "未知のlistenerを許容しない" in guide
-    assert "mcrctl resolve" in guide
-    assert "mcrctl plan" in guide
-    assert "mcrctl artifact fetch" in guide
-    assert "mcrctl artifact import-reviewed" in guide
-    assert (
-        "McRemoteのpush済みsource commit、artifact名、version、bytes、SHA-256、"
-        "credential-free HTTPS取得元"
-        not in guide
-    )
-    assert "git-build provenance" in guide
-    assert "review済みbytes import" in guide
-    assert "normal-dev-exact-preset.template.toml" in guide
-    assert "mcrctl render" in guide
-    assert "mcrctl apply" in guide
-    assert "mcrctl doctor" in guide
-    assert "mcrctl deployment update plan" in guide
-    assert "mcrctl deployment update apply" in guide
-    assert "candidate deployは未許可" in guide
+    assert "home-server@5" not in guide
+    assert "compose@5" not in guide
+    assert "mcrctl apply" not in guide
+    assert "mcrctl doctor" not in guide
     assert "sudo mcrctl" not in guide
     assert "ケータリング" not in guide
 
 
-def test_normal_dev_runbook_documents_reasoned_unverified_acknowledgement() -> None:
+def test_normal_dev_runbook_documents_host_native_failure_boundaries() -> None:
     guide = (REPO_ROOT / "docs" / "normal-dev-environment-guide_ja.md").read_text(
         encoding="utf-8"
     )
 
-    assert "[acknowledgements]" in guide
-    assert "allow_unverified = true" in guide
-    assert (
-        'unverified_reason = "b5 exact compatibility set integration evidence is being established"'
-        in guide
-    )
-    assert "acknowledgement_reason_required" in guide
-    assert "unverified_not_acknowledged" in guide
-    assert "orderとlockを手編集しない" in guide
+    assert "失敗treeをその場でchown" in guide
+    assert "失敗時に同じcommandを推測再実行しない" in guide
+    assert "credentialのHEALTHYだけではruntime readyとしない" in guide
+    assert "runtime再作成やcredential再bootstrapを行わない" in guide
+    assert "製品APIのlive-auto／live-human" in guide
     assert "gate coordinatorへ戻す" in guide
-    assert '"$MCRCTL" validate --project "$MC_REMOTE_PROJECT"' in guide
-    assert '"$MCRCTL" resolve --project "$MC_REMOTE_PROJECT" --allow-unverified' in guide
-    mcrctl_assignment = 'MCRCTL="$MC_REMOTE_STACK/.venv/bin/mcrctl"'
-    validate_command = '"$MCRCTL" validate --project "$MC_REMOTE_PROJECT"'
-    assert guide.index(mcrctl_assignment) < guide.index(validate_command)
 
 
 def test_normal_dev_exact_preset_template_has_review_slots_without_candidate_values() -> None:
