@@ -180,6 +180,46 @@ volumeは保持する。`doctor`はpublic bind、current lock / render、managed
 runtime、protocol helloをread-onlyで検証する。外部HTTPS / WSS readinessと
 content-addressed homepageは後続claimである。
 
+`public-routes@2`はScratch runtimeへ`wirescope_url`を投影し、Caddyがexact WireScope ZIPと
+detached manifestを照合・展開したread-only docrootを別originで配信する。これはScratchの
+cross-origin MessageChannel handoffだけを提供し、public station、source ingress、Minecraft
+control endpointを追加しない。operator notice feedは上から新しい順で入力し、preset所有の
+Scratchクライアント版情報を末尾へ必ず追加する。入力欠落、default不包含、notice feedの型不正は
+resolve / render / doctorでfail closedになる。
+
+### 既存deploymentをpresetで更新する
+
+`--bootstrap`は初回applyだけの操作である。既にbootstrap済みのTOML deployment（`home-beta`・
+`official-public-beta`のいずれも同じ経路）を、同じprofile／preset family内の新しいexact
+artifact setへ進めるときは、`mcrctl deployment update`を使う。
+
+```sh
+uv run mcrctl deployment update plan \
+  --project "$MC_REMOTE_PROJECT" \
+  --to-profile <profile>@<revision> \
+  --to-preset <preset>@<revision>
+
+uv run mcrctl deployment update apply \
+  --project "$MC_REMOTE_PROJECT" \
+  --plan-id <planで確認したID> \
+  --yes
+```
+
+`update plan`はexact HTTPS artifactを取得し、稼働中containerのCompose provenanceから
+未管理fileを自動snapshotし、`runtime.volumes`／`world.identity`をそのまま維持する。
+`mc-remote.toml`の`runtime.volumes`や`world.identity`を手で書き換えない — 値を変えると
+Dockerは別volumeとして扱い、既存のworldやruntime dataへ接続しなくなる。`update apply`は
+review済みの`plan-id`だけを受け付け、target `doctor`が失敗した場合はsource order／lock／
+renderとcontainerへ自動的に戻す。world変更、session、pairing、接続の完全復元は主張しない。
+
+`mcrctl migration public-b3` / `public-b4`は、enforced authの新規導入など、当時一回限りの
+構造移行のために書かれた歴史的な救済経路であり、通常のpreset更新には使わない。将来の
+releaseで同種のsubcommandを複製しない。
+
+McRemoteのsession recordはMinecraft data volume内へhash-onlyで保存される。同じworld
+volumeを保った通常のcontainer restart／`update apply`はこれを維持するが、worldを
+交換した場合の認証継続やpublic long-lived credentialは保証しない。
+
 ## Legacy `official-vps` 垂直スライス（回帰用）
 
 ```sh
@@ -202,29 +242,8 @@ deploymentには使わず、bootstrap applyも受理しない。
 
 `official-vps`には任意の`staging` instanceを用意している。`staging.enabled: true`にすると、本番とは別のdata、backup、OCI image、Paper、plugin lockを持つ`minecraft-dev` serviceを生成する。本番は`25565/tcp・udp`と`25575/tcp`、stagingは`25566/tcp・udp`と`25576/tcp`を使う。Scratch stableの既定接続先は`sb.mc-remote.com`、Scratch devは`sb-dev.mc-remote.com`となる。
 
-公開b3のruntime-config経路は`vps-server@7`でScratch runtimeの非空`connection_targets`を必須化した。
-現行`vps-server@12`は上から新しい順のoperator notice feedを受け取り、preset所有のScratchクライアント版情報を
-末尾へ必ず追加する。betaのdefaultは`sb-beta.mc-remote.com`で、入力欠落、default不包含、notice feedの型不正は
-resolve / render / doctorでfail closedになる。
-
-公開b4のappend-only targetは`vps-server@8` / `public-web-paper@3`である。最終Scratch CI artifactから
-作成したexact OCI imageと正式b4 McRemote JARを固定し、session recordだけをMinecraft data volume内へ
-hash-onlyで保存する。通常restartは越えるが、world交換時の認証継続やpublic long-lived credentialは保証しない。
-既存b3は`mcrctl migration public-b4`で新volumeへ移し、credential bootstrapとhealthは人間が明示確認する。
-
-公開b4へWireScope browser surfaceを追加するappend-only targetは`vps-server@9` /
-`public-web-paper@4`である。`public-routes@2`はbetaの
-`wirescope-beta.mc-remote.com`を必須にし、Scratch runtimeへ
-`wirescope_url`を投影する。Caddyはexact ZIPとdetached manifestを照合・展開したread-only
-docrootを別originで配信する。これはScratchのcross-origin MessageChannel handoffだけを提供し、
-public station、source ingress、Minecraft control endpointを追加しない。
-
-同じprofile／preset family内の通常更新は、`mcrctl deployment update plan`に続けて
-`mcrctl deployment update apply`を実行する。planは停止前にexact HTTPS artifactを取得し、live containerの
-Compose provenanceから追加fileを自動snapshotし、stateful volume identityを維持する。applyはreview済みの
-plan IDだけを受け、target doctor失敗時はsource order／lock／renderとcontainerを再起動する。world変更、
-session、pairing、接続の完全復元とは主張しない。`migration public-b3/public-b4`は歴史的救済であり、
-将来release用に複製しない。
+新TOML `vps-server@N` / `public-web-paper@N`系列の履歴的な各append-only targetの詳細は
+`## Public VPS beta`節と`### 既存deploymentをpresetで更新する`節を参照する。
 
 `minecraft-dev`にはComposeの`staging` profileが付くため、通常の`docker compose up`では起動しない。6GB VPSではprod/devを同時起動せず、生成された排他切替scriptを使う。scriptは1分前から告知し、`save-all flush`、graceful stop、接続確認を行い、失敗時は元のinstanceへ戻す。
 
