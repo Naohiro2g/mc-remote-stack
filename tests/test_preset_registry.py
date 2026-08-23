@@ -1243,3 +1243,52 @@ def test_public_notice_feed_has_preset_owned_release_notice() -> None:
     release_notice = preset.data["presentation"]["scratch_release_notice"]
     assert release_notice["heading"].endswith("ver.2100.0.0b4")
     assert release_notice["link"]["href"].endswith("#release-v2100.0.0b4")
+
+
+def test_bundled_public_b5_preset_pins_dimension_key_exact_set() -> None:
+    profile = load_profile("vps-server@12")
+    preset = load_preset("public-web-paper@6")
+
+    assert profile.data["renderer"] == {"name": "compose", "revision": "13"}
+    assert preset.ref == "public-web-paper@6"
+
+    components = {item["id"]: item for item in preset.data["components"]}
+    assert components["bridge"]["protocol"] == "22.0.0"
+    assert components["mcremote-paper"]["protocol"] == "22.0.0"
+
+    artifacts = {item["id"]: item for item in preset.data["artifacts"]}
+    assert artifacts["scratch-image"] == {
+        "id": "scratch-image",
+        "kind": "oci",
+        "version": "sha-1a11c46bac5696afd3f494caac56ae682ed00fb0",
+        "locator": "ghcr.io/naohiro2g/mc-remote-scratch",
+        "digest": "sha256:a30109ca590721abc2551389a8d4e306700de72fc903aa00cd38c5f8c17080b8",
+    }
+    assert artifacts["bridge-image"] == {
+        "id": "bridge-image",
+        "kind": "oci",
+        "version": "sha-1a11c46bac5696afd3f494caac56ae682ed00fb0",
+        "locator": "ghcr.io/naohiro2g/mc-remote-bridge",
+        "digest": "sha256:4a7d2942ecfbfca08cb459de3ecb8ebe54dca248b368b004af5bc8292a813862",
+    }
+    assert artifacts["mcremote-jar"]["sha256"] == (
+        "f7ddbcb5a92acadfe1adb7a9f6a4f50a05707e2eefbd1c01ff9aeeebe0a36547"
+    )
+    assert artifacts["wirescope-zip"]["sha256"] == (
+        "407031d5e64279d90572f0843c788d2e4d9daac5b1ad12ffa121fa7f9fca6964"
+    )
+    assert artifacts["wirescope-manifest"]["sha256"] == (
+        "15d0c6b9a46ee68ac93dc850c9c5014c46476f7af1a49c7e98b2397cd7f95bda"
+    )
+    assert artifacts["wirescope-zip"]["origin"].endswith(
+        "/wirescope-app-v2200.0.0b5/wirescope-app.zip"
+    )
+    assert artifacts["wirescope-manifest"]["origin"].endswith(
+        "/wirescope-app-v2200.0.0b5/wirescope-app.manifest.json"
+    )
+
+    release_notice = preset.data["presentation"]["scratch_release_notice"]
+    assert release_notice["heading"].endswith("ver.2200.0.0b5")
+    assert release_notice["link"]["href"].endswith("#release-v2200.0.0b5")
+
+    verify_preset_catalog()
