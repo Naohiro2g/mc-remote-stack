@@ -2,6 +2,21 @@
 
 確定前または別sliceへ送る作業だけを置く。private host名、IP、credential、account情報は書かない。
 
+## 2026-08-23 b5 close後の通常dev引継ぎ
+
+- [x] b5はknowledge commit `15b93a101cdbcf3a20c066430e1e1d3ad320cf0b`で横断技術gate、
+  prerelease identity確認、release authorizationを完了した。Stackから追加の製品API試験を
+  開始しない。
+- [x] 通常devの現行runtimeをhost-nativeの`MINECRAFT_SERVERS/PaperMC`、`run.sh`、
+  Screen session `Minecraft server`として[`docs/normal-dev-environment-guide_ja.md`](docs/normal-dev-environment-guide_ja.md)
+  へ反映した。旧systemd版は停止し、b5 exact JAR、Paper起動、credential `HEALTHY`、
+  `25565`／`25575`、tokenなしhelloの`auth_required`を確認済み。
+- [ ] draft PR #29はsystemdを通常devの正準入口とするため使用しない。本引継ぎ変更の
+  merge後にcloseする。backstage draft PR #5も同じ失効理由で見直す。
+- [ ] Stackによる通常dev自動化は別sliceとする。人間がScreen consoleを操作できることを
+  保ち、exact artifact取得、SHA検査、単一JAR交換、readinessの最小自動化から始める。
+- [ ] public deployment、PyPI／registry publish、b6 scopeはこの整理に含めない。
+
 ## 2026-08-20 deployment operator workflow redesign
 
 - [x] b2〜b4のpublic beta手戻りを、個別incidentではなく、信頼されたoperator environment未定義、
