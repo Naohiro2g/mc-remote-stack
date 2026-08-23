@@ -1291,4 +1291,15 @@ def test_bundled_public_b5_preset_pins_dimension_key_exact_set() -> None:
     assert release_notice["heading"].endswith("ver.2200.0.0b5")
     assert release_notice["link"]["href"].endswith("#release-v2200.0.0b5")
 
+    policy = load_catalog_policy()
+    assert policy["presets"][-1] == {
+        "ref": "public-web-paper@6",
+        "status": "active",
+        "available_since": "2026-08-23",
+    }
+    catalog = load_preset_catalog()
+    assert catalog["preset_catalog"]["presets"][-1]["ref"] == "public-web-paper@6"
+    assert catalog["preset_catalog"]["presets"][-1]["compatibility_status"] == "unverified"
+    assert catalog["preset_catalog"]["presets"][-1]["compatibility_records"] == []
+
     verify_preset_catalog()
