@@ -1292,14 +1292,64 @@ def test_bundled_public_b5_preset_pins_dimension_key_exact_set() -> None:
     assert release_notice["link"]["href"].endswith("#release-v2200.0.0b5")
 
     policy = load_catalog_policy()
-    assert policy["presets"][-1] == {
+    policy_entry = next(item for item in policy["presets"] if item["ref"] == "public-web-paper@6")
+    assert policy_entry == {
         "ref": "public-web-paper@6",
         "status": "active",
         "available_since": "2026-08-23",
     }
     catalog = load_preset_catalog()
-    assert catalog["preset_catalog"]["presets"][-1]["ref"] == "public-web-paper@6"
-    assert catalog["preset_catalog"]["presets"][-1]["compatibility_status"] == "unverified"
-    assert catalog["preset_catalog"]["presets"][-1]["compatibility_records"] == []
+    catalog_entry = next(
+        item
+        for item in catalog["preset_catalog"]["presets"]
+        if item["ref"] == "public-web-paper@6"
+    )
+    assert catalog_entry["compatibility_status"] == "unverified"
+    assert catalog_entry["compatibility_records"] == []
+
+    verify_preset_catalog()
+
+
+def test_bundled_public_b5_1_preset_patches_mcremote_jar_only() -> None:
+    profile = load_profile("vps-server@12")
+    b5 = load_preset("public-web-paper@6")
+    b5_1 = load_preset("public-web-paper@7")
+
+    assert profile.data["renderer"] == {"name": "compose", "revision": "13"}
+    assert b5_1.ref == "public-web-paper@7"
+
+    b5_artifacts = {item["id"]: item for item in b5.data["artifacts"]}
+    b5_1_artifacts = {item["id"]: item for item in b5_1.data["artifacts"]}
+    unchanged_ids = set(b5_artifacts) - {"mcremote-jar"}
+    for artifact_id in unchanged_ids:
+        assert b5_1_artifacts[artifact_id] == b5_artifacts[artifact_id]
+
+    assert b5_1_artifacts["mcremote-jar"] == {
+        "id": "mcremote-jar",
+        "kind": "https-file",
+        "version": "2200.0.1b5",
+        "filename": "mc-remote-1.21.11-2200.0.1b5.jar",
+        "sha256": "b20705899e3d352a434640b2b075845e34bdac9bda895ee8d1a768f8d232a844",
+        "origin": (
+            "https://github.com/Naohiro2g/McRemote/releases/download/"
+            "v1.21.11-2200.0.1b5/mc-remote-1.21.11-2200.0.1b5.jar"
+        ),
+    }
+
+    policy = load_catalog_policy()
+    policy_entry = next(item for item in policy["presets"] if item["ref"] == "public-web-paper@7")
+    assert policy_entry == {
+        "ref": "public-web-paper@7",
+        "status": "active",
+        "available_since": "2026-08-23",
+    }
+    catalog = load_preset_catalog()
+    catalog_entry = next(
+        item
+        for item in catalog["preset_catalog"]["presets"]
+        if item["ref"] == "public-web-paper@7"
+    )
+    assert catalog_entry["compatibility_status"] == "unverified"
+    assert catalog_entry["compatibility_records"] == []
 
     verify_preset_catalog()

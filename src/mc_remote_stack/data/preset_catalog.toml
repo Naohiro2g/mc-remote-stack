@@ -3,7 +3,7 @@ schema_version = 1
 [preset_catalog]
 generator = "mcrctl-preset-catalog-v1"
 canonicalization = "jcs-rfc8785-v1"
-source_sha256 = "b874b1f64362bcb14b75f39af3226d8e8073cf6989dc44ad5f9d5e8ab0fb7e6d"
+source_sha256 = "d853694ec2f5be922b200cc19b81951f69c5667112ea777034e2031e4efba12f"
 
 [[preset_catalog.presets]]
 ref = "mcremote-paper@1"
@@ -152,6 +152,17 @@ compatibility_records = []
 ref = "public-web-paper@6"
 content_sha256 = "13e89178761912920967f8dbbc7fea9b42574879b8d47c3848a55faf7680f912"
 description = "Exact public beta b5 artifacts with the public Scratch release notice"
+status = "active"
+available_since = "2026-08-23"
+required_profile_capabilities = ["compose", "mcremote-auth-enforced", "mcremote-session-only", "paper", "persistent-world", "public-web", "scratch-runtime", "websocket-bridge", "wirescope-browser"]
+allowed_channels = ["beta"]
+compatibility_status = "unverified"
+compatibility_records = []
+
+[[preset_catalog.presets]]
+ref = "public-web-paper@7"
+content_sha256 = "590fc7a30d8dc1eeb8957f4d8814cb47f235bf1091e1238aea4a4c57cb5dd4e2"
+description = "Exact public beta b5 artifacts with the session-token persistence patch"
 status = "active"
 available_since = "2026-08-23"
 required_profile_capabilities = ["compose", "mcremote-auth-enforced", "mcremote-session-only", "paper", "persistent-world", "public-web", "scratch-runtime", "websocket-bridge", "wirescope-browser"]
