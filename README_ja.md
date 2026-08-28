@@ -169,9 +169,12 @@ player / tokenを通常出力へ載せない。compatibilityがまだ`unverified
 
 ## Public VPS beta（新TOML vertical slice）
 
-`vps-server@5`は、exact `public-web-paper@1`のCaddy、Scratch、Bridge、Minecraft、
-Paper、McRemoteを構築する現行ケータリング型VPS profileである。Caddyだけをpublic edgeへ
-接続し、backendはinternal app networkへ限定する。
+`vps-server@N`系列は、exact `public-web-paper@N`のCaddy、Scratch、Bridge、Minecraft、
+Paper、McRemoteを構築するケータリング型VPS profileである。Caddyだけをpublic edgeへ
+接続し、backendはinternal app networkへ限定する。公開betaが現在使っているexact
+profile／preset revisionは、`docs/public-vps-bootstrap-guide_ja.md`の直近の適用記録
+（`## 1. 通常のrelease更新`配下の日付見出し）を正とする。このREADMEはrelease revision
+番号を追いかけない。
 
 host firewall、provider firewall、DNSはproject外の人間checkpointであり、`apply`は変更しない。
 EULA、unverified理由、exact lock、canonical renderをreviewした後、対象VPS上のlocal Docker
