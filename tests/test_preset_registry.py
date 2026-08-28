@@ -1353,3 +1353,80 @@ def test_bundled_public_b5_1_preset_patches_mcremote_jar_only() -> None:
     assert catalog_entry["compatibility_records"] == []
 
     verify_preset_catalog()
+
+
+def test_bundled_public_b6_preset_pins_protocol_23_exact_set() -> None:
+    profile = load_profile("vps-server@12")
+    preset = load_preset("public-web-paper@8")
+
+    assert profile.data["renderer"] == {"name": "compose", "revision": "13"}
+    assert preset.ref == "public-web-paper@8"
+
+    components = {item["id"]: item for item in preset.data["components"]}
+    assert components["bridge"]["protocol"] == "23.0.0"
+    assert components["mcremote-paper"]["protocol"] == "23.0.0"
+
+    artifacts = {item["id"]: item for item in preset.data["artifacts"]}
+    assert artifacts["scratch-image"] == {
+        "id": "scratch-image",
+        "kind": "oci",
+        "version": "sha-5df50144da13b1a1c8c23b01f2d0138ffd17b953",
+        "locator": "ghcr.io/naohiro2g/mc-remote-scratch",
+        "digest": "sha256:84499b1b9874daa08fde4b485338b42830470f5787ce0ab7d9cc46a2b86e2d95",
+    }
+    assert artifacts["bridge-image"] == {
+        "id": "bridge-image",
+        "kind": "oci",
+        "version": "sha-5df50144da13b1a1c8c23b01f2d0138ffd17b953",
+        "locator": "ghcr.io/naohiro2g/mc-remote-bridge",
+        "digest": "sha256:6641766b3558185ea2af78e3bfdf3e173c990a26ed997bee268e852178edd72b",
+    }
+    assert artifacts["mcremote-jar"]["sha256"] == (
+        "0ec8d4c0b105f3034361b260fc39fcb78013e932e684d34d5ca95c9a6c6a87a6"
+    )
+    assert artifacts["wirescope-zip"]["sha256"] == (
+        "b3d6270299195d2c3db93c9d122938be6ae20d23e0f10e19afe3b0e99e3ca315"
+    )
+    assert artifacts["wirescope-manifest"]["sha256"] == (
+        "cee0c3c852ab719f141ee941e914c451af28fa664af08675d50b658e541df5b1"
+    )
+    assert artifacts["wirescope-zip"]["origin"].endswith(
+        "/wirescope-app-v2300.0.0b6/wirescope-app.zip"
+    )
+    assert artifacts["wirescope-manifest"]["origin"].endswith(
+        "/wirescope-app-v2300.0.0b6/wirescope-app.manifest.json"
+    )
+    assert artifacts["paper-jar"] == {
+        "id": "paper-jar",
+        "kind": "https-file",
+        "version": "1.21.11-132",
+        "filename": "paper-1.21.11-132.jar",
+        "sha256": "5ffef465eeeb5f2a3c23a24419d97c51afd7dbb4923ff42df9a3f58bba1ccfba",
+        "origin": (
+            "https://fill-data.papermc.io/v1/objects/"
+            "5ffef465eeeb5f2a3c23a24419d97c51afd7dbb4923ff42df9a3f58bba1ccfba/"
+            "paper-1.21.11-132.jar"
+        ),
+    }
+
+    release_notice = preset.data["presentation"]["scratch_release_notice"]
+    assert release_notice["heading"].endswith("ver.2300.0.0b6")
+    assert release_notice["link"]["href"].endswith("#release-v2300.0.0b6")
+
+    policy = load_catalog_policy()
+    policy_entry = next(item for item in policy["presets"] if item["ref"] == "public-web-paper@8")
+    assert policy_entry == {
+        "ref": "public-web-paper@8",
+        "status": "active",
+        "available_since": "2026-08-28",
+    }
+    catalog = load_preset_catalog()
+    catalog_entry = next(
+        item
+        for item in catalog["preset_catalog"]["presets"]
+        if item["ref"] == "public-web-paper@8"
+    )
+    assert catalog_entry["compatibility_status"] == "unverified"
+    assert catalog_entry["compatibility_records"] == []
+
+    verify_preset_catalog()
