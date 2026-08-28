@@ -16,12 +16,14 @@
   `develop`へ着地済みの修正commit `5df50144da13b1a1c8c23b01f2d0138ffd17b953`
   （`df9264ec…`の直後）を使ってScratch/Bridge OCIとWireScope appを再ビルドし、その状態で
   `public-web-paper@8`を確定・適用した。
-- [ ] 上記により、`official-public-beta`が実際に使っているScratch/Bridge source commit
-  （`5df50144…`）は、SSOT`b6-artifact-candidate-record_ja.md` §10/§11が固定した
-  正式`b6-artifact-candidate-set-4`のcommit（`df9264ec…`）と一致しない。knowledge側は
-  この一件（notice pane footerがdeployment設定値でなくbuilt clientのversion定数を
-  表示するよう修正、b6公開後にdevelopへ追加着地）を把握していない可能性があるため、
-  本file直下の「確定搬送票」を参照してknowledge repoへ搬送する。
+- [x] 上記のScratch/Bridge source commit逸脱（`5df50144…` vs 正式`b6-artifact-candidate-set-4`の
+  `df9264ec…`）を確定搬送票としてknowledge repoへ搬送し、着地を確認した。knowledge commit
+  `08bec3580f`（2026-08-28T17:17:30Z、"docs: record b6 public deployment identity follow-up"）が
+  `10-protocol/b6-artifact-candidate-record_ja.md` §12「official-public-beta適用時のScratch／Bridge
+  後続修正」として着地。exact OCI index digest、WireScope ZIP/manifest SHA-256、適用commit
+  `23521199701ceb2081de8af3ad64ac6da9682a17`、PR #35/#36参照とも搬送内容と一致し、`b6-artifact-
+  candidate-set-4`／§10/§11／b6横断gateを再解釈しない旨のnon-claimも明記されている。着地確認OK
+  [→DEC なし（局所決定としてartifact recordへ直接追記、DECISIONS行は不要と判断された）]。
 - [x] このrunbook自身のstalenessを修復した。`docs/public-vps-bootstrap-guide_ja.md`
   「0. 現在の完成範囲」が過去のb3/b4時点のprofile／preset revision番号を書いたまま複数
   release更新されていなかった原因は、この節が release番号付きの実施記録（journal）
