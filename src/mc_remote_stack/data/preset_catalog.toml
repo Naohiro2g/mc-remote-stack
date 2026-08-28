@@ -3,7 +3,7 @@ schema_version = 1
 [preset_catalog]
 generator = "mcrctl-preset-catalog-v1"
 canonicalization = "jcs-rfc8785-v1"
-source_sha256 = "4cccc5b9c14bb160a4a8ca0d0e392cb8ebf06b3460a04a4fcf3a7d76ee85ca59"
+source_sha256 = "cc47b49d1afe4eaa771a29ff922e221646bdfa2e7d2f8ec434960f1e56323ad1"
 
 [[preset_catalog.presets]]
 ref = "mcremote-paper@1"
@@ -172,8 +172,8 @@ compatibility_records = []
 
 [[preset_catalog.presets]]
 ref = "public-web-paper@8"
-content_sha256 = "c2ebae4e02d6505e4bb4c5d3a0be00e44943affbd036926664c234730c92c529"
-description = "Exact public beta b6 artifacts: sign, pickaxe_poke, mcr_eh_ entity handles, and Scratch browser save"
+content_sha256 = "9d6091bca4f45619836545d9a67ad67c6019b05e7c97ea5ced58dfef1319d526"
+description = "Exact public beta b6 artifacts: sign, pickaxe_poke, mcr_eh_ entity handles, Scratch browser save, and a corrected Scratch footer/notice version label"
 status = "active"
 available_since = "2026-08-28"
 required_profile_capabilities = ["compose", "mcremote-auth-enforced", "mcremote-session-only", "paper", "persistent-world", "public-web", "scratch-runtime", "websocket-bridge", "wirescope-browser"]

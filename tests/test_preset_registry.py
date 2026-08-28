@@ -1370,16 +1370,16 @@ def test_bundled_public_b6_preset_pins_protocol_23_exact_set() -> None:
     assert artifacts["scratch-image"] == {
         "id": "scratch-image",
         "kind": "oci",
-        "version": "sha-df9264ec355dd722a848df46e96d4b0fc9340ca2",
+        "version": "sha-5df50144da13b1a1c8c23b01f2d0138ffd17b953",
         "locator": "ghcr.io/naohiro2g/mc-remote-scratch",
-        "digest": "sha256:fecd0b46b287be37038e7dfa82f926fbc1c55fea6811522ef33539373452d851",
+        "digest": "sha256:84499b1b9874daa08fde4b485338b42830470f5787ce0ab7d9cc46a2b86e2d95",
     }
     assert artifacts["bridge-image"] == {
         "id": "bridge-image",
         "kind": "oci",
-        "version": "sha-df9264ec355dd722a848df46e96d4b0fc9340ca2",
+        "version": "sha-5df50144da13b1a1c8c23b01f2d0138ffd17b953",
         "locator": "ghcr.io/naohiro2g/mc-remote-bridge",
-        "digest": "sha256:a115d1e62bcde78580515a88d564b0871049a999386c6cb33703b300389d14f8",
+        "digest": "sha256:6641766b3558185ea2af78e3bfdf3e173c990a26ed997bee268e852178edd72b",
     }
     assert artifacts["mcremote-jar"]["sha256"] == (
         "0ec8d4c0b105f3034361b260fc39fcb78013e932e684d34d5ca95c9a6c6a87a6"
@@ -1388,7 +1388,7 @@ def test_bundled_public_b6_preset_pins_protocol_23_exact_set() -> None:
         "b3d6270299195d2c3db93c9d122938be6ae20d23e0f10e19afe3b0e99e3ca315"
     )
     assert artifacts["wirescope-manifest"]["sha256"] == (
-        "8570d3eed8024d32324806a28d4b7a40da1d2774d39e6e95bcb2c43206e6296f"
+        "cee0c3c852ab719f141ee941e914c451af28fa664af08675d50b658e541df5b1"
     )
     assert artifacts["wirescope-zip"]["origin"].endswith(
         "/wirescope-app-v2300.0.0b6/wirescope-app.zip"

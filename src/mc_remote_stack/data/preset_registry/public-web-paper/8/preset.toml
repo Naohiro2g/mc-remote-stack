@@ -3,7 +3,7 @@ schema_version = 1
 [preset]
 name = "public-web-paper"
 revision = "8"
-description = "Exact public beta b6 artifacts: sign, pickaxe_poke, mcr_eh_ entity handles, and Scratch browser save"
+description = "Exact public beta b6 artifacts: sign, pickaxe_poke, mcr_eh_ entity handles, Scratch browser save, and a corrected Scratch footer/notice version label"
 
 [requirements]
 profile_capabilities = [
@@ -87,16 +87,16 @@ digest = "sha256:98eb57d882ccd5213d1688764db10c1ca2c58a1ca3a6717a3411ad798f7a423
 [[artifacts]]
 id = "scratch-image"
 kind = "oci"
-version = "sha-df9264ec355dd722a848df46e96d4b0fc9340ca2"
+version = "sha-5df50144da13b1a1c8c23b01f2d0138ffd17b953"
 locator = "ghcr.io/naohiro2g/mc-remote-scratch"
-digest = "sha256:fecd0b46b287be37038e7dfa82f926fbc1c55fea6811522ef33539373452d851"
+digest = "sha256:84499b1b9874daa08fde4b485338b42830470f5787ce0ab7d9cc46a2b86e2d95"
 
 [[artifacts]]
 id = "bridge-image"
 kind = "oci"
-version = "sha-df9264ec355dd722a848df46e96d4b0fc9340ca2"
+version = "sha-5df50144da13b1a1c8c23b01f2d0138ffd17b953"
 locator = "ghcr.io/naohiro2g/mc-remote-bridge"
-digest = "sha256:a115d1e62bcde78580515a88d564b0871049a999386c6cb33703b300389d14f8"
+digest = "sha256:6641766b3558185ea2af78e3bfdf3e173c990a26ed997bee268e852178edd72b"
 
 [[artifacts]]
 id = "wirescope-zip"
@@ -111,7 +111,7 @@ id = "wirescope-manifest"
 kind = "https-file"
 version = "2300.0.0b6"
 filename = "wirescope-app.manifest.json"
-sha256 = "8570d3eed8024d32324806a28d4b7a40da1d2774d39e6e95bcb2c43206e6296f"
+sha256 = "cee0c3c852ab719f141ee941e914c451af28fa664af08675d50b658e541df5b1"
 origin = "https://github.com/Naohiro2g/mc-remote-stack/releases/download/wirescope-app-v2300.0.0b6/wirescope-app.manifest.json"
 
 [[artifacts]]
