@@ -2,6 +2,42 @@
 
 確定前または別sliceへ送る作業だけを置く。private host名、IP、credential、account情報は書かない。
 
+## 2026-08-29 b6 preset登録・official public beta適用・runbook staleness修復
+
+- [x] `public-web-paper@8`（b6、protocol 23.0.0）をSSOT `10-protocol/
+  beta-to-stable-release-roadmap_ja.md`／`b6-artifact-candidate-record_ja.md`から起票し、
+  McRemote JAR・Scratch/Bridge OCI・WireScope appを個別に独立検証（ダウンロード／
+  `docker manifest inspect`／`npm run build:artifact`再ビルドとhash一致）してから登録した
+  （PR #35、merge `2352119`）。`official-public-beta`を`deployment update plan/apply`で
+  b5.1→b6へ更新し、doctor全項目healthy、外部HTTPS到達も確認した。詳細は
+  `docs/public-vps-bootstrap-guide_ja.md`「2026-08-29 official public beta b6適用記録」。
+- [x] 適用準備中に、公開Scratch clientのnotice pane footerがdeploymentの`release_identity`
+  （`sha-<commit>`形式のraw OCI tag）をそのまま表示するbugを発見した。scratch-editor
+  `develop`へ着地済みの修正commit `5df50144da13b1a1c8c23b01f2d0138ffd17b953`
+  （`df9264ec…`の直後）を使ってScratch/Bridge OCIとWireScope appを再ビルドし、その状態で
+  `public-web-paper@8`を確定・適用した。
+- [x] 上記のScratch/Bridge source commit逸脱（`5df50144…` vs 正式`b6-artifact-candidate-set-4`の
+  `df9264ec…`）を確定搬送票としてknowledge repoへ搬送し、着地を確認した。knowledge commit
+  `08bec3580f`（2026-08-28T17:17:30Z、"docs: record b6 public deployment identity follow-up"）が
+  `10-protocol/b6-artifact-candidate-record_ja.md` §12「official-public-beta適用時のScratch／Bridge
+  後続修正」として着地。exact OCI index digest、WireScope ZIP/manifest SHA-256、適用commit
+  `23521199701ceb2081de8af3ad64ac6da9682a17`、PR #35/#36参照とも搬送内容と一致し、`b6-artifact-
+  candidate-set-4`／§10/§11／b6横断gateを再解釈しない旨のnon-claimも明記されている。着地確認OK
+  [→DEC なし（局所決定としてartifact recordへ直接追記、DECISIONS行は不要と判断された）]。
+- [x] このrunbook自身のstalenessを修復した。`docs/public-vps-bootstrap-guide_ja.md`
+  「0. 現在の完成範囲」が過去のb3/b4時点のprofile／preset revision番号を書いたまま複数
+  release更新されていなかった原因は、この節が release番号付きの実施記録（journal）
+  として書かれていたためと判断し、release番号に依存しない機能範囲の記述へ書き換え、
+  「現在のexact revisionは直近の適用記録を正とする」という間接参照へ変えた。
+  `README.md`/`README_ja.md`の「Public VPS beta」冒頭も同様に、特定revision番号の
+  ハードコードをやめた。
+- [ ] 未着手のまま残した既知staleness: `docs/public-vps-bootstrap-guide_ja.md`
+  「## 2. 新規host bootstrapと歴史的救済」配下の「### 現行b2 VPSの停止境界」は見出しと
+  周辺文言が`tests/test_runbook_docs.py`の複数testでexact文字列としてpinされており、
+  見出し変更や「現行観測は...b2」の書き換えはtest改修とセットでないと安全に行えない。
+  この節は元々「歴史的救済」章の中にあり、実施当時（2026-08-16前後）のb2→b3切替の
+  historical recordとして書かれたものなので実害は小さいと判断し、今回は着手を見送った。
+
 ## 2026-08-20 deployment operator workflow redesign
 
 - [x] b2〜b4のpublic beta手戻りを、個別incidentではなく、信頼されたoperator environment未定義、

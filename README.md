@@ -167,10 +167,13 @@ do not copy the `home-beta` directory or lock.
 
 ## Public VPS beta (new TOML vertical slice)
 
-`vps-server@6` is the current catering-style VPS profile for a new b3 bootstrap. It
-bootstraps exact `public-web-paper@2` Caddy, Scratch, Bridge, Minecraft, Paper, and
-McRemote artifacts while keeping b3 authentication session-only.
-Caddy alone joins the public edge; backend services remain on an internal app network.
+The `vps-server@N` line is the catering-style VPS profile family. It bootstraps exact
+`public-web-paper@N` Caddy, Scratch, Bridge, Minecraft, Paper, and McRemote artifacts
+while keeping authentication session-only. Caddy alone joins the public edge; backend
+services remain on an internal app network. The exact profile/preset revision the public
+beta currently runs is tracked in `docs/public-vps-bootstrap-guide_ja.md`'s most recent
+dated apply record (under `## 1. 通常のrelease更新`); this README does not chase release
+revision numbers.
 
 The host firewall, provider firewall, and DNS remain explicit human checkpoints outside
 the deployment project; `apply` does not modify them. After reviewing the EULA,

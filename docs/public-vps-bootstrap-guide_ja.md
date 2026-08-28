@@ -6,12 +6,18 @@ MinecraftとMcRemoteのpublic betaを構築する。provider、実IP、個人名
 
 ## 0. 現在の完成範囲
 
-新規b3用`vps-server@6` / `public-web-paper@2`に加え、公開b4 targetの
-`vps-server@8` / `public-web-paper@3`とWireScope公開handoffを含む
-`vps-server@9` / `public-web-paper@4`、追加Composeを型付き入力へ回収する
-`vps-server@10` / `compose@12`を実装済みである。b4はb3の公開境界を維持しながら、
-最終Scratch / Bridge artifact、McRemote b4、通常restartを越えるsession recordを固定する。
-次を一つのpublic bootstrapまたはreview済みmigration transactionとして扱う。
+このrunbookは、profile／preset revisionが進むたびに手で更新すべき日誌ではない。実際、
+過去にvps-server@6/8/9/10のような具体的なrevision番号を書いた版は複数releaseにわたって
+更新されず、後から読むと現在のrevisionと矛盾していた。exact profile／preset、protocol
+version、release番号の対応は次を正とし、この節では書かない。
+
+- release番号対応の全体像: SSOT `10-protocol/beta-to-stable-release-roadmap_ja.md`
+- `official-public-beta`が現在使っているexact revision: 「1. 通常のrelease更新」配下の
+  直近の日付見出し（`YYYY-MM-DD official public beta適用記録`）
+
+ここでは、release番号に依存しない、この repo が実装済みのpublic VPS bootstrap／update
+transactionの範囲だけを記す。次を一つのpublic bootstrapまたはreview済みdeployment
+update transactionとして扱う。
 
 - exact OCI Caddy / Scratch / Bridge / Minecraft runtime、Paper JAR、McRemote JAR
 - Caddyだけをpublic edgeへ接続し、backend間通信をinternal app networkへ限定
@@ -23,6 +29,12 @@ MinecraftとMcRemoteのpublic betaを構築する。provider、実IP、個人名
 - unknown container / volume、port衝突のfail-closed preflight
 - 起動失敗時のcontainer rollbackとworld volume保持
 - current render、全container、全volume、public port、認証必須helloのdoctor
+- 稼働中のCompose provenanceを自動取得し、周辺plugin／homepage tree／backup bindを
+  型付き入力へ一度で収束させる`deployment composition plan/apply`
+- profile／preset familyを跨がない通常release更新の`deployment update plan/apply`
+  （stateful volumeをin-placeで維持し、target起動またはdoctor失敗時はsource
+  projectionへ自動復帰）
+- 上から新しい順の公開notice feedを型付きoperator inputとして更新する経路
 
 次はまだ同じtransactionへ入っていないため、後続phaseで完成度を上げる。
 
@@ -218,6 +230,38 @@ target起動またはdoctor失敗時は旧order／lock／renderをpublishし直�
 この通常節では`--target-volume`、`--preserve-compose-file`を指定せず、Compose pathを手入力しない。
 `migration public-b3`／`migration public-b4`は過去の非canonical runtimeを救済したhistory-only commandであり、
 将来release用に複製しない。
+
+### 2026-08-29 official public beta b6適用記録
+
+上記の通常経路（`deployment update plan/apply`）でofficial public betaをb6へ更新し、次を確認した。
+
+- stack checkout: `23521199701ceb2081de8af3ad64ac6da9682a17`（PR #35マージ、`public-web-paper@8`登録）
+- reviewed plan: `sha256:0c065603d2f568130e9a9cf2936854ec8f9c7e3447b4b9f651f4a650a5072da9`
+- source lock: `sha256:a2e93aaf512f895f4ec5482c443a0763ff534f68f611dd14ca58fb49b109bb92`
+- target lock: `sha256:0940e6a5629d9293ef700d5eb06db86f1527ddca50b787aac400ef9b99f61475`
+- transition: `vps-server@12/public-web-paper@7` → `vps-server@12/public-web-paper@8`
+- result: transaction `complete`、doctor `runtime=healthy`／`render=current`／`homepage=current`／
+  `scratch-runtime=current`／`wirescope=current`
+- stateful identity: 既存b5.1の3 volumeをin-placeで維持、追加Composeなし
+- McRemote JAR SHA-256: `0ec8d4c0b105f3034361b260fc39fcb78013e932e684d34d5ca95c9a6c6a87a6`
+  （GitHub release `v1.21.11-2300.0.0b6`）
+- Scratch/Bridge OCI: `ghcr.io/naohiro2g/mc-remote-{scratch,bridge}:sha-5df50144da13b1a1c8c23b01f2d0138ffd17b953`
+- 外部HTTPS check: `mc-remote.com`、`scratch-beta.mc-remote.com`（GUIおよび
+  `mc-remote-runtime-config.json`）、`wirescope-beta.mc-remote.com`いずれもHTTP 200
+- expected warning: `compatibility=unverified`
+
+この記録はdeployment経路のsanitizedな実施結果であり、compatibility claimの正式ratifyではない。
+そのためunverified warningを消さず、knowledge側の正式evidenceは別gateとする。
+
+`b6-artifact-candidate-set-4`（SSOT記録の正式identity）はScratch/Bridge source commit
+`df9264ec355dd722a848df46e96d4b0fc9340ca2`だが、この適用は意図的にその一つ後のcommit
+`5df50144da13b1a1c8c23b01f2d0138ffd17b953`を使っている。理由は、公開Scratch clientの
+notice pane footerが、deploymentが設定する`release_identity`（`sha-<commit>`形式のOCI
+tag文字列）をそのまま表示しており、raw commit SHAが利用者へ見えていたことを適用準備中に
+発見したため。scratch-editor側で修正（notice-overlayがdeployment設定値ではなく
+ビルド済みclient自身のversion定数からlabelを導出するよう変更）した直後のcommitを使って
+Scratch/Bridge OCIとWireScope appを再ビルド・再検証してから適用した。この一件は
+`public-web-paper@8`のcommit履歴とPR #35のコメント履歴に経緯を残している。
 
 ## 2. 新規host bootstrapと歴史的救済
 
