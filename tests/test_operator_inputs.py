@@ -9,6 +9,7 @@ from mc_remote_stack.operator_inputs import (
     _parse_connection_targets_v2,
     _parse_connection_targets_v3,
     _parse_homepage_static,
+    _parse_lan_routes,
     _parse_minecraft_backup,
     _parse_minecraft_plugins,
     _parse_minecraft_server,
@@ -637,6 +638,79 @@ def test_minecraft_backup_adapter_fails_closed(tmp_path: Path, source: bytes) ->
         _parse_minecraft_backup(tmp_path / "backup.toml", source)
 
     assert exc_info.value.reason == "operator_input_parse_failed"
+
+
+def test_lan_routes_adapter_accepts_one_tailnet_hostname_and_two_ports(
+    tmp_path: Path,
+) -> None:
+    assert _parse_lan_routes(
+        tmp_path / "routes.toml",
+        b"""
+hostname = "m720s1.example-tailnet.ts.net"
+scratch_port = 8443
+bridge_port = 8444
+""".lstrip(),
+    ) == {
+        "hostname": "m720s1.example-tailnet.ts.net",
+        "scratch_port": 8443,
+        "bridge_port": 8444,
+    }
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        # missing key
+        b"""
+hostname = "m720s1.example-tailnet.ts.net"
+scratch_port = 8443
+""",
+        # unknown key
+        b"""
+hostname = "m720s1.example-tailnet.ts.net"
+scratch_port = 8443
+bridge_port = 8444
+extra = true
+""",
+        # IP literal hostname
+        b"""
+hostname = "100.64.0.1"
+scratch_port = 8443
+bridge_port = 8444
+""",
+        # equal ports
+        b"""
+hostname = "m720s1.example-tailnet.ts.net"
+scratch_port = 8443
+bridge_port = 8443
+""",
+        # out-of-range port
+        b"""
+hostname = "m720s1.example-tailnet.ts.net"
+scratch_port = 70000
+bridge_port = 8444
+""",
+    ],
+)
+def test_lan_routes_adapter_fails_closed(tmp_path: Path, source: bytes) -> None:
+    with pytest.raises(OperatorInputError) as exc_info:
+        _parse_lan_routes(tmp_path / "routes.toml", source.lstrip())
+
+    assert exc_info.value.reason == "operator_input_parse_failed"
+
+
+def test_lan_routes_adapter_forbids_secret_hostname(tmp_path: Path) -> None:
+    with pytest.raises(OperatorInputError) as exc_info:
+        _parse_lan_routes(
+            tmp_path / "routes.toml",
+            b"""
+hostname = "secret://tailscale-hostname"
+scratch_port = 8443
+bridge_port = 8444
+""".lstrip(),
+        )
+
+    assert exc_info.value.reason == "operator_input_secret_forbidden"
 
 
 def test_cli_validate_runs_operator_adapter_before_lock_exists(

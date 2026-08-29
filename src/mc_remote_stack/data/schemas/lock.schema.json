@@ -595,6 +595,9 @@
         },
         {
           "$ref": "#/$defs/minecraftBackupRole"
+        },
+        {
+          "$ref": "#/$defs/lanRoutesRole"
         }
       ]
     },
@@ -629,6 +632,9 @@
         },
         {
           "$ref": "#/$defs/minecraftBackupInput"
+        },
+        {
+          "$ref": "#/$defs/lanRoutesInput"
         }
       ]
     },
@@ -741,6 +747,62 @@
         },
         "required": {
           "type": "boolean"
+        }
+      }
+    },
+    "lanRoutesRole": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "adapter", "required"],
+      "properties": {
+        "id": {
+          "const": "lan-routes"
+        },
+        "adapter": {
+          "const": "lan-routes@1"
+        },
+        "required": {
+          "type": "boolean"
+        }
+      }
+    },
+    "lanRoutesInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "adapter", "path", "semantic_sha256", "semantic"],
+      "properties": {
+        "role": {
+          "const": "lan-routes"
+        },
+        "adapter": {
+          "const": "lan-routes@1"
+        },
+        "path": {
+          "const": "operator/lan-routes/routes.toml"
+        },
+        "semantic_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "semantic": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["hostname", "scratch_port", "bridge_port"],
+          "properties": {
+            "hostname": {
+              "type": "string",
+              "minLength": 1
+            },
+            "scratch_port": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 65535
+            },
+            "bridge_port": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 65535
+            }
+          }
         }
       }
     },

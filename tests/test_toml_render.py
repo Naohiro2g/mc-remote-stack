@@ -818,6 +818,242 @@ white_list = false
     assert yaml.safe_load((staging / "compose.yaml").read_text(encoding="utf-8")) == compose
 
 
+def _write_home_alpha_full_preset(data_root: Path, *, revision: str = "1") -> None:
+    preset_path = (
+        data_root / "preset_registry" / "home-alpha-full" / revision / "preset.toml"
+    )
+    preset_path.parent.mkdir(parents=True)
+    preset_path.write_text(
+        f"""schema_version = 1
+
+[preset]
+name = "home-alpha-full"
+revision = "{revision}"
+description = "Deterministic home-server@6 compose renderer fixture"
+
+[requirements]
+profile_capabilities = [
+  "compose",
+  "paper",
+  "persistent-world",
+  "scratch-runtime",
+  "websocket-bridge",
+  "mcremote-auth-enforced",
+]
+allowed_channels = ["alpha"]
+required_claims = ["profile-render"]
+
+[[components]]
+id = "caddy"
+role = "caddy-edge"
+artifact = "caddy-image"
+
+[[components]]
+id = "scratch"
+role = "scratch-runtime"
+artifact = "scratch-image"
+
+[[components]]
+id = "bridge"
+role = "websocket-bridge"
+artifact = "bridge-image"
+
+[[components]]
+id = "minecraft-runtime"
+role = "minecraft-runtime"
+artifact = "minecraft-image"
+
+[[components]]
+id = "paper-server"
+role = "paper-server"
+artifact = "paper-jar"
+minecraft_version = "1.21.11"
+
+[[components]]
+id = "mcremote-paper"
+role = "mcremote-plugin"
+artifact = "mcremote-jar"
+protocol = "21.0.0"
+
+[[artifacts]]
+id = "caddy-image"
+kind = "oci"
+version = "fixture-caddy"
+locator = "registry.example/caddy"
+digest = "{OCI_DIGEST}"
+
+[[artifacts]]
+id = "scratch-image"
+kind = "oci"
+version = "sha-{"a" * 40}"
+locator = "registry.example/scratch"
+digest = "{OCI_DIGEST}"
+
+[[artifacts]]
+id = "bridge-image"
+kind = "oci"
+version = "sha-{"a" * 40}"
+locator = "registry.example/bridge"
+digest = "{OCI_DIGEST}"
+
+[[artifacts]]
+id = "minecraft-image"
+kind = "oci"
+version = "fixture-java21"
+locator = "registry.example/minecraft"
+digest = "{OCI_DIGEST}"
+
+[[artifacts]]
+id = "paper-jar"
+kind = "https-file"
+version = "1.21.11-132"
+filename = "paper-fixture.jar"
+sha256 = "{PAPER_SHA256}"
+origin = "https://example.invalid/paper-fixture.jar"
+
+[[artifacts]]
+id = "mcremote-jar"
+kind = "https-file"
+version = "2100.0.0b2"
+filename = "mcremote-fixture.jar"
+sha256 = "{PLUGIN_SHA256}"
+origin = "https://example.invalid/mcremote-fixture.jar"
+""",
+        encoding="utf-8",
+    )
+    _write_policy(
+        data_root,
+        [
+            {
+                "ref": f"home-alpha-full@{revision}",
+                "status": "active",
+                "available_since": "2026-08-29",
+            }
+        ],
+    )
+    (data_root / "preset_catalog.toml").write_bytes(build_preset_catalog(data_root=data_root))
+
+
+def test_compose_v14_projects_tailnet_lan_edge_on_loopback(tmp_path: Path) -> None:
+    data_root = _data_root(tmp_path, "home-alpha-full-data")
+    profile_path = data_root / "profiles" / "home-server" / "6" / "profile.toml"
+    profile_path.parent.mkdir(parents=True)
+    profile_path.write_text(
+        files("mc_remote_stack")
+        .joinpath("data", "profiles", "home-server", "6", "profile.toml")
+        .read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    _write_home_alpha_full_preset(data_root)
+
+    artifact_store = tmp_path / "artifacts"
+    project = init_toml_project(
+        tmp_path / "home-alpha",
+        deployment_name="home-alpha",
+        profile="home-server@6",
+        environment_identity="home-alpha",
+        channel="alpha",
+        exposure="isolated",
+        purpose="integration",
+        preset="home-alpha-full@1",
+        artifact_store=str(artifact_store),
+        runtime_volumes={
+            "minecraft-data": "home-alpha-minecraft-data",
+            "caddy-data": "home-alpha-caddy-data",
+            "caddy-config": "home-alpha-caddy-config",
+        },
+        world_identity="home-alpha-world",
+        bind_address="127.0.0.1",
+        java_port=25566,
+        mcremote_port=25576,
+        minecraft_eula=True,
+    )
+    project.order.write_text(
+        project.order.read_text(encoding="utf-8")
+        + """
+[[operator_inputs]]
+role = "lan-routes"
+adapter = "lan-routes@1"
+path = "operator/lan-routes/routes.toml"
+""",
+        encoding="utf-8",
+    )
+    routes = project.root / "operator" / "lan-routes" / "routes.toml"
+    routes.parent.mkdir(parents=True)
+    routes.write_text(
+        """
+hostname = "m720s1.example-tailnet.ts.net"
+scratch_port = 8443
+bridge_port = 8444
+""".lstrip(),
+        encoding="utf-8",
+    )
+    _acknowledge(project.root, "unverified")
+    resolve_project(
+        project.root,
+        data_root=data_root,
+        allow_unverified=True,
+        resolved_at=FIRST_RESOLVED_AT,
+    )
+    lock = load_lock(project.root, data_root=data_root)
+    fixture_artifacts = {
+        "paper-jar": (PAPER_SHA256, PAPER_BYTES),
+        "mcremote-jar": (PLUGIN_SHA256, PLUGIN_BYTES),
+    }
+    for artifact in lock["artifacts"]:
+        if artifact["id"] in fixture_artifacts:
+            artifact["sha256"] = fixture_artifacts[artifact["id"]][0]
+    for digest, content in fixture_artifacts.values():
+        path = artifact_store / "sha256" / digest
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(content)
+
+    compose, rendered_files = render_module._compose_v14(lock)
+
+    assert compose["services"]["caddy"]["ports"] == [
+        "127.0.0.1:8443:8443/tcp",
+        "127.0.0.1:8444:8444/tcp",
+    ]
+    assert compose["services"]["minecraft"]["ports"] == [
+        "127.0.0.1:25566:25565/tcp",
+        "127.0.0.1:25566:19132/udp",
+        "127.0.0.1:25576:25575/tcp",
+    ]
+    assert compose["services"]["minecraft"]["networks"] == {
+        "app": {"aliases": ["m720s1.example-tailnet.ts.net"]},
+    }
+    assert all(
+        "tls" not in str(mount) for mount in compose["services"]["caddy"]["volumes"]
+    )
+    caddyfile = rendered_files["Caddyfile"]
+    assert ":8443 {" in caddyfile
+    assert ":8444 {" in caddyfile
+    assert "m720s1.example-tailnet.ts.net" not in caddyfile
+    assert "tls " not in caddyfile
+    runtime_config = json.loads(rendered_files["runtime/scratch.json"])
+    assert runtime_config["bridge_url"] == "wss://m720s1.example-tailnet.ts.net:8444"
+    assert runtime_config["default_sandbox"] == "m720s1.example-tailnet.ts.net"
+    assert compose["services"]["bridge"]["environment"]["BRIDGE_ORIGIN_ALLOWLIST"] == (
+        "https://m720s1.example-tailnet.ts.net:8443"
+    )
+    assert "auth:\n  enforcement: true\n" in rendered_files[
+        "minecraft/plugins/McRemote/config.yml"
+    ]
+
+    staging = tmp_path / "staging"
+    staging.mkdir()
+    rendered_paths = render_module._stage_compose_v14(lock, staging)
+    manifest = json.loads((staging / "render-manifest.json").read_text(encoding="utf-8"))
+    assert manifest["adapter_revision"] == "14"
+    assert set(rendered_paths) == {
+        "compose.yaml",
+        "Caddyfile",
+        "runtime/scratch.json",
+        "minecraft/server.properties",
+        "minecraft/plugins/McRemote/config.yml",
+    }
+
+
 def test_compose_v8_keeps_b3_public_beta_session_only(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

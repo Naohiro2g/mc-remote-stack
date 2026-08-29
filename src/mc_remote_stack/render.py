@@ -222,6 +222,45 @@ def _locked_public_routes(lock: dict[str, Any]) -> dict[str, Any]:
     return semantic
 
 
+def _locked_lan_routes(lock: dict[str, Any]) -> dict[str, Any]:
+    operator_inputs = lock["operator_inputs"]
+    if operator_inputs != lock["render_plan"]["operator_inputs"]:
+        _render_fail(
+            "render_plan_invalid",
+            "render_plan.operator_inputs",
+            "render plan operator inputs must exactly match the lock projection",
+        )
+    matches = [item for item in operator_inputs if item["role"] == "lan-routes"]
+    if len(matches) != 1 or any(
+        item["role"] not in {"lan-routes", "minecraft-motd"} for item in operator_inputs
+    ):
+        _render_fail(
+            "render_plan_invalid",
+            "operator_inputs",
+            "compose@14 requires exactly one lan-routes input and permits one minecraft-motd input",
+        )
+    operator_input = matches[0]
+    semantic = operator_input["semantic"]
+    if (
+        operator_input["adapter"] != "lan-routes@1"
+        or operator_input["path"] != "operator/lan-routes/routes.toml"
+        or operator_input["semantic_sha256"] != semantic_sha256(semantic)
+    ):
+        _render_fail(
+            "render_plan_invalid",
+            "operator_inputs.lan-routes",
+            "locked lan-routes adapter identity or semantic digest is invalid",
+        )
+    expected_keys = {"hostname", "scratch_port", "bridge_port"}
+    if set(semantic) != expected_keys:
+        _render_fail(
+            "render_plan_invalid",
+            "operator_inputs.lan-routes.semantic",
+            "locked lan routes do not contain the exact required keys",
+        )
+    return semantic
+
+
 def _locked_connection_input(lock: dict[str, Any]) -> dict[str, Any] | None:
     operator_inputs = lock["operator_inputs"]
     if operator_inputs != lock["render_plan"]["operator_inputs"]:
@@ -1456,6 +1495,236 @@ def _compose_v13(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str]]:
     return compose, rendered_files
 
 
+def _compose_v14(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str]]:
+    """home-server@6: Caddy/Scratch/Bridge fronted by a tailnet hostname, no public bind."""
+
+    expected_services = [
+        {"id": "caddy", "role": "caddy-edge"},
+        {"id": "scratch", "role": "scratch-runtime"},
+        {"id": "bridge", "role": "websocket-bridge"},
+        {"id": "minecraft", "role": "minecraft"},
+    ]
+    if lock["render_plan"]["services"] != expected_services:
+        _render_fail(
+            "render_plan_invalid",
+            "render_plan.services",
+            "compose@14 requires exactly the caddy/scratch/bridge/minecraft services",
+        )
+    expected_volume_roles = [
+        {"id": "minecraft-data", "kind": "world"},
+        {"id": "caddy-data", "kind": "runtime-data"},
+        {"id": "caddy-config", "kind": "runtime-data"},
+    ]
+    if lock["render_plan"]["volume_roles"] != expected_volume_roles:
+        _render_fail(
+            "render_plan_invalid",
+            "render_plan.volume_roles",
+            "compose@14 requires its exact declared volume roles",
+        )
+    volume_assignments = {
+        assignment["role"]: assignment["identity"] for assignment in lock["runtime"]["volumes"]
+    }
+    if set(volume_assignments) != {role["id"] for role in expected_volume_roles}:
+        _render_fail(
+            "render_plan_invalid",
+            "runtime.volumes",
+            "compose@14 requires exactly one assignment for every declared volume role",
+        )
+
+    deployment_name = lock["deployment"]["name"]
+    if not COMPOSE_NAME.fullmatch(deployment_name):
+        _render_fail(
+            "render_plan_invalid",
+            "deployment.name",
+            "compose@14 deployment name must be a Compose-compatible token",
+        )
+    network = lock["network"]
+
+    caddy_artifact, caddy_image = _oci_image(lock, "caddy-edge", adapter="compose@14")
+    scratch_artifact, scratch_image = _oci_image(lock, "scratch-runtime", adapter="compose@14")
+    _, bridge_image = _oci_image(lock, "websocket-bridge", adapter="compose@14")
+    _, minecraft_image = _oci_image(lock, "minecraft-runtime", adapter="compose@14")
+    paper_component = _component_for_role(lock, "paper-server")
+    plugin_component = _component_for_role(lock, "mcremote-plugin")
+    paper_artifact = _artifact_for_component(lock, paper_component)
+    plugin_artifact = _artifact_for_component(lock, plugin_component)
+    artifact_store = Path(lock["runtime"]["artifact_store"])
+    paper_filename, paper_sha256, paper_path = _verify_artifact_file(artifact_store, paper_artifact)
+    plugin_filename, plugin_sha256, plugin_path = _verify_artifact_file(
+        artifact_store, plugin_artifact
+    )
+    minecraft_version = paper_component.get("minecraft_version")
+    if not isinstance(minecraft_version, str) or not minecraft_version:
+        _render_fail(
+            "render_plan_invalid",
+            "components.paper-server.minecraft_version",
+            "compose@14 requires an explicit Minecraft target version",
+        )
+
+    routes = _locked_lan_routes(lock)
+    hostname = routes["hostname"]
+    scratch_port = routes["scratch_port"]
+    bridge_port = routes["bridge_port"]
+    motd = _locked_minecraft_motd(lock, allowed_roles=frozenset({"lan-routes", "minecraft-motd"}))
+    world_identity = lock["world"]["identity"]
+    common_labels = {
+        "io.mc-remote.deployment": deployment_name,
+        "io.mc-remote.environment": lock["environment"]["identity"],
+        "io.mc-remote.world": world_identity,
+        "io.mc-remote.lock": lock["lock_identity"],
+    }
+
+    # Bare `:port` addresses avoid Caddy's automatic-HTTPS/ACME path, which would
+    # otherwise try (and fail) to reach a public CA from this loopback-only edge.
+    # A host-level `tailscale serve` is expected to terminate tailnet TLS and
+    # forward to these loopback ports; Stack does not manage Tailscale (out of
+    # its execution boundary).
+    caddyfile = f"""# Generated by mcrctl compose@14. Do not edit.
+:{scratch_port} {{
+    reverse_proxy scratch:8080
+}}
+
+:{bridge_port} {{
+    reverse_proxy bridge:8080
+}}
+"""
+    runtime_config: dict[str, Any] = {
+        "bridge_url": f"wss://{hostname}:{bridge_port}",
+        "default_sandbox": hostname,
+        "connection_enabled": True,
+        "release_identity": scratch_artifact["version"],
+    }
+
+    property_values = [
+        ("enable-rcon", "false"),
+        ("enforce-secure-profile", "true"),
+        ("level-name", world_identity),
+    ]
+    if motd is not None:
+        property_values.append(("motd", motd))
+    property_values.extend([("online-mode", "true"), ("server-port", "25565")])
+    properties = "# Generated by mcrctl compose@14. Do not edit.\n" + "".join(
+        f"{key}={value}\n" for key, value in property_values
+    )
+
+    compose = {
+        "name": deployment_name,
+        "services": {
+            "caddy": {
+                "image": caddy_image,
+                "restart": "unless-stopped",
+                "cap_drop": ["ALL"],
+                "cap_add": ["NET_BIND_SERVICE"],
+                "ports": [
+                    f"{network['bind_address']}:{scratch_port}:{scratch_port}/tcp",
+                    f"{network['bind_address']}:{bridge_port}:{bridge_port}/tcp",
+                ],
+                "volumes": [
+                    {"type": "bind", "source": "./Caddyfile", "target": "/etc/caddy/Caddyfile", "read_only": True},
+                    {"type": "volume", "source": "caddy-data", "target": "/data"},
+                    {"type": "volume", "source": "caddy-config", "target": "/config"},
+                ],
+                "networks": ["edge", "app"],
+                "labels": common_labels,
+            },
+            "scratch": {
+                "image": scratch_image,
+                "restart": "unless-stopped",
+                "volumes": [
+                    {
+                        "type": "bind",
+                        "source": "./runtime/scratch.json",
+                        "target": "/usr/share/nginx/html/mc-remote-runtime-config.json",
+                        "read_only": True,
+                    }
+                ],
+                "networks": ["app"],
+                "labels": common_labels,
+            },
+            "bridge": {
+                "image": bridge_image,
+                "restart": "unless-stopped",
+                "environment": {
+                    "BRIDGE_WS_HOST": "0.0.0.0",
+                    "BRIDGE_WS_PORT": "8080",
+                    "BRIDGE_ORIGIN_ALLOWLIST": f"https://{hostname}:{scratch_port}",
+                    "BRIDGE_SANDBOX_ALLOWLIST": hostname,
+                    "BRIDGE_DEFAULT_SANDBOX": hostname,
+                    "BRIDGE_SANDBOX_PORT": "25575",
+                },
+                "networks": ["app"],
+                "labels": common_labels,
+            },
+            "minecraft": {
+                "image": minecraft_image,
+                "restart": "unless-stopped",
+                "environment": {
+                    "EULA": "TRUE",
+                    "TYPE": "PAPER",
+                    "VERSION": minecraft_version,
+                    "PAPER_CUSTOM_JAR": f"/artifacts/{paper_filename}",
+                    "ONLINE_MODE": "true",
+                    "ENABLE_RCON": "false",
+                    "CREATE_CONSOLE_IN_PIPE": "true",
+                    "REMOVE_OLD_MODS": "true",
+                    "REMOVE_OLD_MODS_DEPTH": "1",
+                    "SKIP_DOWNLOAD_DEFAULTS": "true",
+                    "COPY_CONFIG_DEST": "/data",
+                    "SYNC_SKIP_NEWER_IN_DESTINATION": "false",
+                    "REPLACE_ENV_DURING_SYNC": "false",
+                    "LEVEL": world_identity,
+                },
+                "ports": [
+                    f"{network['bind_address']}:{network['java_port']}:25565/tcp",
+                    f"{network['bind_address']}:{network['java_port']}:19132/udp",
+                    f"{network['bind_address']}:{network['mcremote_port']}:25575/tcp",
+                ],
+                "volumes": [
+                    {"type": "volume", "source": "minecraft-data", "target": "/data"},
+                    {"type": "bind", "source": "./minecraft", "target": "/config", "read_only": True},
+                    {
+                        "type": "bind",
+                        "source": str(paper_path),
+                        "target": f"/artifacts/{paper_filename}",
+                        "read_only": True,
+                    },
+                    {
+                        "type": "bind",
+                        "source": str(plugin_path),
+                        "target": f"/plugins/{plugin_filename}",
+                        "read_only": True,
+                    },
+                ],
+                "networks": {"app": {"aliases": [hostname]}},
+                "labels": {
+                    **common_labels,
+                    "io.mc-remote.paper-sha256": paper_sha256,
+                    "io.mc-remote.plugin-sha256": plugin_sha256,
+                },
+            },
+        },
+        "networks": {
+            "edge": {"internal": False, "enable_ipv6": False},
+            "app": {"internal": True, "enable_ipv6": False},
+        },
+        "volumes": {
+            role: {"name": identity, "external": True}
+            for role, identity in volume_assignments.items()
+        },
+    }
+    files_to_render = {
+        "Caddyfile": caddyfile,
+        "runtime/scratch.json": json.dumps(runtime_config, ensure_ascii=False, indent=2)
+        + "\n",
+        "minecraft/server.properties": properties,
+        "minecraft/plugins/McRemote/config.yml": _mcremote_b2_config(
+            adapter="compose@14",
+            minecraft_version=minecraft_version,
+        ),
+    }
+    return compose, files_to_render
+
+
 def _write_synced(path: Path, content: bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("wb") as stream:
@@ -1853,6 +2122,15 @@ def _stage_compose_v13(lock: dict[str, Any], staging: Path) -> tuple[str, ...]:
     return rendered_paths
 
 
+def _stage_compose_v14(lock: dict[str, Any], staging: Path) -> tuple[str, ...]:
+    return _stage_auth_enforced_compose(
+        lock,
+        staging,
+        revision="14",
+        renderer=_compose_v14,
+    )
+
+
 def _stage_current(lock: dict[str, Any], staging: Path) -> tuple[str, ...]:
     revision = lock["render_plan"]["adapter_revision"]
     if revision == "1":
@@ -1881,6 +2159,8 @@ def _stage_current(lock: dict[str, Any], staging: Path) -> tuple[str, ...]:
         return _stage_compose_v12(lock, staging)
     if revision == "13":
         return _stage_compose_v13(lock, staging)
+    if revision == "14":
+        return _stage_compose_v14(lock, staging)
     _render_fail("unsupported_renderer", "render_plan", f"unsupported renderer: compose@{revision}")
 
 

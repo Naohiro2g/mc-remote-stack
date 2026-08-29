@@ -2,6 +2,45 @@
 
 確定前または別sliceへ送る作業だけを置く。private host名、IP、credential、account情報は書かない。
 
+## 2026-08-29 home private alphaフルスタック化 設計草案
+
+- [ ] home private alpha（m720s1）を、2026-07-31に立てたまま未着手だった計画
+  「Caddy/Scratch/Bridgeを持つisolated/lan-only対応の新profile revision」として
+  実際に設計した。運営者の意図は「全コンポーネントが揃ったalpha環境」＋
+  「都度選び直すGitHub最新コードセット（自動同期ではない）」＋「ケータリング形式
+  （preset/lock機構）を維持」であり、SSOT `10-protocol/versioning-design_ja.md`
+  §10.6・DECISIONS `2026-07-23-01`の「alphaは実験対象component（McRemote自身が
+  開発するplugin/Scratch/Bridge）だけをexact source commitでpinし、他
+  （Caddy/itzg image/Paper jar等third-party）は既知artifactへ固定する」と
+  一致することを確認した。
+- [ ] 設計は
+  [`docs/home-alpha-full-stack-profile-design_ja.md`](docs/home-alpha-full-stack-profile-design_ja.md)
+  に記録した。当初案はCaddyをTailscale interface（CGNAT `100.64.0.0/10`）へ直接
+  bindし`tailscale cert`証明書をmountする方式だったが、実装時に
+  `toml_project.py`の既存cross-field validation（`isolated`はloopbackのみ、
+  `lan-only`はRFC 1918のみ許可、CGNATはどちらにも該当しない）と衝突すると判明。
+  Caddyはloopbackへbindし、host側の`tailscale serve`（operatorが実行、Stackの
+  管轄外）がtailnet向けTLS終端とloopbackへの転送を担う方式へ設計変更した。
+  結果、`lan-routes@1`は`hostname`/`scratch_port`/`bridge_port`の3キーへ縮小し、
+  SAN証明書要否の論点は消滅した。
+- [x] `home-server@6`profile（`docs/`と同じ内容）、`lan-routes@1`operator input
+  adapter（`operator_inputs.py`、`_absolute_host_path`ヘルパー抽出で
+  `minecraft-backup@1`と共通化）、`compose@14`renderer（`render.py`、Caddyは
+  `:port`のみのsite blockでAutomatic HTTPS/ACMEを回避）をtest-first実装した。
+  `lock.schema.json`へ`lanRoutesRole`/`lanRoutesInput`を追加。259件超のtest
+  （新規: operator input 9件、compose@14 1件）PASS、ruff clean。
+  McRemote pluginの`git-build` exact commit pinと`home-alpha-full`preset本体、
+  m720s1実機へのlive applyは未着手（次段）。
+- [ ] `home-server@5`（`allowed_channels=["dev"]`）との重複懸念はcommit
+  `448de60`（2026-08-21）の`docs/normal-dev-environment-guide_ja.md`向け
+  profileと判明し、解消した。目的が異なるため衝突しない。
+- [ ] 未確定: `tailscale serve`のtailnet側公開port番号とStackがrenderする
+  loopback port（`scratch_port`/`bridge_port`）を一致させる運用を前提にしている
+  （runbook化要）。Minecraft本体（java_port/mcremote_port）もloopback限定のため、
+  生Minecraft protocolでのtailnet越し直接接続をどう扱うか（`tailscale serve`の
+  TCPモード併用か、sandbox概念だけで完結させるか）は人間判断が必要
+  （詳細は設計文書§8）。
+
 ## 2026-08-29 b6 preset登録・official public beta適用・runbook staleness修復
 
 - [x] `public-web-paper@8`（b6、protocol 23.0.0）をSSOT `10-protocol/

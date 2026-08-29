@@ -29,6 +29,8 @@ HOMEPAGE_STATIC_ADAPTER = "homepage-static@1"
 HOMEPAGE_STATIC_PATH = "operator/homepage-static/homepage.toml"
 MINECRAFT_BACKUP_ADAPTER = "minecraft-backup@1"
 MINECRAFT_BACKUP_PATH = "operator/minecraft-backup/backup.toml"
+LAN_ROUTES_ADAPTER = "lan-routes@1"
+LAN_ROUTES_PATH = "operator/lan-routes/routes.toml"
 MAX_MOTD_SOURCE_BYTES = 4096
 MAX_MOTD_CHARACTERS = 256
 MAX_CONNECTION_TARGETS = 32
@@ -51,6 +53,7 @@ SUPPORTED_ADAPTERS = frozenset(
         MINECRAFT_PLUGINS_ADAPTER,
         HOMEPAGE_STATIC_ADAPTER,
         MINECRAFT_BACKUP_ADAPTER,
+        LAN_ROUTES_ADAPTER,
     }
 )
 PUBLIC_ROUTE_KEYS = frozenset(
@@ -58,6 +61,7 @@ PUBLIC_ROUTE_KEYS = frozenset(
 )
 PUBLIC_ROUTE_V2_KEYS = PUBLIC_ROUTE_KEYS | {"wirescope"}
 CONNECTION_TARGET_KEYS = frozenset({"id", "label", "sandbox"})
+LAN_ROUTES_KEYS = frozenset({"hostname", "scratch_port", "bridge_port"})
 CONNECTION_TARGET_V2_KEYS = frozenset(
     {
         "targets",
@@ -738,6 +742,26 @@ def _parse_homepage_static(path: Path, source: bytes) -> dict[str, Any]:
     }
 
 
+def _absolute_host_path(path: Path, key: str, value: object) -> str:
+    if not isinstance(value, str):
+        _fail("operator_input_parse_failed", path, f"{key} must be a string")
+    parsed = Path(value)
+    if (
+        not parsed.is_absolute()
+        or parsed == Path("/")
+        or "\\" in value
+        or ".." in parsed.parts
+        or "secret://" in value.casefold()
+        or "${" in value
+    ):
+        _fail(
+            "operator_input_parse_failed",
+            path,
+            f"{key} must be a non-root absolute POSIX path without interpolation",
+        )
+    return value
+
+
 def _parse_minecraft_backup(path: Path, source: bytes) -> dict[str, str]:
     value = _parse_toml_document(path, source)
     if set(value) != {"host_path"}:
@@ -746,24 +770,46 @@ def _parse_minecraft_backup(path: Path, source: bytes) -> dict[str, str]:
             path,
             "minecraft-backup@1 requires exactly host_path",
         )
-    host_path = value["host_path"]
-    if not isinstance(host_path, str):
-        _fail("operator_input_parse_failed", path, "host_path must be a string")
-    parsed = Path(host_path)
-    if (
-        not parsed.is_absolute()
-        or parsed == Path("/")
-        or "\\" in host_path
-        or ".." in parsed.parts
-        or "secret://" in host_path.casefold()
-        or "${" in host_path
-    ):
+    return {"host_path": _absolute_host_path(path, "host_path", value["host_path"])}
+
+
+def _lan_port(path: Path, key: str, value: object) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        _fail("operator_input_parse_failed", path, f"{key} must be an integer port number")
+    if not 1 <= value <= 65535:
+        _fail("operator_input_parse_failed", path, f"{key} must be between 1 and 65535")
+    return value
+
+
+def _parse_lan_routes(path: Path, source: bytes) -> dict[str, Any]:
+    value = _parse_toml_document(path, source)
+    if set(value) != LAN_ROUTES_KEYS:
+        missing = sorted(LAN_ROUTES_KEYS - set(value))
+        extra = sorted(set(value) - LAN_ROUTES_KEYS)
+        details = []
+        if missing:
+            details.append(f"missing: {', '.join(missing)}")
+        if extra:
+            details.append(f"unknown: {', '.join(extra)}")
         _fail(
             "operator_input_parse_failed",
             path,
-            "host_path must be a non-root absolute POSIX path without interpolation",
+            f"lan-routes@1 requires the exact keys ({'; '.join(details)})",
         )
-    return {"host_path": host_path}
+    hostname = _public_dns_name(path, "hostname", value["hostname"])
+    scratch_port = _lan_port(path, "scratch_port", value["scratch_port"])
+    bridge_port = _lan_port(path, "bridge_port", value["bridge_port"])
+    if scratch_port == bridge_port:
+        _fail(
+            "operator_input_parse_failed",
+            path,
+            "scratch_port and bridge_port must be distinct loopback ports",
+        )
+    return {
+        "hostname": hostname,
+        "scratch_port": scratch_port,
+        "bridge_port": bridge_port,
+    }
 
 
 def _parse_adapter(adapter: str, path: Path, relative_path: str) -> dict[str, Any]:
@@ -847,6 +893,14 @@ def _parse_adapter(adapter: str, path: Path, relative_path: str) -> dict[str, An
                 f"{adapter} requires exact path {MINECRAFT_BACKUP_PATH}",
             )
         return _parse_minecraft_backup(path, _read_source(path))
+    if adapter == LAN_ROUTES_ADAPTER:
+        if relative_path != LAN_ROUTES_PATH:
+            _fail(
+                "operator_input_path_invalid",
+                path,
+                f"{adapter} requires exact path {LAN_ROUTES_PATH}",
+            )
+        return _parse_lan_routes(path, _read_source(path))
     _fail(
         "unsupported_operator_input_adapter",
         adapter,

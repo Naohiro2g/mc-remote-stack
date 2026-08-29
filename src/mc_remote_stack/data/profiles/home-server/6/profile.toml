@@ -1,0 +1,92 @@
+schema_version = 1
+
+[profile]
+name = "home-server"
+revision = "6"
+description = "Single-host Compose topology with Caddy/Scratch/Bridge for isolated/lan-only alpha integration over a tailnet"
+
+[capabilities]
+provided = [
+  "compose",
+  "paper",
+  "persistent-world",
+  "scratch-runtime",
+  "websocket-bridge",
+  "mcremote-auth-enforced",
+]
+required_component_roles = [
+  "caddy-edge",
+  "scratch-runtime",
+  "websocket-bridge",
+  "minecraft-runtime",
+  "paper-server",
+  "mcremote-plugin",
+]
+
+[environment]
+allowed_channels = ["alpha"]
+allowed_exposures = ["isolated", "lan-only"]
+allowed_purposes = ["integration"]
+
+[policy]
+required_security_controls = [
+  "online-mode",
+  "rcon-disabled",
+  "mcremote-auth-enforced",
+  "compose-edge-loopback-only",
+  "tailnet-reachability-via-host-serve",
+]
+instance_fields = [
+  "deployment.name",
+  "environment.identity",
+  "runtime.artifact_store",
+  "runtime.volumes",
+  "world.identity",
+  "network.bind_address",
+  "network.java_port",
+  "network.mcremote_port",
+  "agreements.minecraft_eula",
+]
+override_allowlist = ["capacity.memory"]
+
+[renderer]
+name = "compose"
+revision = "14"
+
+[[operator_input_roles]]
+id = "lan-routes"
+adapter = "lan-routes@1"
+required = true
+
+[[operator_input_roles]]
+id = "minecraft-motd"
+adapter = "minecraft-motd@1"
+required = false
+
+[[services]]
+id = "caddy"
+role = "caddy-edge"
+
+[[services]]
+id = "scratch"
+role = "scratch-runtime"
+
+[[services]]
+id = "bridge"
+role = "websocket-bridge"
+
+[[services]]
+id = "minecraft"
+role = "minecraft"
+
+[[volume_roles]]
+id = "minecraft-data"
+kind = "world"
+
+[[volume_roles]]
+id = "caddy-data"
+kind = "runtime-data"
+
+[[volume_roles]]
+id = "caddy-config"
+kind = "runtime-data"
