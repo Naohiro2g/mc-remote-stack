@@ -8,7 +8,9 @@
   `mcrctl init/resolve/plan/artifact fetch/render`のdry runでも動作確認済み
   （§6）。**m720s1実機へのlive apply（§7手順4以降）はagentの実行境界外**
   （SSH/Tailscaleアクセスを持たない）であり、人間が行う。§3〜§4は当初案から
-  Tailscale証明書の実際の制約に合わせて改訂している（下記参照）。
+  Tailscale証明書の実際の制約に合わせて改訂している（下記参照）。§9で
+  McRemote plugin config／server.propertiesの「seed-once」化（operator編集が
+  container再起動で消えない）を`compose@14`へ実装済み（2026-08-30）。
 - **設計変更の経緯**: 当初案（below §3/§4の旧稿）はCaddyコンテナをTailscale
   interface（CGNAT `100.64.0.0/10`）へ直接bindし、`tailscale cert`で得た証明書を
   Caddyへmountする方式だった。実装時に`toml_project.py`の既存cross-field
@@ -392,3 +394,59 @@ alpha検証ガイド（§7）を通してlive evidenceを取得後も、これ�
   「通常dev integration harness」（Stack自身の横断確認用の使い捨て暖機環境）に
   対応する。home private alpha（m720s1）とは別目的であり、本設計の`@6`と
   役割は衝突しない。
+
+## 9. McRemote plugin config／server.propertiesの「seed-once」化（`compose@14`のみ、2026-08-30）
+
+運営者から次の指摘があり、SSOTと照合したうえで`compose@14`へ実装した。
+
+**指摘**: Dockerを使う価値は初期設定の再現性・簡便さであり、運用面で
+`config.yml`を運営者が調整できないのは自己矛盾。通常のサーバー運営では、Paper
+本体の`.jar`以外——server.properties、各pluginのconfig——は全て運営者が調整
+できて当然。McRemote plugin config.ymlだけが例外的にoperator input皆無かつ
+毎回強制上書きされる状態は、`auth.enforcement`のデフォルトを巡る過去の設計上の
+勘違いが尾を引いた結果である。
+
+**SSOT照合**（knowledge commit `fa9f08a353e1`、`00-hub/DECISIONS_ja.md`
+`2026-07-04-03`）: `auth.enforcement`トグルは、b2開発時にPython clientが先行し
+Scratch clientが未対応だった過渡期に、3リポ同時atomic flipを避けるため
+「非同期着地を許す」目的で導入された。**リリース既定は`enforcement ON`
+（トグルONがb2完了ゲート）**であり、`false`は認証非対応clientの混在期や
+認証機構自体の不具合時のbypassという狭い用途にのみ意味を持つ、通常運用では
+使わない機能。デフォルトが`true`であるべきという点にSSOT上の異論はなく、
+「configファイル全体をDockerで強制ロックしてこれを守る」という決定は
+どこにも存在しない——このrepoの2026-08-05 NOTES「b2 auth enforcement
+deployment correction」が記す実装対応（McRemote plugin同梱JARの出荷時default
+`false`を訂正するため、Stackが独自のconfig.ymlを生成してmountする）が、
+本来「`auth.enforcement`一箇所を訂正する」ためだった手当を、
+「config.yml全体を常時強制再適用する」という広すぎる実装へ結果的に一般化して
+しまっていた。
+
+**確認した安全網**: `doctor.py`の`doctor_auth_not_enforced`checkは、config
+ファイルの中身ではなく**実際に稼働しているserverへtoken無しhelloを送り、
+protocol応答が`auth-required`であることを確認する**（`hello_probe`、
+`doctor.py:1216-1221`）。したがってconfig.ymlをoperator editableにしても、
+運営者が誤って`auth.enforcement: false`にすればdoctorが検知してfail closedに
+なる——ファイルを触れなくすることでしか守れない性質のものではなかった。
+
+**実装**（`compose@14`のみ、スコープを絞った）: itzg/docker-minecraft-server
+imageの`SYNC_SKIP_NEWER_IN_DESTINATION`を`false`（常に`/config`側=Stack
+レンダリング結果が勝つ）から`true`（destination側のmtimeが新しければ
+destinationを残す＝seed-once）へ変更した。挙動：
+
+- 初回boot（volumeが空）: 従来通りStackのtemplateがcopyされる。
+- 通常のcontainer再起動（`mcrctl render`を挟まない）: sourceのmtimeは
+  直近renderの時刻のまま変わらないので、運営者がcontainer内で直接編集した
+  server.properties／`plugins/McRemote/config.yml`（編集時刻の方が新しい）は
+  **残る**。
+- 明示的な`mcrctl render`＋`mcrctl deployment update apply`（§7）: 新しい
+  templateのmtimeがsourceとして新しくなるので、運営者が意図して更新をpushした
+  時だけ新しいdefaultが反映される。
+
+**追記（2026-08-30）**: 当初は`compose@14`（alpha）だけの局所修正として実装したが、
+運営者から「alpha限定は前提ではない、根本原因を横断的に根絶すべき」と明確化された。
+`_compose_v1`（home-server系）・`_compose_v2`（vps-server系、現行public beta
+`compose@13`も継承）**双方も同日中に同じ修正を適用済み**。設計の正本は横断文書
+[`docs/operator-editable-runtime-config-design_ja.md`](operator-editable-runtime-config-design_ja.md)
+に移した（本§9はalpha側の経緯記録として残す）。production VPSへの実際の反映は、
+コード修正とは別に運営者が`mcrctl deployment update`等で実行する（実行境界、
+同文書§7）。

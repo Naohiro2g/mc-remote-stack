@@ -240,6 +240,11 @@ def test_toml_compose_renderer_uses_only_locked_artifacts_and_instance_contract(
     assert minecraft["environment"]["ONLINE_MODE"] == "true"
     assert minecraft["environment"]["ENABLE_RCON"] == "false"
     assert minecraft["environment"]["LEVEL"] == "home-beta-world"
+    assert minecraft["environment"]["SYNC_SKIP_NEWER_IN_DESTINATION"] == "true", (
+        "server.properties / plugin config must be seed-once, not "
+        "force-reasserted over an operator's live edit on every restart "
+        "(docs/operator-editable-runtime-config-design_ja.md)"
+    )
     assert minecraft["ports"] == [
         "127.0.0.1:25565:25565/tcp",
         "127.0.0.1:25575:25575/tcp",
@@ -741,6 +746,13 @@ white_list = false
         "0.0.0.0:25565:19132/udp",
         "0.0.0.0:25575:25575/tcp",
     ]
+    assert compose["services"]["minecraft"]["environment"][
+        "SYNC_SKIP_NEWER_IN_DESTINATION"
+    ] == "true", (
+        "server.properties / plugin config must be seed-once, not "
+        "force-reasserted over an operator's live edit on every restart "
+        "(docs/operator-editable-runtime-config-design_ja.md)"
+    )
     assert compose["networks"]["app"] == {
         "internal": True,
         "enable_ipv6": False,
@@ -1022,6 +1034,12 @@ bridge_port = 8444
     assert compose["services"]["minecraft"]["networks"] == {
         "app": {"aliases": ["m720s1.example-tailnet.ts.net"]},
     }
+    assert compose["services"]["minecraft"]["environment"][
+        "SYNC_SKIP_NEWER_IN_DESTINATION"
+    ] == "true", (
+        "server.properties and McRemote's config.yml must be seed-once, not "
+        "force-reasserted over an operator's live edit on every restart"
+    )
     assert all(
         "tls" not in str(mount) for mount in compose["services"]["caddy"]["volumes"]
     )

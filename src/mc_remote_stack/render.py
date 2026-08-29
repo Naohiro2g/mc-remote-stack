@@ -515,7 +515,13 @@ def _compose_v1(
         "REMOVE_OLD_MODS_DEPTH": "1",
         "SKIP_DOWNLOAD_DEFAULTS": "true",
         "COPY_CONFIG_DEST": "/data",
-        "SYNC_SKIP_NEWER_IN_DESTINATION": "false",
+        # Seed-once, not force-enforced: see docs/operator-editable-runtime-config-design_ja.md.
+        # An operator's live edit to server.properties or plugins/*/config.yml
+        # (newer mtime than the rendered template) survives ordinary restarts;
+        # only an explicit render + reapply pushes fresher defaults. Deployed
+        # behavior — not this file — is what doctor verifies (protocol.hello
+        # auth-required probe).
+        "SYNC_SKIP_NEWER_IN_DESTINATION": "true",
         "REPLACE_ENV_DURING_SYNC": "false",
         "LEVEL": world_identity,
     }
@@ -845,7 +851,9 @@ def _compose_v2(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str]]:
                     "REMOVE_OLD_MODS_DEPTH": "1",
                     "SKIP_DOWNLOAD_DEFAULTS": "true",
                     "COPY_CONFIG_DEST": "/data",
-                    "SYNC_SKIP_NEWER_IN_DESTINATION": "false",
+                    # Seed-once, not force-enforced: see
+                    # docs/operator-editable-runtime-config-design_ja.md.
+                    "SYNC_SKIP_NEWER_IN_DESTINATION": "true",
                     "REPLACE_ENV_DURING_SYNC": "false",
                     "LEVEL": world_identity,
                 },
@@ -1670,7 +1678,14 @@ def _compose_v14(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str]]:
                     "REMOVE_OLD_MODS_DEPTH": "1",
                     "SKIP_DOWNLOAD_DEFAULTS": "true",
                     "COPY_CONFIG_DEST": "/data",
-                    "SYNC_SKIP_NEWER_IN_DESTINATION": "false",
+                    # Seed-once, not force-enforced: an operator's live edit to
+                    # server.properties or plugins/McRemote/config.yml (newer
+                    # mtime than the rendered template) survives ordinary restarts.
+                    # Only an explicit `mcrctl render` + reapply pushes fresh
+                    # defaults, and only where they are actually newer. Live
+                    # deployed behavior — not this file — is what doctor verifies
+                    # (protocol.hello auth-required probe, doctor.py).
+                    "SYNC_SKIP_NEWER_IN_DESTINATION": "true",
                     "REPLACE_ENV_DURING_SYNC": "false",
                     "LEVEL": world_identity,
                 },

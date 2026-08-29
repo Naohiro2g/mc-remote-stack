@@ -16,13 +16,41 @@
   `11-plugin/platform-design_ja.md`（commit `fa9f08a353e1`時点）にも
   config編集・reload・永続化についての既存決定は見当たらない。まっさらな未着手
   領域である。
-- [ ] 「一時的変更」側はStackだけでなく**McRemote plugin自身のruntime reload
-  能力**（in-game/console commandでの設定変更を永続化なしで反映できるか）にも
-  依存する可能性があり、McRemote固有の設計判断はAGENTS.mdのSSOTプロトコルに
-  従いknowledge repoを読んでから着手する必要がある。現時点ではこの機能の有無を
-  未確認。
-- [ ] 優先度は運営者が「致命的」と表現。着手時期（今すぐ設計に入るか、9月の
-  ケータリングPC／キット検証に合わせるか）は運営者へ確認中。
+- [x] 運営者から核心指摘: 「configを永続化する（＝Stackが強制的に固定・再適用
+  し続ける）とはDockerを使う自己否定」「通常のサーバー運営上、調整用に存在する
+  ファイルは全て編集可能であるべき（Paperならjar以外全て）」。SSOT
+  `00-hub/DECISIONS_ja.md` `2026-07-04-03`（knowledge commit `fa9f08a353e1`）と
+  照合すると、`auth.enforcement`トグルはb2開発時の3リポ非同期着地を許すための
+  過渡的機構で、**リリース既定は`enforcement ON`**、`false`は認証非対応client
+  混在時や認証機構自体の不具合時のbypassという狭い用途に限られる——「config.yml
+  全体をDockerで強制ロックする」という決定はSSOTのどこにもなく、このrepoの
+  2026-08-05「b2 auth enforcement deployment correction」対応（本来は
+  `auth.enforcement`一箇所の訂正が目的）が結果的にconfig.yml全体の常時強制
+  再適用へ一般化してしまっていたと判明した。
+- [x] `doctor.py`の`doctor_auth_not_enforced`checkはconfig fileでなく**実際に
+  稼働しているserverへtoken無しhelloを送りprotocol応答を見る**（`hello_probe`、
+  `doctor.py:1216-1221`）ため、config.ymlをoperator editableにしても安全網は
+  失われないことを確認した。
+- [x] 運営者から明確化: 「alpha限定は前提ではない、根本原因を横断的に根絶すべき」。
+  横断設計文書
+  [`docs/operator-editable-runtime-config-design_ja.md`](docs/operator-editable-runtime-config-design_ja.md)
+  を新設し、正本とした。
+- [x] `_compose_v1`（home-server系、`compose@1`/`@5`/`@6`＝`compose@14`含む全継承先）
+  と`_compose_v2`（vps-server系、現行public beta `compose@13`も継承）**両方**で
+  itzg imageの`SYNC_SKIP_NEWER_IN_DESTINATION`を`false`→`true`に変更
+  （seed-once化）。volumeが空の初回bootはStackのtemplateがcopyされるが、以降の
+  通常container再起動では運営者が直接編集したserver.properties／
+  `plugins/<Plugin>/config.yml`は残る。明示的な`mcrctl render`＋
+  `deployment update apply`をした時だけ新しいdefaultsがpushされる。
+  legacy YAMLパイプライン（`render_project()`、稼働中の`apply`経路では未使用と
+  2026-07-30に確認済み）は対象外のまま変更していない。
+  テスト追加（`_compose_v1`系・`_compose_v2`系それぞれ、PASS）、ruff clean、
+  全体test suite PASS。
+- [ ] **未着手（人間実行）**: 現行public beta（VPS）へこの新renderer挙動を
+  実際に反映するのは別途`mcrctl deployment update plan/apply`が必要
+  （実行境界外、運営者が対象host上で行う）。McRemote plugin自身のruntime reload
+  能力（無停止での設定切替）は本修正の範囲外——別途McRemote固有の設計判断
+  （SSOTプロトコルに従う）。
 
 ## 2026-08-29 home private alphaフルスタック化 設計草案
 
