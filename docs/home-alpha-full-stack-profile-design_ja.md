@@ -2,10 +2,13 @@
 
 ## 0. 位置づけと状態
 
-- 状態: **`home-server@6`/`lan-routes@1`/`compose@14`の機構は実装・test-first済み**
-  （2026-08-29）。McRemote plugin exact commit pin（§5）とpreset本体（§6）、
-  m720s1実機へのlive apply（§7）は未着手。§3〜§4は当初案からTailscale証明書の
-  実際の制約に合わせて改訂している（下記参照）。
+- 状態: **`home-server@6`/`lan-routes@1`/`compose@14`の機構と`home-alpha-full@1`
+  presetは実装・登録・test-first済み**（2026-08-29）。synthetic fixtureでの
+  render検証に加え、実データ（実profile・実preset・実artifact digest）を使った
+  `mcrctl init/resolve/plan/artifact fetch/render`のdry runでも動作確認済み
+  （§6）。**m720s1実機へのlive apply（§7手順4以降）はagentの実行境界外**
+  （SSH/Tailscaleアクセスを持たない）であり、人間が行う。§3〜§4は当初案から
+  Tailscale証明書の実際の制約に合わせて改訂している（下記参照）。
 - **設計変更の経緯**: 当初案（below §3/§4の旧稿）はCaddyコンテナをTailscale
   interface（CGNAT `100.64.0.0/10`）へ直接bindし、`tailscale cert`で得た証明書を
   Caddyへmountする方式だった。実装時に`toml_project.py`の既存cross-field
@@ -226,39 +229,53 @@ bridge_port = 8444
 - connection_targets（複数接続先の切替）は本sliceでは未対応。必要になれば
   append-onlyな`compose@15`で追加する。
 
-## 5. McRemote plugin の exact commit pin（`git-build`）
+## 5. McRemote plugin の exact commit pin（`git-build`は現時点で未使用）
 
-`preset.schema.json`の`gitBuildArtifact`（`kind = "git-build"`）を使う。
+`preset.schema.json`には`gitBuildArtifact`（`kind = "git-build"`、Stackは自動build
+せず人間がbuildしたreviewed出力だけを取り込む）が既に定義されている。§6で実際に
+登録した2026-08-29時点では、McRemote `main`のHEAD（`4e8f1ff1bd48...`）が
+`v1.21.11-2300.0.0b6`タグと**完全に一致**していた（`gh api
+repos/Naohiro2g/McRemote/compare/v1.21.11-2300.0.0b6...main`でahead=0/behind=0を
+確認）ため、`git-build`で改めてbuildし直す必要はなく、既存の`https-file`
+（tag済みGitHub Release asset、digestをGitHub APIで再確認済み）をそのまま
+再利用した。`main`が次のtagより先行するcommitを持つようになった時点で、初めて
+`git-build`によるexact commit pinが必要になる。
 
-```toml
-[[artifacts]]
-id = "mcremote-jar"
-kind = "git-build"
-version = "<選択時点のcommit短縮SHA>"
-repository = "https://github.com/Naohiro2g/McRemote"
-commit = "<40-hex commit SHA>"
-source_subdirectory = "."
-recipe = "./gradlew build"
-recipe_sha256 = "<build.gradle等recipe定義のSHA-256>"
-toolchain = "<pinned JDK image/tag>"
-toolchain_sha256 = "<toolchain digestのSHA-256>"
-build_input_sha256 = "<build入力treeのSHA-256>"
-output_filename = "mc-remote-<mc_version>-<commit-short>.jar"
-output_sha256 = "<build結果JARのSHA-256>"
-```
+## 6. 新規preset `home-alpha-full@1`（登録済み・2026-08-29）
 
-`mcrctl artifact import-reviewed`（`artifacts.py`の既存経路、`cli.py`確認要）で
-人間がbuildし、reviewed出力だけをStackへ取り込む。Stackは自動でMcRemoteの
-Gradle buildを実行しない（実行境界：他repoのbuild toolchainをStackが暗黙実行
-しない）。手順の詳細runbook化は別文書へ送る（§7）。
+`src/mc_remote_stack/data/preset_registry/home-alpha-full/1/preset.toml`として
+実際に登録し、`preset_catalog_policy.toml`へ`active`登録、`preset_catalog.toml`を
+`build_preset_catalog()`で再生成した。全artifactは机上の値ではなく、実際に
+`gh api`（McRemote/scratch-editorのcommit・release digest）と
+`docker buildx imagetools inspect`（ghcr.io OCI index digest、`docker login
+ghcr.io`は`gh auth token`で認証）で再検証済み。
 
-## 6. 新規preset `mcremote-paper-alpha-full@1`
+- `scratch-image`/`bridge-image`: `scratch-editor`の`develop`HEAD
+  （`5df50144da13b1a1c8c23b01f2d0138ffd17b953`）。これは`public-web-paper@8`
+  （b6）に収録済みのcommitと**一致**しており（2026-08-29時点でdevelopが
+  進んでいない）、同じdigestを再利用した。
+- `mcremote-jar`: McRemote `main`HEAD（`4e8f1ff1bd48bfa28c465f2dc24060fbb419317f`）
+  は`v1.21.11-2300.0.0b6`タグと同一commitのため、既存のGitHub Release asset
+  （`https-file`、digestをGitHub Release APIで再確認）をそのまま使った（§5）。
+- `caddy-image`/`minecraft-image`/`paper-jar`: third-party基盤として
+  `public-web-paper@8`と**同一の**既知digestへ固定した。Docker Hubの
+  `caddy:2.11.4-alpine`タグは現在別digestを指す（ベースイメージの再ビルドで
+  浮動する）ことをlive確認したが、これは想定どおりでStack側のpinを追従させない
+  （§10.6「他のcomponentは既知artifactへ固定」）。
+
+**正直な記録**: 2026-08-29時点でMcRemote `main`／scratch-editor `develop`は
+どちらも直近tag（b6）とcommitレベルで完全一致しており、「tag前の最新」と
+「直近beta」の間に実質差分がない。したがってこの`home-alpha-full@1`は
+現時点ではbeta（`public-web-paper@8`）と中身が同じである。これは設計の欠陥では
+なく、「今この瞬間はまだ何も新しく積まれていない」という事実であり、
+今後developer側でcommitが積まれた時点で次のrevision（`home-alpha-full@2`）が
+実際に分岐する。
 
 ```toml
 [preset]
-name = "mcremote-paper-alpha-full"
+name = "home-alpha-full"
 revision = "1"
-description = "home private alpha full-stack: exact tag-前 commit pin for plugin/Scratch/Bridge"
+description = "..."
 
 [requirements]
 profile_capabilities = [
@@ -292,35 +309,36 @@ artifact = "minecraft-image"
 id = "paper-server"
 role = "paper-server"
 artifact = "paper-jar"
-minecraft_version = "<既知安定版>"
+minecraft_version = "1.21.11"
 
 [[components]]
 id = "mcremote-paper"
 role = "mcremote-plugin"
 artifact = "mcremote-jar"
-
-# artifacts: caddy-image / minecraft-image / paper-jar は既知安定版へ固定
-# （直近public betaで検証済みのdigestを再利用可）。
-# scratch-image / bridge-image / mcremote-jar は §1 の方式でその都度更新する。
 ```
 
-`compatibility_status`は初回`unverified`。alpha検証ガイド（§7）を通してlive
-evidenceを取得後も、これは「public beta昇格の合格」を意味しない
-——§10.6どおり、価値あるsliceが確認できたら次の`bN`をtagして初めてbeta段へ進む。
+`compatibility_status`は初回`unverified`（実際に登録した状態も`unverified`）。
+alpha検証ガイド（§7）を通してlive evidenceを取得後も、これは「public beta昇格の
+合格」を意味しない——§10.6どおり、価値あるsliceが確認できたら次の`bN`をtagして
+初めてbeta段へ進む。
 
 ## 7. 更新手続き（都度選び直し、非自動）
 
 `docs/home-alpha-validation-guide_ja.md`を拡張する形で、次のrunbookを追記する
-（本設計の実装後に着手）。
+（m720s1実機へのlive apply着手時に反映）。
 
-1. McRemote / scratch-editor / mc-remote-bridgeそれぞれのtarget branch HEADを
-   人間が選ぶ（例: `develop`）。
-2. 各repoのCIが対応commitのartifactを生成済みであることを確認する
-   （Scratch/Bridge: `sha-<commit>` OCI tagが既に存在するかを`docker manifest
-   inspect`で確認、なければCI手動trigger。McRemote: `git-build`recipeで
-   ローカルbuildしreviewed import）。
-3. 新しい`mcremote-paper-alpha-full@N+1`（append-only）を作成し、3成分の
-   artifact digest/commitを更新する。
+1. McRemote（`main`）／scratch-editor（`develop`、**Bridgeも同じrepoの
+   `mc-remote/bridge`配下に同居しており別repoではない**）のtarget branch HEADを
+   人間が選ぶ。
+2. 対応commitのartifactが既に存在するか確認する。Scratch/Bridge:
+   `docker buildx imagetools inspect ghcr.io/naohiro2g/mc-remote-<scratch|bridge>:sha-<commit>`
+   で`sha-<commit>` OCI tagの存在とindex digestを確認し、なければ
+   `mc-remote-images.yml`（`workflow_dispatch`、CI resourceを使う実行なので
+   人間の承認を得てから起票する）を手動triggerする。McRemote: tagが同じcommit
+   を指していれば既存GitHub Release assetを再利用（§5）、tagより先行していれば
+   `git-build`でreviewed importする。
+3. 新しい`home-alpha-full@N+1`（append-only）を作成し、3成分のartifact
+   digest/commitを更新する。
 4. `mcrctl resolve/plan/render/apply/doctor`で通常のalpha applyフローを実行する
    （既存`home-alpha-validation-guide_ja.md`のunverified acknowledgementと
    同じ形）。

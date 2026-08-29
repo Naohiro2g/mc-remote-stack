@@ -3,7 +3,18 @@ schema_version = 1
 [preset_catalog]
 generator = "mcrctl-preset-catalog-v1"
 canonicalization = "jcs-rfc8785-v1"
-source_sha256 = "cc47b49d1afe4eaa771a29ff922e221646bdfa2e7d2f8ec434960f1e56323ad1"
+source_sha256 = "a7d9898cbbd8690c08391cb38ddf4921a33ad368b8a55e8b11f27e5a4dbe2fd6"
+
+[[preset_catalog.presets]]
+ref = "home-alpha-full@1"
+content_sha256 = "17c57a021c1500e4b5046642af6c04a508b4afabd8b9717a53947d33b7408143"
+description = "home private alpha full stack (Caddy/Scratch/Bridge/Minecraft): McRemote main HEAD 4e8f1ff1 and scratch-editor develop HEAD 5df50144, which currently coincide with the public-web-paper@8 (b6) tagged content. Caddy/itzg-minecraft/Paper stay pinned to the same known-good third-party artifacts already verified in public-web-paper@8."
+status = "active"
+available_since = "2026-08-29"
+required_profile_capabilities = ["compose", "mcremote-auth-enforced", "paper", "persistent-world", "scratch-runtime", "websocket-bridge"]
+allowed_channels = ["alpha"]
+compatibility_status = "unverified"
+compatibility_records = []
 
 [[preset_catalog.presets]]
 ref = "mcremote-paper@1"

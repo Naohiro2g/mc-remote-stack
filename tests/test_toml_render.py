@@ -1054,6 +1054,92 @@ bridge_port = 8444
     }
 
 
+def test_compose_v14_renders_through_the_real_toml_render_dispatch(tmp_path: Path) -> None:
+    """Regression test: calling _compose_v14 directly does not exercise the
+    separate adapter-revision allowlist inside _load_current_toml_render_lock
+    (used by render_toml_project and apply); compose@14 must be accepted there too.
+    """
+    data_root = _data_root(tmp_path, "home-alpha-full-dispatch-data")
+    profile_path = data_root / "profiles" / "home-server" / "6" / "profile.toml"
+    profile_path.parent.mkdir(parents=True)
+    profile_path.write_text(
+        files("mc_remote_stack")
+        .joinpath("data", "profiles", "home-server", "6", "profile.toml")
+        .read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    _write_home_alpha_full_preset(data_root)
+
+    artifact_store = tmp_path / "artifacts"
+    project = init_toml_project(
+        tmp_path / "home-alpha",
+        deployment_name="home-alpha",
+        profile="home-server@6",
+        environment_identity="home-alpha",
+        channel="alpha",
+        exposure="isolated",
+        purpose="integration",
+        preset="home-alpha-full@1",
+        artifact_store=str(artifact_store),
+        runtime_volumes={
+            "minecraft-data": "home-alpha-minecraft-data",
+            "caddy-data": "home-alpha-caddy-data",
+            "caddy-config": "home-alpha-caddy-config",
+        },
+        world_identity="home-alpha-world",
+        bind_address="127.0.0.1",
+        java_port=25566,
+        mcremote_port=25576,
+        minecraft_eula=True,
+    )
+    project.order.write_text(
+        project.order.read_text(encoding="utf-8")
+        + """
+[[operator_inputs]]
+role = "lan-routes"
+adapter = "lan-routes@1"
+path = "operator/lan-routes/routes.toml"
+""",
+        encoding="utf-8",
+    )
+    routes = project.root / "operator" / "lan-routes" / "routes.toml"
+    routes.parent.mkdir(parents=True)
+    routes.write_text(
+        """
+hostname = "m720s1.example-tailnet.ts.net"
+scratch_port = 8443
+bridge_port = 8444
+""".lstrip(),
+        encoding="utf-8",
+    )
+    _acknowledge(project.root, "unverified")
+    resolve_project(
+        project.root,
+        data_root=data_root,
+        allow_unverified=True,
+        resolved_at=FIRST_RESOLVED_AT,
+    )
+    # _write_home_alpha_full_preset already declares PAPER_SHA256/PLUGIN_SHA256
+    # as the paper-jar/mcremote-jar artifact hashes, so populating the
+    # content-addressed store under those exact digests is enough; the lock
+    # itself needs no post-resolve mutation.
+    (artifact_store / "sha256" / PAPER_SHA256).parent.mkdir(parents=True, exist_ok=True)
+    (artifact_store / "sha256" / PAPER_SHA256).write_bytes(PAPER_BYTES)
+    (artifact_store / "sha256" / PLUGIN_SHA256).write_bytes(PLUGIN_BYTES)
+
+    output = project.root / "generated"
+    result = render_toml_project(project.root, output, data_root=data_root)
+
+    assert result.status == "created"
+    assert result.adapter == "compose"
+    assert result.adapter_revision == "14"
+    compose = yaml.safe_load((output / "compose.yaml").read_text(encoding="utf-8"))
+    assert compose["services"]["caddy"]["ports"] == [
+        "127.0.0.1:8443:8443/tcp",
+        "127.0.0.1:8444:8444/tcp",
+    ]
+
+
 def test_compose_v8_keeps_b3_public_beta_session_only(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

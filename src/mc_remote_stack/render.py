@@ -2349,6 +2349,7 @@ def _load_current_toml_render_lock(
         "11",
         "12",
         "13",
+        "14",
     }
     if adapter != "compose" or adapter_revision not in supported_revisions:
         _render_fail(

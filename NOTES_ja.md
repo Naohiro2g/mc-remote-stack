@@ -27,10 +27,41 @@
   adapter（`operator_inputs.py`、`_absolute_host_path`ヘルパー抽出で
   `minecraft-backup@1`と共通化）、`compose@14`renderer（`render.py`、Caddyは
   `:port`のみのsite blockでAutomatic HTTPS/ACMEを回避）をtest-first実装した。
-  `lock.schema.json`へ`lanRoutesRole`/`lanRoutesInput`を追加。259件超のtest
-  （新規: operator input 9件、compose@14 1件）PASS、ruff clean。
-  McRemote pluginの`git-build` exact commit pinと`home-alpha-full`preset本体、
-  m720s1実機へのlive applyは未着手（次段）。
+  `lock.schema.json`へ`lanRoutesRole`/`lanRoutesInput`を追加。commit `98a7016`。
+- [x] `home-alpha-full@1`presetを実際に登録した
+  （`preset_registry/home-alpha-full/1/`、`preset_catalog_policy.toml`へ
+  `active`追加、`preset_catalog.toml`を`build_preset_catalog()`で再生成）。
+  全artifact digestは机上の値でなく実際に検証した：McRemote `main`
+  （`4e8f1ff1bd48...`）とscratch-editor `develop`
+  （`5df50144da13b1a1c8c23b01f2d0138ffd17b953`、**Bridgeも同じrepoの
+  `mc-remote/bridge`配下**）を`gh api`で取得し、`docker buildx imagetools
+  inspect`（`docker login ghcr.io`は`gh auth token`で認証）でOCI index digestを、
+  GitHub Release APIの`.digest`でJAR digestを再確認した。
+  **正直な記録**: 2026-08-29時点でMcRemote `main`はv1.21.11-2300.0.0b6タグと
+  commitレベルで完全一致（`gh api .../compare/...`でahead=0/behind=0）、
+  scratch-editor `develop`も`public-web-paper@8`収録commitと一致しており、
+  「tag前の最新」と直近betaの間に実質差分がない。よって`git-build`は使わず
+  既存の`https-file`/`oci`digestをそのまま再利用した。差分がない今は
+  `home-alpha-full@1`はbeta（`public-web-paper@8`）と中身が同じだが、設計上の
+  欠陥ではなく「まだ何も新しく積まれていない」という事実。
+- [x] `mcrctl init/accept-eula/resolve/plan/artifact fetch/render`を実データ
+  （実profile・実preset・実artifact取得含む）でdry run し、compose.yaml /
+  Caddyfile / server.properties / config.yml の内容を目視確認した。この過程で
+  `render_toml_project`が別の場所（`_load_current_toml_render_lock`内の
+  `supported_revisions`集合、`_stage_current`とは別のallowlist）でも
+  `compose@14`を許可する必要があると判明——unit testで`_compose_v14`/
+  `_stage_compose_v14`を直接呼ぶだけでは踏まなかった経路だった。修正し、
+  この経路を通す回帰test（`test_compose_v14_renders_through_the_real_toml_render_dispatch`）
+  を追加した（revertして実際に落ちることを確認済み）。
+  また、`preset_catalog`がref順にsortされるため新presetの挿入で既存2 testの
+  `catalog["preset_catalog"]["presets"][0/1]`という絶対位置参照がずれて壊れた
+  （`test_bundled_home_profile_and_preset_are_exact_and_catalogued`／
+  `test_bundled_alpha_preset_is_immutable_unverified_and_catalogued`）。
+  index値を実際の並び順に合わせて修正した。全testPASS、ruff clean。
+- [ ] McRemote pluginの`git-build`によるexact commit pin実装は、`main`が次tagより
+  先行するcommitを持つようになってから着手する（今は不要）。
+  m720s1実機へのlive applyは**agentの実行境界外**（SSH/Tailscaleアクセスなし）
+  であり、人間が行う。
 - [ ] `home-server@5`（`allowed_channels=["dev"]`）との重複懸念はcommit
   `448de60`（2026-08-21）の`docs/normal-dev-environment-guide_ja.md`向け
   profileと判明し、解消した。目的が異なるため衝突しない。
