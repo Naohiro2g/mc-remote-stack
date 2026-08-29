@@ -301,3 +301,7 @@ tailnet参加端末から`https://<hostname>:8443`／`:8444`とMinecraft client�
 [`home-alpha-full-stack-profile-design_ja.md`§7](home-alpha-full-stack-profile-design_ja.md#7-更新手続き都度選び直し非自動)。
 McRemote / scratch-editorのHEADが動いた時だけ新しい`home-alpha-full@N+1`を作る。
 `home-server@6`／`lan-routes@1`／`compose@14`自体は変更不要。
+
+**既存deploymentへの適用は`apply --bootstrap`ではない**（それは初回専用）。
+同一volumeのまま更新する`mcrctl deployment update plan/apply`を使う（design doc
+§7手順4）。

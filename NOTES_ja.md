@@ -2,6 +2,28 @@
 
 確定前または別sliceへ送る作業だけを置く。private host名、IP、credential、account情報は書かない。
 
+## 2026-08-30 McRemote plugin設定の一時変更・永続化が横断的に未対応 [重要]
+
+- [ ] 運営者から、McRemote plugin自体の設定（`config.yml`）を①一時的に変更する
+  手段、②変更を永続化する手段、双方が現状ないという指摘があった。コード確認の
+  結果、**全profile・全renderer revisionで確認**した：`plugins/McRemote/config.yml`
+  は`_mcremote_b2_config`／`_compose_v1`のcredential変種（`render.py`）から
+  **完全に固定生成**されており、operator inputで値を差し替える経路が一切ない。
+  `minecraft-plugins@1`（`vps-server@11`/`@12`等で存在）はMcRemote**以外**の
+  周辺pluginを追加する仕組みで、`filename`に`mcremote`/`mc-remote`を含む
+  ものは明示的に拒否する（`operator_inputs.py`の`_parse_minecraft_plugins`）
+  ——McRemote自身の設定とは無関係。knowledge repo
+  `11-plugin/platform-design_ja.md`（commit `fa9f08a353e1`時点）にも
+  config編集・reload・永続化についての既存決定は見当たらない。まっさらな未着手
+  領域である。
+- [ ] 「一時的変更」側はStackだけでなく**McRemote plugin自身のruntime reload
+  能力**（in-game/console commandでの設定変更を永続化なしで反映できるか）にも
+  依存する可能性があり、McRemote固有の設計判断はAGENTS.mdのSSOTプロトコルに
+  従いknowledge repoを読んでから着手する必要がある。現時点ではこの機能の有無を
+  未確認。
+- [ ] 優先度は運営者が「致命的」と表現。着手時期（今すぐ設計に入るか、9月の
+  ケータリングPC／キット検証に合わせるか）は運営者へ確認中。
+
 ## 2026-08-29 home private alphaフルスタック化 設計草案
 
 - [ ] home private alpha（m720s1）を、2026-07-31に立てたまま未着手だった計画
