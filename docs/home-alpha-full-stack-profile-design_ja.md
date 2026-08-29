@@ -347,17 +347,33 @@ alpha検証ガイド（§7）を通してlive evidenceを取得後も、これ�
 
 ## 8. 未確定・要人間判断事項
 
-- `tailscale serve`のtailnet側公開port番号を、Stackがrenderするloopback port
-  （`scratch_port`/`bridge_port`）と一致させる運用を前提にしている。実機で
-  `tailscale serve`を設定する際、この対応関係をrunbookに明記する必要がある。
-- Minecraft本体（java_port/mcremote_port）もloopbackにしかbindされないため、
-  tailnet参加client（生Minecraft protocolで接続するclient、Bridgeの
-  `BRIDGE_SANDBOX_PORT`宛通信は同一Dockerネットワーク内なので対象外）から直接
-  到達させる場合は、`tailscale serve`のTCPモード（HTTP以外のraw TCP転送）を
-  併用するか、Minecraft接続はtailnet越しでなくCaddy/Scratch/Bridge経由の
-  sandbox概念だけで完結させるかを人間が選ぶ必要がある。現状の実装は後者
-  （`default_sandbox`をhostnameのみで表現し、実際のjava接続経路は別途human
-  runbookで定義）を前提にしているが、明示合意はまだない。
+- ~~`tailscale serve`のtailnet側port対応~~ 解決済み（2026-08-29、Tailscale公式
+  docs `tailscale-cli/serve`で確認）。`tailscale serve --bg --https=<port>
+  http://127.0.0.1:<port>`のように、tailnet側公開portとloopback転送先portへ
+  **同じ番号**を渡す形が素直に成立する。Scratch/Bridge向けにHTTPSモードを
+  ポートごとに個別起動する：
+  ```bash
+  tailscale serve --bg --https=8443 http://127.0.0.1:8443   # scratch
+  tailscale serve --bg --https=8444 http://127.0.0.1:8444   # bridge (wss upgrade含む)
+  tailscale serve status
+  ```
+  複数`--https`/`--tcp`をport違いで並行起動できる（`tailscale serve status`で
+  一覧確認）。BridgeのWebSocket upgrade（`wss://`）がHTTPSモード経由で透過するかは
+  一般的なL7 proxyの前提としては妥当だが、実機での確認（live-auto）はまだ行って
+  いない。
+- ~~Minecraft本体のtailnet越し直接接続~~ 解決済み。`tailscale serve`は
+  `--tcp=<port>`でraw TCP forwarding（HTTP以外の任意protocol、SSH/RDB等と同様に
+  Minecraft Java Edition protocolにも使える）を提供する：
+  ```bash
+  tailscale serve --bg --tcp=25566 tcp://127.0.0.1:25566   # java_port
+  ```
+  よって「sandbox概念だけで完結させる」という妥協は不要で、tailnet参加clientから
+  生Minecraft protocolで直接接続できる。ただし`default_sandbox`（Scratch/Bridgeが
+  参照する接続文字列）は現状hostnameのみ（bare、port省略）で、Scratch/Bridge側の
+  規約でport 25565を前提にできるかは`_compose_v2`由来の既存挙動を踏襲したもので
+  未検証。java_portを25565以外にする場合はsandbox文字列にport付与が必要か、
+  live-humanで確認する。
+  参照: [tailscale serve command](https://tailscale.com/docs/reference/tailscale-cli/serve)
 - ~~`home-server@5`との重複~~ 確認済み。commit `448de60`
   （2026-08-21「Prepare normal dev deployment workflow」）で追加された
   `docs/normal-dev-environment-guide_ja.md`向けのprofileであり、terms-glossaryの

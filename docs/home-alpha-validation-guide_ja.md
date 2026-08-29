@@ -163,3 +163,141 @@ volumeをcopyする。
 正式compatibility根拠に使う場合、private host、IP、OS user、absolute path、token、pair code、
 player UUIDを除いたsanitized transcriptとrecord draftを作り、knowledge ownerへhandoffする。
 このrepoを担当するagentはknowledge repoへ直接commit / pushしない。
+
+## 6. home-server@6 フルスタック版（Caddy/Scratch/Bridge、tailnet経由）
+
+設計正本は
+[`docs/home-alpha-full-stack-profile-design_ja.md`](home-alpha-full-stack-profile-design_ja.md)。
+上記§1〜§5のMinecraft単体alpha（`home-server@4`）とは別のproject
+（`home-alpha-full`等、既存のisolated alphaや home betaと共存する別project /
+volume / world / port）として構築する。§1のbeta分離原則をそのまま適用する。
+
+対象contractは次のexact値に限定する。
+
+| axis | value |
+| --- | --- |
+| profile | `home-server@6` |
+| preset | `home-alpha-full@1`（以降append-onlyで更新、design doc §7） |
+| channel | `alpha` |
+| exposure | `isolated` |
+| renderer | `compose@14` |
+
+### 6.1 初期化とoperator input
+
+```bash
+MC_REMOTE_PROJECT="$HOME/mc-remote-deployments/home-alpha-full"
+
+uv run mcrctl init "$MC_REMOTE_PROJECT" \
+  --format toml \
+  --deployment-name home-alpha-full \
+  --profile home-server@6 \
+  --environment-identity home-alpha-full \
+  --channel alpha \
+  --exposure isolated \
+  --purpose integration \
+  --preset home-alpha-full@1 \
+  --artifact-store "$HOME/.local/share/mc-remote/artifacts" \
+  --volume minecraft-data=home-alpha-full-minecraft-data \
+  --volume caddy-data=home-alpha-full-caddy-data \
+  --volume caddy-config=home-alpha-full-caddy-config \
+  --world-identity home-alpha-full-world \
+  --bind-address 127.0.0.1 \
+  --java-port 25567 \
+  --mcremote-port 25577
+
+uv run mcrctl accept-eula --project "$MC_REMOTE_PROJECT" --yes
+```
+
+`network.bind_address`は**必ずloopback**にする。`compose@14`はCaddy／Minecraftを
+loopbackだけへbindする設計であり（§4、`toml_project.py`の`isolated`露出契約に
+従う）、tailnetへの到達性はhost側の`tailscale serve`（6.3）が別途担う。
+
+`lan-routes@1` operator inputを手編集で追加する。`hostname`は対象host自身の
+Tailscale MagicDNS名、`scratch_port`/`bridge_port`はCaddyがloopbackで listenする
+port番号（同じ番号をそのまま`tailscale serve`のtailnet側公開portにも使う、6.3）。
+
+```bash
+cat >> "$MC_REMOTE_PROJECT/mc-remote.toml" <<'EOF'
+
+[[operator_inputs]]
+role = "lan-routes"
+adapter = "lan-routes@1"
+path = "operator/lan-routes/routes.toml"
+EOF
+
+mkdir -p "$MC_REMOTE_PROJECT/operator/lan-routes"
+cat > "$MC_REMOTE_PROJECT/operator/lan-routes/routes.toml" <<'EOF'
+hostname = "<この host の Tailscale MagicDNS 名>"
+scratch_port = 8443
+bridge_port = 8444
+EOF
+```
+
+`mc-remote.toml`の`[acknowledgements]`を人間が編集し、`home-alpha-full@1`が
+現時点で`unverified`である理由を記録する（§6の`home-alpha-full-stack-profile-
+design_ja.md`が記す通り、developer側に新しいcommitが積まれるまではbetaと同内容）。
+
+```toml
+[acknowledgements]
+allow_unverified = true
+unverified_reason = "home-server@6 full-stack alpha initial live validation"
+allow_eol = false
+eol_reason = ""
+```
+
+### 6.2 resolve / plan / render / apply
+
+```bash
+uv run mcrctl resolve --project "$MC_REMOTE_PROJECT" --allow-unverified
+uv run mcrctl plan --project "$MC_REMOTE_PROJECT"
+uv run mcrctl artifact fetch --project "$MC_REMOTE_PROJECT"
+uv run mcrctl render --project "$MC_REMOTE_PROJECT" --output "$MC_REMOTE_PROJECT/generated"
+```
+
+`plan`が表示するlock identityをreviewしてから、`docs/home-alpha-validation-guide_ja.md`
+§4と同じ形で`apply --bootstrap --yes --allow-unverified`する。applyはCaddy／
+Scratch／Bridge／Minecraftの4 serviceをすべてloopbackへ起動する。この時点では
+tailnetから一切到達できない（想定どおり）。
+
+### 6.3 `tailscale serve`によるtailnet到達性の付与（host側、Stackの管轄外）
+
+Stackはこの節のcommandを実行・検証しない。対象host上で運営者が実行する。
+tailnet側公開portは、6.1で`lan-routes@1`へ書いた`scratch_port`/`bridge_port`、
+および`network.java_port`と**同じ番号**を使う（Stack側と揃える運用、design doc
+§8）。
+
+```bash
+# Scratch（Caddy経由、HTTPSでTLS終端はtailscale serveが担う）
+tailscale serve --bg --https=8443 http://127.0.0.1:8443
+
+# Bridge（Caddy経由、wss upgradeを含む）
+tailscale serve --bg --https=8444 http://127.0.0.1:8444
+
+# Minecraft本体（生Javaプロトコル、raw TCP forwarding）
+tailscale serve --bg --tcp=25567 tcp://127.0.0.1:25567
+
+tailscale serve status
+```
+
+`tailscale serve --tcp`はSSH/RDB等と同様にraw TCPをそのまま転送する
+（[公式docs](https://tailscale.com/docs/reference/tailscale-cli/serve)）。HTTPSモードは
+Tailscaleが自動発行するtailnet証明書でTLS終端し、Stack側のCaddyはTLSを持たない
+（design doc §4）。
+
+### 6.4 read-only確認
+
+```bash
+uv run mcrctl doctor --project "$MC_REMOTE_PROJECT"
+```
+
+`doctor`が確認できるのはStack管理下のcontainer／volume／lock整合性までであり、
+`tailscale serve`が正しく転送しているかはhost側で別途確認する（例:
+tailnet参加端末から`https://<hostname>:8443`／`:8444`とMinecraft clientでの
+接続を試す）。sanitized live-human evidenceの扱いは§0・§5と同じ。
+
+### 6.5 presetの更新（append-only、非自動）
+
+手順は
+[`home-alpha-full-stack-profile-design_ja.md`§7](home-alpha-full-stack-profile-design_ja.md#7-更新手続き都度選び直し非自動)。
+McRemote / scratch-editorのHEADが動いた時だけ新しい`home-alpha-full@N+1`を作る。
+`home-server@6`／`lan-routes@1`／`compose@14`自体は変更不要。
