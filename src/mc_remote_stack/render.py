@@ -1610,6 +1610,19 @@ def _compose_v14(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str]]:
         ],
         "connection_enabled": True,
         "release_identity": scratch_artifact["version"],
+        "notices": [
+            {
+                "heading": "McRemote home private alpha",
+                "body": (
+                    "ここはtag前の最新source commitを追跡する未検証のalpha環境です。"
+                    "内容は予告なく変わります。"
+                ),
+                "link": {
+                    "href": "https://github.com/Naohiro2g/mc-remote-stack",
+                    "label": "mc-remote-stackを見る",
+                },
+            },
+        ],
     }
 
     property_values = [

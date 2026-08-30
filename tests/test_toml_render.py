@@ -1063,6 +1063,8 @@ bridge_port = 8444
     assert runtime_config["connection_targets"] == [
         {"id": "alpha", "label": "Alpha", "sandbox": "m720s1.example-tailnet.ts.net"},
     ]
+    assert len(runtime_config["notices"]) == 1
+    assert runtime_config["notices"][0]["heading"] == "McRemote home private alpha"
     assert compose["services"]["bridge"]["environment"]["BRIDGE_ORIGIN_ALLOWLIST"] == (
         "https://m720s1.example-tailnet.ts.net:8443"
     )
