@@ -1599,6 +1599,15 @@ def _compose_v14(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str]]:
     runtime_config: dict[str, Any] = {
         "bridge_url": f"wss://{hostname}:{bridge_port}",
         "default_sandbox": hostname,
+        # scratch-editor's client-side loader (mcremote-runtime-config.js)
+        # requires connection_targets as a non-empty array whose sandbox
+        # values include default_sandbox, or it throws and silently falls
+        # back to the embedded sb.mc-remote.com default. compose@14 has no
+        # connection-targets operator input (unlike the vps-server family),
+        # so always emit the alpha's own hostname as the sole target.
+        "connection_targets": [
+            {"id": "alpha", "label": "Alpha", "sandbox": hostname},
+        ],
         "connection_enabled": True,
         "release_identity": scratch_artifact["version"],
     }

@@ -1056,6 +1056,13 @@ bridge_port = 8444
     runtime_config = json.loads(rendered_files["runtime/scratch.json"])
     assert runtime_config["bridge_url"] == "wss://m720s1.example-tailnet.ts.net:8444"
     assert runtime_config["default_sandbox"] == "m720s1.example-tailnet.ts.net"
+    # Regression: scratch-editor's client-side loader requires a non-empty
+    # connection_targets array containing default_sandbox, or it throws and
+    # silently falls back to the embedded sb.mc-remote.com default — this is
+    # exactly what happened on the real m720s1 bootstrap.
+    assert runtime_config["connection_targets"] == [
+        {"id": "alpha", "label": "Alpha", "sandbox": "m720s1.example-tailnet.ts.net"},
+    ]
     assert compose["services"]["bridge"]["environment"]["BRIDGE_ORIGIN_ALLOWLIST"] == (
         "https://m720s1.example-tailnet.ts.net:8443"
     )
