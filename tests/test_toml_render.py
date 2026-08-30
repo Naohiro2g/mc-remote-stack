@@ -1033,7 +1033,12 @@ bridge_port = 8444
     ]
     assert compose["services"]["minecraft"]["networks"] == {
         "app": {"aliases": ["m720s1.example-tailnet.ts.net"]},
+        "egress": {"gw_priority": 1},
     }
+    assert compose["networks"]["egress"] == {
+        "internal": False,
+        "enable_ipv6": False,
+    }, "minecraft needs internet egress to download the vanilla jar from Mojang at first boot"
     assert compose["services"]["minecraft"]["environment"][
         "SYNC_SKIP_NEWER_IN_DESTINATION"
     ] == "true", (

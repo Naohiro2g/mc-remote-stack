@@ -1710,7 +1710,10 @@ def _compose_v14(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str]]:
                         "read_only": True,
                     },
                 ],
-                "networks": {"app": {"aliases": [hostname]}},
+                "networks": {
+                    "app": {"aliases": [hostname]},
+                    "egress": {"gw_priority": 1},
+                },
                 "labels": {
                     **common_labels,
                     "io.mc-remote.paper-sha256": paper_sha256,
@@ -1721,6 +1724,10 @@ def _compose_v14(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str]]:
         "networks": {
             "edge": {"internal": False, "enable_ipv6": False},
             "app": {"internal": True, "enable_ipv6": False},
+            # Minecraft still needs internet egress (paperclip downloads the
+            # vanilla jar from Mojang at first boot) even though "app" is
+            # internal-only; matches _compose_v3's fix for the same gap.
+            "egress": {"internal": False, "enable_ipv6": False},
         },
         "volumes": {
             role: {"name": identity, "external": True}
