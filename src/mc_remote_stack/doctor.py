@@ -778,6 +778,24 @@ def _validate_container(
                     "HostPort": str(lock["network"]["java_port"]),
                 }
             ]
+    elif service == "caddy" and lock["render_plan"]["adapter_revision"] == "14":
+        lan_routes = [
+            item["semantic"]
+            for item in lock["operator_inputs"]
+            if item.get("role") == "lan-routes"
+        ]
+        if len(lan_routes) != 1:
+            _fail(
+                "doctor_network_mismatch",
+                lock["deployment"]["name"],
+                "compose@14 requires exactly one locked lan-routes input",
+            )
+        scratch_port = str(lan_routes[0]["scratch_port"])
+        bridge_port = str(lan_routes[0]["bridge_port"])
+        expected_ports = {
+            f"{scratch_port}/tcp": [{"HostIp": address, "HostPort": scratch_port}],
+            f"{bridge_port}/tcp": [{"HostIp": address, "HostPort": bridge_port}],
+        }
     elif service == "caddy":
         expected_ports = {
             "80/tcp": [{"HostIp": "0.0.0.0", "HostPort": "80"}],

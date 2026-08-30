@@ -1,6 +1,7 @@
 import hashlib
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -934,6 +935,99 @@ def test_doctor_accepts_public_minecraft_ports_from_public_compose_renderers(
         "minecraft",
         "current",
     )
+
+
+def _lan_routes_lock(tmp_path: Path) -> dict[str, Any]:
+    return {
+        "deployment": {"name": "home-alpha-full"},
+        "environment": {"identity": "home-alpha-full"},
+        "world": {"identity": "home-alpha-full-world"},
+        "lock_identity": "sha256:" + "3" * 64,
+        "render_plan": {"adapter_revision": "14"},
+        "runtime": {"artifact_store": str(tmp_path / "artifacts")},
+        "components": [],
+        "artifacts": [],
+        "network": {
+            "bind_address": "127.0.0.1",
+            "java_port": 25568,
+            "mcremote_port": 25578,
+        },
+        "operator_inputs": [
+            {
+                "role": "lan-routes",
+                "semantic": {
+                    "hostname": "m720s1.example-tailnet.ts.net",
+                    "scratch_port": 8443,
+                    "bridge_port": 8444,
+                },
+            }
+        ],
+    }
+
+
+def _caddy_record(output: Path, lock: dict[str, Any], ports: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "Config": {
+            "Labels": {
+                "com.docker.compose.project": "home-alpha-full",
+                "com.docker.compose.service": "caddy",
+                "com.docker.compose.project.config_files": str(output / "compose.yaml"),
+                "com.docker.compose.project.working_dir": str(output),
+                "io.mc-remote.deployment": "home-alpha-full",
+                "io.mc-remote.environment": "home-alpha-full",
+                "io.mc-remote.world": "home-alpha-full-world",
+                "io.mc-remote.lock": lock["lock_identity"],
+            }
+        },
+        "State": {"Running": True, "Health": {"Status": "healthy"}},
+        "Mounts": [],
+        "NetworkSettings": {"Ports": ports},
+    }
+
+
+def test_doctor_accepts_lan_routes_ports_for_compose_v14(tmp_path: Path) -> None:
+    output = tmp_path / "generated"
+    output.mkdir()
+    lock = _lan_routes_lock(tmp_path)
+    record = _caddy_record(
+        output,
+        lock,
+        {
+            "8443/tcp": [{"HostIp": "127.0.0.1", "HostPort": "8443"}],
+            "8444/tcp": [{"HostIp": "127.0.0.1", "HostPort": "8444"}],
+        },
+    )
+
+    assert _validate_container(record, lock, {"caddy"}, output) == ("caddy", "current")
+
+
+def test_doctor_rejects_public_ports_for_compose_v14_caddy(tmp_path: Path) -> None:
+    """Regression: before this fix, doctor unconditionally expected 80/443 on
+    0.0.0.0 for any caddy service, which compose@14 (loopback + lan-routes
+    ports) never publishes — the live m720s1 bootstrap hit exactly this.
+    """
+    output = tmp_path / "generated"
+    output.mkdir()
+    lock = _lan_routes_lock(tmp_path)
+    # Force the old (pre-fix) expectation shape to prove the new branch is load-bearing:
+    lock_public = dict(lock, render_plan={"adapter_revision": "13"})
+    record_public = _caddy_record(
+        output,
+        lock_public,
+        {
+            "80/tcp": [{"HostIp": "0.0.0.0", "HostPort": "80"}],
+            "443/tcp": [{"HostIp": "0.0.0.0", "HostPort": "443"}],
+        },
+    )
+    # compose@13 (public) still requires 80/443 on 0.0.0.0:
+    assert _validate_container(record_public, lock_public, {"caddy"}, output) == (
+        "caddy",
+        "current",
+    )
+    # compose@14 with those same public ports must be rejected:
+    with pytest.raises(DoctorContractError) as exc_info:
+        _validate_container(record_public, lock, {"caddy"}, output)
+    assert exc_info.value.reason == "doctor_network_mismatch"
 
 
 def test_doctor_rejects_noncurrent_render_before_contacting_docker(tmp_path: Path) -> None:
