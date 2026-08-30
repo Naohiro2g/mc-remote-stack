@@ -53,6 +53,13 @@ BOOTSTRAP_CONTRACTS = frozenset(
             "integration",
         ),
         (
+            "home-server@6",
+            "home-alpha-full@1",
+            "alpha",
+            "isolated",
+            "integration",
+        ),
+        (
             "vps-server@7",
             "public-web-paper@2",
             "beta",
