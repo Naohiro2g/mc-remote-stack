@@ -1156,6 +1156,15 @@ bridge_port = 8444
         "127.0.0.1:8443:8443/tcp",
         "127.0.0.1:8444:8444/tcp",
     ]
+    # Regression: apply's pre-apply verification re-reads render-manifest.json
+    # through _load_managed_manifest, which has its own adapter_revision
+    # allowlist separate from _stage_current's and
+    # _load_current_toml_render_lock's. A fresh render into an empty
+    # directory never exercises this path (it returns None early), so only a
+    # *second* look at a now-populated output catches a missing "14" here.
+    manifest = render_module._load_managed_manifest(output)
+    assert manifest is not None
+    assert manifest["adapter_revision"] == "14"
 
 
 def test_compose_v8_keeps_b3_public_beta_session_only(
