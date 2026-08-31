@@ -7,5 +7,6 @@
 __pycache__/
 *.pyc
 /CLAUDE.md
+/NOTES_ja.md
 .obsidian/
 /handoff-materials/
