@@ -2,6 +2,53 @@
 
 確定前または別sliceへ送る作業だけを置く。private host名、IP、credential、account情報は書かない。
 
+## 2026-08-31 Scratch–Stack deployment interface [→DEC 2026-08-31-01] 着地確認OK
+
+- [x] 横断決定`2026-08-31-01`が着地した（knowledge commit
+  `1afd48890228a6427608bd3ffca6c4b3d598a139`、正本
+  `00-hub/deployment-interface-design_ja.md`）。着地確認依頼の10項目、
+  DECISIONS本体、INDEX、hub NOTES、13-scratch-client双方の記述整合を照合しOK。
+  下記2026-08-30の`home-server@7`／`compose@15`探索実装は**新経路として自動採用しない**
+  （DECISION却下欄⑧）。order schema・test・調査結果だけを、Stack担当票（同決定§8
+  「Stack担当」）着手時に選別する。
+- [ ] Stack側実装は、Scratch担当からcontract commit／runtime-config contract
+  directory path／container mount path／Scratch image digest／test結果が
+  返ってくるまで開始しない（決定§4・§8開始条件）。着手時はcontract §8
+  「Stack担当」を作業票とする。
+- [ ] m720s1の既存`home-alpha-full`（`home-server@6`稼働中）は新設計の正本にしない
+  （捕捉cleanup）。移行は新orderからの再renderで行い、world等の永続dataは削除・
+  巻き戻ししない。
+
+## 2026-08-30 compose@14のnotices/connection_targetsをPython直書きしていた
+
+[→DEC 2026-08-31-01が根本方針を上書き。以下は経緯記録として残す（採用済みとは扱わない）]
+
+- [x] m720s1 live bootstrap後、運営者からの指摘: `compose@14`が`runtime/scratch.json`の
+  `connection_targets`／`notices`を**Python側に直書き**しており、operatorがTOMLで
+  指定する経路が一切なかった。「ケータリング方式でデプロイしたい」なら、必要情報は
+  operatorから収集してdeployできる必要がある——このprojectの原則そのものへの違反。
+  `runtime/scratch.json`を手編集させる案は却下（生成物は"Do not edit"が大原則）。
+- [x] 既存の`vps-server`系が同じ情報をどう扱っているか確認したところ、
+  `connection-targets@3` operator input（`targets`＋`notices`を一つのTOMLで受ける、
+  `operator_inputs.py`に既存実装済み）で完全に解決済みだった。新規発明ではなく
+  この既存機構を再利用する形で是正した。
+- [x] `compose@14`は既にm720s1で稼働中のlockから参照されており編集不可
+  （append-only）。**`home-server@7`／`compose@15`を新設**し、`connection-targets@3`を
+  optional operator_input_roleとして追加。`_compose_v15`は
+  `_locked_connection_targets`/`_locked_connection_notices`（既存の共通関数、
+  vps-server系と共用）を使い、operator未設定時は`lan-routes`のhostnameを単一
+  target・notices空配列にfallbackする（Python直書きの意見は持たない）。
+  `_locked_lan_routes`／`_locked_minecraft_motd`に`allowed_roles`引数を追加して
+  role集合の拡張に対応。
+- [x] 波及したallowlist（このsession通算6箇所目以降）: `_stage_current`、
+  `_load_current_toml_render_lock.supported_revisions`、`_load_managed_manifest`、
+  doctor.pyの19132/udp set、doctor.pyのcaddy-ports分岐（`{"14","15"}`へ拡張）、
+  apply.pyの`BOOTSTRAP_CONTRACTS`（`home-server@7`/`home-alpha-full@1`追加）。
+  test追加（PASS）、ruff clean。runbook（`home-alpha-validation-guide_ja.md`§6）を
+  `@7`/`compose@15`＋`connection-targets@3`手順へ更新。
+- [ ] m720s1の`home-alpha-full`は現在`home-server@6`のまま稼働中。`@7`への移行
+  （`mcrctl deployment update`）と実際のnotice設定は次段。
+
 ## 2026-08-30 McRemote plugin設定の一時変更・永続化が横断的に未対応 [重要]
 
 - [ ] 運営者から、McRemote plugin自体の設定（`config.yml`）を①一時的に変更する
