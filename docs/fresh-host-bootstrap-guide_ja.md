@@ -94,19 +94,18 @@ checkoutに同梱されたbootstrapを実行する。
 ```
 
 bootstrapはUbuntuのsupport対象versionを確認し、固定versionの`uv`を
-`$HOME/.local/bin/uv`へ配置する。続いてPython 3.11、Docker Engine、Compose、checkoutの`.venv`を
+`$HOME/.local/bin/uv`へ配置してlogin時の`PATH`へ接続する。続いてPython 3.11、Docker Engine、Compose、checkoutの`.venv`を
 準備し、個人管理者へDocker accessを設定する。`/var/lib/mc-remote`が専用runtime groupで管理される
 hostでは、そのgroup membershipも同時に設定する。
 
 install完了後に一度logoutし、新しいSSH sessionで確認する。
 
 ```sh
-MC_REMOTE_UV="$HOME/.local/bin/uv"
 MC_REMOTE_STACK="$HOME/mc-remote-stack"
 
-test -x "$MC_REMOTE_UV"
+uv --version
 "$MC_REMOTE_STACK/tools/bootstrap-ubuntu-operator.sh" --check
-"$MC_REMOTE_UV" run --project "$MC_REMOTE_STACK" mcrctl --help
+uv run --project "$MC_REMOTE_STACK" mcrctl --help
 ```
 
 成功時は次の二行が含まれる。

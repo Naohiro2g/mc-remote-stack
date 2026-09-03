@@ -24,7 +24,7 @@ def test_public_vps_runbook_is_one_positive_canonical_path() -> None:
     )
 
     assert len(guide.splitlines()) <= 180
-    assert "$HOME/.local/bin/uv" in guide
+    assert "uv run" in guide
     assert '"$MC_REMOTE_PROJECT/mc-remote.toml"' in guide
     assert "mcrctl deployment update plan" in guide
     assert "mcrctl deployment update apply" in guide
@@ -55,8 +55,55 @@ def test_operator_uv_has_one_canonical_install_path() -> None:
     )
 
     assert 'UV_BIN="$HOME/.local/bin/uv"' in bootstrap
-    assert "command -v uv" not in bootstrap
+    assert "ensure_uv_on_login_path" in bootstrap
+    assert "command -v uv" in bootstrap
     assert "$HOME/.local/bin/uv" in fresh_host
+
+
+def test_operator_runbooks_use_bare_uv_after_bootstrap() -> None:
+    for relative_path in (
+        "docs/fresh-host-bootstrap-guide_ja.md",
+        "docs/public-vps-bootstrap-guide_ja.md",
+    ):
+        guide = (REPO_ROOT / relative_path).read_text(encoding="utf-8")
+
+        assert 'export PATH="$HOME/.local/bin:$PATH"' not in guide
+        assert "MC_REMOTE_UV" not in guide
+        assert "$HOME/.local/bin/uv run" not in guide
+        assert re.search(r"(?m)^uv (?:run|sync|--version)(?: |$)", guide)
+
+
+def test_human_facing_uv_commands_do_not_use_the_install_path_as_a_command() -> None:
+    paths = (
+        "README.md",
+        "README_ja.md",
+        "docs/agent-assisted-bootstrap-guide_ja.md",
+        "docs/b3-credential-isolated-alpha-validation-guide_ja.md",
+        "docs/fresh-host-bootstrap-guide_ja.md",
+        "docs/home-alpha-full-stack-profile-design_ja.md",
+        "docs/home-alpha-validation-guide_ja.md",
+        "docs/normal-dev-environment-guide_ja.md",
+        "docs/public-vps-bootstrap-guide_ja.md",
+    )
+
+    for relative_path in paths:
+        text = (REPO_ROOT / relative_path).read_text(encoding="utf-8")
+        assert 'export PATH="$HOME/.local/bin:$PATH"' not in text
+        assert "$HOME/.local/bin/uv run" not in text
+        assert "$HOME/.local/bin/uv sync" not in text
+        assert '"$MC_REMOTE_UV"' not in text
+
+
+def test_human_runbooks_do_not_execute_mcrctl_by_venv_path_or_command_variable() -> None:
+    for relative_path in (
+        "docs/agent-assisted-bootstrap-guide_ja.md",
+        "docs/normal-dev-environment-guide_ja.md",
+    ):
+        guide = (REPO_ROOT / relative_path).read_text(encoding="utf-8")
+
+        assert ".venv/bin/mcrctl" not in guide
+        assert "MCRCTL=" not in guide
+        assert "uv run --project" in guide
 
 
 def test_readmes_point_to_current_vps_procedure_instead_of_dated_records() -> None:
@@ -188,11 +235,19 @@ def test_normal_dev_runbook_documents_reasoned_unverified_acknowledgement() -> N
     assert "unverified_not_acknowledged" in guide
     assert "orderとlockを手編集しない" in guide
     assert "gate coordinatorへ戻す" in guide
-    assert '"$MCRCTL" validate --project "$MC_REMOTE_PROJECT"' in guide
-    assert '"$MCRCTL" resolve --project "$MC_REMOTE_PROJECT" --allow-unverified' in guide
-    mcrctl_assignment = 'MCRCTL="$MC_REMOTE_STACK/.venv/bin/mcrctl"'
-    validate_command = '"$MCRCTL" validate --project "$MC_REMOTE_PROJECT"'
-    assert guide.index(mcrctl_assignment) < guide.index(validate_command)
+    validate_command = (
+        'uv run --project "$MC_REMOTE_STACK" mcrctl validate '
+        '--project "$MC_REMOTE_PROJECT"'
+    )
+    resolve_command = (
+        'uv run --project "$MC_REMOTE_STACK" mcrctl resolve '
+        '--project "$MC_REMOTE_PROJECT" --allow-unverified'
+    )
+    assert validate_command in guide
+    assert resolve_command in guide
+    assert guide.index('MC_REMOTE_STACK="$HOME/mc-remote-stack"') < guide.index(
+        validate_command
+    )
 
 
 def test_normal_dev_exact_preset_template_has_review_slots_without_candidate_values() -> None:

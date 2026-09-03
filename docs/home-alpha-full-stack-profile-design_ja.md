@@ -343,16 +343,16 @@ alpha検証ガイド（§7）を通してlive evidenceを取得後も、これ�
    digest/commitを更新する。
 4. **既存deploymentの更新**なので、`apply --bootstrap`（初回専用）を再実行しては
    いけない。同一volumeのまま更新する`mcrctl deployment update plan/apply`
-   （2026-08-20実装、NOTES該当節）を使う：
+   （2026-08-20実装、NOTES該当節）をoperator bootstrap完了後のlogin sessionで使う：
    ```bash
-   $HOME/.local/bin/uv run mcrctl deployment update plan \
+   uv run mcrctl deployment update plan \
      --project "$MC_REMOTE_PROJECT" \
      --docker-context default \
      --to-profile home-server@6 \
      --to-preset home-alpha-full@N+1 \
      --allow-unverified
-   $HOME/.local/bin/uv run mcrctl deployment update apply --project "$MC_REMOTE_PROJECT" --plan-id <plan出力のID>
-   $HOME/.local/bin/uv run mcrctl doctor --project "$MC_REMOTE_PROJECT"
+   uv run mcrctl deployment update apply --project "$MC_REMOTE_PROJECT" --plan-id <plan出力のID>
+   uv run mcrctl doctor --project "$MC_REMOTE_PROJECT"
    ```
    （既存`home-alpha-validation-guide_ja.md`のunverified acknowledgementと
    同じ形で理由を記録してから行う。）

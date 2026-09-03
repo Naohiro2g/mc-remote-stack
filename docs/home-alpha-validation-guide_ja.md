@@ -37,12 +37,12 @@ agentが暗黙停止しない。
 
 ## 2. 初期化
 
-validated checkoutのrepo rootで実行する。
+operator bootstrapを完了したlogin sessionで、validated checkoutのrepo rootから実行する。
 
 ```bash
 MC_REMOTE_PROJECT="$HOME/mc-remote-deployments/home-alpha"
 
-$HOME/.local/bin/uv run mcrctl init "$MC_REMOTE_PROJECT" \
+uv run mcrctl init "$MC_REMOTE_PROJECT" \
   --format toml \
   --deployment-name home-alpha \
   --profile home-server@4 \
@@ -62,9 +62,9 @@ $HOME/.local/bin/uv run mcrctl init "$MC_REMOTE_PROJECT" \
 Minecraft EULAを人間が確認してから専用commandで記録する。
 
 ```bash
-$HOME/.local/bin/uv run mcrctl validate --project "$MC_REMOTE_PROJECT"
-$HOME/.local/bin/uv run mcrctl repo check --project "$MC_REMOTE_PROJECT"
-$HOME/.local/bin/uv run mcrctl accept-eula --project "$MC_REMOTE_PROJECT" --yes
+uv run mcrctl validate --project "$MC_REMOTE_PROJECT"
+uv run mcrctl repo check --project "$MC_REMOTE_PROJECT"
+uv run mcrctl accept-eula --project "$MC_REMOTE_PROJECT" --yes
 ```
 
 `mc-remote.toml`の`[acknowledgements]`を人間が編集し、今回この未検証presetを使用する具体的理由を
@@ -81,12 +81,12 @@ eol_reason = ""
 ## 3. resolve / plan / render
 
 ```bash
-$HOME/.local/bin/uv run mcrctl resolve \
+uv run mcrctl resolve \
   --project "$MC_REMOTE_PROJECT" \
   --allow-unverified
-$HOME/.local/bin/uv run mcrctl plan --project "$MC_REMOTE_PROJECT"
-$HOME/.local/bin/uv run mcrctl artifact fetch --project "$MC_REMOTE_PROJECT"
-$HOME/.local/bin/uv run mcrctl render \
+uv run mcrctl plan --project "$MC_REMOTE_PROJECT"
+uv run mcrctl artifact fetch --project "$MC_REMOTE_PROJECT"
+uv run mcrctl render \
   --project "$MC_REMOTE_PROJECT" \
   --output "$MC_REMOTE_PROJECT/generated"
 ```
@@ -110,7 +110,7 @@ reviewしたlock identityを手入力する。
 ```bash
 REVIEWED_LOCK_IDENTITY="sha256:<planで確認した64-hex>"
 
-$HOME/.local/bin/uv run mcrctl apply \
+uv run mcrctl apply \
   --project "$MC_REMOTE_PROJECT" \
   --output "$MC_REMOTE_PROJECT/generated" \
   --expected-lock-identity "$REVIEWED_LOCK_IDENTITY" \
@@ -126,7 +126,7 @@ fail closedにする。既存betaを止める必要がある場合は、このco
 ## 5. read-only確認とevidence
 
 ```bash
-$HOME/.local/bin/uv run mcrctl doctor --project "$MC_REMOTE_PROJECT"
+uv run mcrctl doctor --project "$MC_REMOTE_PROJECT"
 ```
 
 最低限、current lock / canonical render、managed volume、healthy container、loopback限定port、
@@ -143,7 +143,7 @@ reviewし、既存worldを保持する専用transactionで行う。旧checkout�
 ```bash
 TARGET_ALPHA_VOLUME="home-alpha-auth-minecraft-data"
 
-$HOME/.local/bin/uv run mcrctl migration auth-enforcement plan \
+uv run mcrctl migration auth-enforcement plan \
   --project "$MC_REMOTE_PROJECT" \
   --output "$MC_REMOTE_PROJECT/generated" \
   --docker-context default \
@@ -187,7 +187,7 @@ volume / world / port）として構築する。§1のbeta分離原則をその�
 ```bash
 MC_REMOTE_PROJECT="$HOME/mc-remote-deployments/home-alpha-full"
 
-$HOME/.local/bin/uv run mcrctl init "$MC_REMOTE_PROJECT" \
+uv run mcrctl init "$MC_REMOTE_PROJECT" \
   --format toml \
   --deployment-name home-alpha-full \
   --profile home-server@6 \
@@ -205,7 +205,7 @@ $HOME/.local/bin/uv run mcrctl init "$MC_REMOTE_PROJECT" \
   --java-port 25567 \
   --mcremote-port 25577
 
-$HOME/.local/bin/uv run mcrctl accept-eula --project "$MC_REMOTE_PROJECT" --yes
+uv run mcrctl accept-eula --project "$MC_REMOTE_PROJECT" --yes
 ```
 
 `network.bind_address`は**必ずloopback**にする。`compose@14`はCaddy／Minecraftを
@@ -248,10 +248,10 @@ eol_reason = ""
 ### 6.2 resolve / plan / render / apply
 
 ```bash
-$HOME/.local/bin/uv run mcrctl resolve --project "$MC_REMOTE_PROJECT" --allow-unverified
-$HOME/.local/bin/uv run mcrctl plan --project "$MC_REMOTE_PROJECT"
-$HOME/.local/bin/uv run mcrctl artifact fetch --project "$MC_REMOTE_PROJECT"
-$HOME/.local/bin/uv run mcrctl render --project "$MC_REMOTE_PROJECT" --output "$MC_REMOTE_PROJECT/generated"
+uv run mcrctl resolve --project "$MC_REMOTE_PROJECT" --allow-unverified
+uv run mcrctl plan --project "$MC_REMOTE_PROJECT"
+uv run mcrctl artifact fetch --project "$MC_REMOTE_PROJECT"
+uv run mcrctl render --project "$MC_REMOTE_PROJECT" --output "$MC_REMOTE_PROJECT/generated"
 ```
 
 `plan`が表示するlock identityをreviewしてから、`docs/home-alpha-validation-guide_ja.md`
@@ -287,7 +287,7 @@ Tailscaleが自動発行するtailnet証明書でTLS終端し、Stack側のCaddy
 ### 6.4 read-only確認
 
 ```bash
-$HOME/.local/bin/uv run mcrctl doctor --project "$MC_REMOTE_PROJECT"
+uv run mcrctl doctor --project "$MC_REMOTE_PROJECT"
 ```
 
 `doctor`が確認できるのはStack管理下のcontainer／volume／lock整合性までであり、

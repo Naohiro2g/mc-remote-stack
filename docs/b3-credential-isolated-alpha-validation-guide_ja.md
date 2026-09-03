@@ -33,11 +33,12 @@ private host、IP、OS user、absolute path、credentialをrepositoryへ記録�
 ## 2. project作成
 
 以下の名前とportは例であり、private inventoryと照合してから使用する。
+operator bootstrapを完了したlogin sessionで実行する。
 
 ```bash
 MC_REMOTE_PROJECT="$HOME/mc-remote-deployments/home-b3-alpha"
 
-$HOME/.local/bin/uv run mcrctl init "$MC_REMOTE_PROJECT" \
+uv run mcrctl init "$MC_REMOTE_PROJECT" \
   --format toml \
   --deployment-name home-b3-alpha \
   --profile home-server@3 \
@@ -55,9 +56,9 @@ $HOME/.local/bin/uv run mcrctl init "$MC_REMOTE_PROJECT" \
   --java-port 25567 \
   --mcremote-port 25577
 
-$HOME/.local/bin/uv run mcrctl validate --project "$MC_REMOTE_PROJECT"
-$HOME/.local/bin/uv run mcrctl repo check --project "$MC_REMOTE_PROJECT"
-$HOME/.local/bin/uv run mcrctl accept-eula --project "$MC_REMOTE_PROJECT" --yes
+uv run mcrctl validate --project "$MC_REMOTE_PROJECT"
+uv run mcrctl repo check --project "$MC_REMOTE_PROJECT"
+uv run mcrctl accept-eula --project "$MC_REMOTE_PROJECT" --yes
 ```
 
 `mc-remote.toml`へ一回限りの理由を記録する。
@@ -73,10 +74,10 @@ eol_reason = ""
 ## 3. resolve / fetch / render / review
 
 ```bash
-$HOME/.local/bin/uv run mcrctl resolve --project "$MC_REMOTE_PROJECT" --allow-unverified
-$HOME/.local/bin/uv run mcrctl plan --project "$MC_REMOTE_PROJECT"
-$HOME/.local/bin/uv run mcrctl artifact fetch --project "$MC_REMOTE_PROJECT"
-$HOME/.local/bin/uv run mcrctl render \
+uv run mcrctl resolve --project "$MC_REMOTE_PROJECT" --allow-unverified
+uv run mcrctl plan --project "$MC_REMOTE_PROJECT"
+uv run mcrctl artifact fetch --project "$MC_REMOTE_PROJECT"
+uv run mcrctl render \
   --project "$MC_REMOTE_PROJECT" \
   --output "$MC_REMOTE_PROJECT/generated"
 ```
@@ -89,7 +90,7 @@ port、三volume identity、`auth.enforcement=true`、credential pathが`/data`�
 ```bash
 REVIEWED_LOCK_IDENTITY="sha256:<planで確認した64-hex>"
 
-$HOME/.local/bin/uv run mcrctl apply \
+uv run mcrctl apply \
   --project "$MC_REMOTE_PROJECT" \
   --output "$MC_REMOTE_PROJECT/generated" \
   --expected-lock-identity "$REVIEWED_LOCK_IDENTITY" \

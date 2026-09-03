@@ -21,7 +21,8 @@ Usage:
 --check reports every missing operator prerequisite without changing the host.
 --install installs missing Ubuntu packages, pinned uv, Docker Engine/Compose when
 absent, and explicitly grants the current trusted sudo administrator direct
-Docker access. If the conventional runtime root exists, it also grants that
+Docker access. It also makes the canonical $HOME/.local/bin/uv available as uv
+in subsequent login sessions. If the conventional runtime root exists, it grants that
 operator traversal through its dedicated mcremote group. Re-login is required
 after group membership changes.
 --repair-project is accepted only with --install and only below
@@ -117,6 +118,24 @@ install_uv() {
   trap - RETURN
 }
 
+ensure_uv_on_login_path() {
+  local path_line profile
+  path_line='export PATH="$HOME/.local/bin:$PATH"'
+
+  for profile in \
+    "$HOME/.profile" \
+    "$HOME/.bash_profile" \
+    "$HOME/.bash_login" \
+    "$HOME/.bashrc"; do
+    if [[ "$profile" != "$HOME/.profile" && ! -e "$profile" ]]; then
+      continue
+    fi
+    if ! grep -Fqx -- "$path_line" "$profile" 2>/dev/null; then
+      printf '\n%s\n' "$path_line" >> "$profile"
+    fi
+  done
+}
+
 install_docker_engine() {
   local codename architecture
   codename="${UBUNTU_CODENAME:-${VERSION_CODENAME:-}}"
@@ -176,7 +195,7 @@ missing=()
 for command_name in curl git; do
   command -v "$command_name" >/dev/null 2>&1 || missing+=("$command_name")
 done
-[[ -x "$UV_BIN" ]] || missing+=(uv)
+[[ "$(command -v uv 2>/dev/null || true)" == "$UV_BIN" ]] || missing+=(uv)
 command -v docker >/dev/null 2>&1 || missing+=(docker)
 
 if [[ "$mode" == check && ${#missing[@]} -gt 0 ]]; then
@@ -191,6 +210,8 @@ if [[ "$mode" == install ]]; then
   if [[ ! -x "$UV_BIN" ]]; then
     install_uv
   fi
+  ensure_uv_on_login_path
+  export PATH="$HOME/.local/bin:$PATH"
   if ! command -v docker >/dev/null 2>&1; then
     install_docker_engine
   fi

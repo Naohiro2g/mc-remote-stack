@@ -26,11 +26,12 @@ default = true
 
 The normal operator surface has two commands. `apply` performs validation, immutable preset resolution,
 exact locking, artifact acquisition, rendering, and preflight, then derives create versus update from the
-managed runtime state.
+managed runtime state. The fresh-host bootstrap installs `uv` at `$HOME/.local/bin/uv` and makes it
+available by command name in subsequent login sessions.
 
 ```sh
-$HOME/.local/bin/uv run mcrctl apply ./mc-remote.toml
-$HOME/.local/bin/uv run mcrctl doctor school-a
+uv run mcrctl apply ./mc-remote.toml
+uv run mcrctl doctor school-a
 ```
 
 The Scratch runtime schema, fixtures, container mount path, and Scratch image digest come from the contract
@@ -83,10 +84,10 @@ The project is intentionally separate from:
 ## Development
 
 ```sh
-$HOME/.local/bin/uv sync --extra dev
-$HOME/.local/bin/uv run pytest
-$HOME/.local/bin/uv run ruff check .
-$HOME/.local/bin/uv run mcrctl --help
+uv sync --extra dev
+uv run pytest
+uv run ruff check .
+uv run mcrctl --help
 ```
 
 ## `home-beta` TOML operator path
@@ -99,7 +100,7 @@ the package source checkout. TOML `init` caps the project root at mode `0750` an
 
 ```sh
 MC_REMOTE_PROJECT="$HOME/mc-remote-deployments/home-beta"
-$HOME/.local/bin/uv run mcrctl init "$MC_REMOTE_PROJECT" \
+uv run mcrctl init "$MC_REMOTE_PROJECT" \
   --format toml \
   --deployment-name home \
   --profile home-server@4 \
@@ -137,18 +138,18 @@ motd=McRemote home beta
 Validate after adding any operator input and before resolving:
 
 ```sh
-$HOME/.local/bin/uv run mcrctl validate --project "$MC_REMOTE_PROJECT"
-$HOME/.local/bin/uv run mcrctl accept-eula --project "$MC_REMOTE_PROJECT" --yes
+uv run mcrctl validate --project "$MC_REMOTE_PROJECT"
+uv run mcrctl accept-eula --project "$MC_REMOTE_PROJECT" --yes
 ```
 
 The exact `home-server@4` + `mcremote-paper@1` subject is unverified until its auth-enforced live
 evidence is recorded. Record a specific unverified acknowledgement in the order before continuing:
 
 ```sh
-$HOME/.local/bin/uv run mcrctl resolve --project "$MC_REMOTE_PROJECT" --allow-unverified
-$HOME/.local/bin/uv run mcrctl plan --project "$MC_REMOTE_PROJECT"
-$HOME/.local/bin/uv run mcrctl artifact fetch --project "$MC_REMOTE_PROJECT"
-$HOME/.local/bin/uv run mcrctl render \
+uv run mcrctl resolve --project "$MC_REMOTE_PROJECT" --allow-unverified
+uv run mcrctl plan --project "$MC_REMOTE_PROJECT"
+uv run mcrctl artifact fetch --project "$MC_REMOTE_PROJECT"
+uv run mcrctl render \
   --project "$MC_REMOTE_PROJECT" \
   --output "$MC_REMOTE_PROJECT/generated"
 ```
@@ -166,7 +167,7 @@ do not derive it from ambient state.
 
 ```sh
 REVIEWED_LOCK_IDENTITY="sha256:<reviewed-64-hex>"
-$HOME/.local/bin/uv run mcrctl apply \
+uv run mcrctl apply \
   --project "$MC_REMOTE_PROJECT" \
   --output "$MC_REMOTE_PROJECT/generated" \
   --expected-lock-identity "$REVIEWED_LOCK_IDENTITY" \
@@ -184,7 +185,7 @@ are outside this command.
 Use the read-only doctor after logging in instead of reusing apply as a status command:
 
 ```sh
-$HOME/.local/bin/uv run mcrctl doctor --project "$MC_REMOTE_PROJECT"
+uv run mcrctl doctor --project "$MC_REMOTE_PROJECT"
 ```
 
 By default it checks `<project>/generated` through the local Docker context named `default`. It verifies
@@ -211,7 +212,7 @@ The deployment project `mc-remote.toml` and exact lock identify the active desir
 The transfer adapter encrypts a ServerBackup archive with a public age recipient before opening an explicit FTPS session. It requires certificate verification, protects the data connection, uses passive mode, uploads through a temporary remote name, and verifies the final remote size. `--verify-download` additionally downloads the remote ciphertext and compares its SHA-256. A non-secret transfer-record sidecar is published with the ciphertext so recovery does not depend on the source VPS. Plaintext and encrypted local files remain in the queue; transfer does not prune them.
 
 ```sh
-$HOME/.local/bin/uv run mcrctl backup transfer /backup/outbox/backup.zip \
+uv run mcrctl backup transfer /backup/outbox/backup.zip \
   --project ./deployment \
   --transport-config /secure/path/backup-transport.toml \
   --verify-download
@@ -227,7 +228,7 @@ archive with a local `download-verified` transfer record is not sent again.
 ```sh
 install -m 600 /dev/null /secure/state/backup-transfer-activated
 
-$HOME/.local/bin/uv run mcrctl backup drain /backup/outbox \
+uv run mcrctl backup drain /backup/outbox \
   --after /secure/state/backup-transfer-activated \
   --project ./deployment \
   --transport-config /secure/path/backup-transport.toml
@@ -247,24 +248,24 @@ Recovery selection is always explicit. List completed ciphertexts, retrieve the 
 record and archive, then decrypt and verify the original plaintext SHA-256:
 
 ```sh
-$HOME/.local/bin/uv run mcrctl backup list --project ./deployment \
+uv run mcrctl backup list --project ./deployment \
   --transport-config /secure/path/backup-transport.toml
 
 REMOTE_NAME='backup.zip.<encrypted-sha256>.age'
-$HOME/.local/bin/uv run mcrctl backup download-record "$REMOTE_NAME" \
+uv run mcrctl backup download-record "$REMOTE_NAME" \
   --project ./deployment \
   --transport-config /secure/path/backup-transport.toml \
   --output ./recovery/backup.transfer.json
-$HOME/.local/bin/uv run mcrctl backup download "$REMOTE_NAME" \
+uv run mcrctl backup download "$REMOTE_NAME" \
   --project ./deployment \
   --transport-config /secure/path/backup-transport.toml \
   --record ./recovery/backup.transfer.json \
   --output ./recovery/backup.zip.age
-$HOME/.local/bin/uv run mcrctl backup decrypt ./recovery/backup.zip.age \
+uv run mcrctl backup decrypt ./recovery/backup.zip.age \
   --record ./recovery/backup.transfer.json \
   --identity /secure/path/age-identity.txt \
   --output ./recovery/backup.zip
-$HOME/.local/bin/uv run mcrctl archive inspect ./recovery/backup.zip --json
+uv run mcrctl archive inspect ./recovery/backup.zip --json
 ```
 
 In `backup list`, `record=present` means the ciphertext has its remote recovery sidecar.
@@ -281,7 +282,7 @@ The FTPS password is referenced as `secret://backup_ftps_password` and stored wi
 Inspect an existing whole-server recovery point without extracting its secret-bearing contents:
 
 ```sh
-$HOME/.local/bin/uv run mcrctl archive inspect /path/to/backup.zip --json
+uv run mcrctl archive inspect /path/to/backup.zip --json
 ```
 
 The result contains the archive SHA-256, ZIP CRC result, aggregate sizes, region count, root server JAR identities, and active `plugins/*.jar` SHA-256 values. Nested Paper remap caches and plugin libraries are counted but not misreported as active plugins. It does not print plugin configuration contents.
@@ -292,14 +293,14 @@ the transitive content is locked.
 Restore only the selected world roots into a current TOML deployment:
 
 ```sh
-$HOME/.local/bin/uv run mcrctl world restore plan ./recovery/backup.zip \
+uv run mcrctl world restore plan ./recovery/backup.zip \
   --project ./deployment \
   --output ./deployment/generated \
   --source-world world \
   --expected-archive-sha256 '<64-lowercase-hex>' \
   --expected-lock-identity 'sha256:<64-hex>'
 
-$HOME/.local/bin/uv run mcrctl world restore apply ./recovery/backup.zip \
+uv run mcrctl world restore apply ./recovery/backup.zip \
   --project ./deployment \
   --output ./deployment/generated \
   --source-world world \
@@ -351,7 +352,7 @@ Classify explicit runtime dependency downloads and update checks from a startup 
 without reproducing raw log lines or URL paths:
 
 ```sh
-$HOME/.local/bin/uv run mcrctl runtime audit-log ./minecraft-startup.log --json
+uv run mcrctl runtime audit-log ./minecraft-startup.log --json
 ```
 
 This diagnostic recognizes Paper library downloads, Geyser-style runtime content
@@ -361,7 +362,7 @@ plugin made no network request.
 Import only the Paper and plugin JAR members named by a deployment lock from a recovery archive:
 
 ```sh
-$HOME/.local/bin/uv run mcrctl artifact import-archive /path/to/backup.zip --project ./deployment
+uv run mcrctl artifact import-archive /path/to/backup.zip --project ./deployment
 ```
 
 The command verifies the whole archive SHA-256, requires each named member to exist exactly once, verifies each artifact SHA-256 while streaming, and writes only those JARs to a content-addressed local store. It does not extract world data or plugin configuration. `MC_REMOTE_ARTIFACT_HOME` can relocate the local store; `--store` selects an explicit SHA-256 store directory.

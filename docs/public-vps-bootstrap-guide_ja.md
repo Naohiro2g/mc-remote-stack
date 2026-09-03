@@ -41,22 +41,21 @@ MC_REMOTE_TARGET="<handoffのSSH接続先>"
 ssh "$MC_REMOTE_TARGET"
 ```
 
-対象host上でhandoff値を設定する。`uv`の正準install先は
-`$HOME/.local/bin/uv`である。
+fresh host bootstrapを完了した新しいlogin sessionでhandoff値を設定する。
+`uv`を含むoperator toolchainは、この時点ですべてcommand名だけで実行できる。
 
 ```sh
-MC_REMOTE_UV="$HOME/.local/bin/uv"
 MC_REMOTE_STACK="<handoffのStack checkout>"
 MC_REMOTE_STACK_COMMIT="<handoffのStack commit>"
 MC_REMOTE_PROJECT="<handoffのdeployment project>"
 MC_REMOTE_PROFILE="<handoffのexact profile>"
 MC_REMOTE_PRESET="<handoffのexact preset>"
 
-test -x "$MC_REMOTE_UV"
+uv --version
 test "$(git -C "$MC_REMOTE_STACK" rev-parse HEAD)" = "$MC_REMOTE_STACK_COMMIT"
-"$MC_REMOTE_UV" sync --project "$MC_REMOTE_STACK" --frozen --extra dev
+uv sync --project "$MC_REMOTE_STACK" --frozen --extra dev
 "$MC_REMOTE_STACK/tools/bootstrap-ubuntu-operator.sh" --check
-"$MC_REMOTE_UV" run --project "$MC_REMOTE_STACK" mcrctl operator check \
+uv run --project "$MC_REMOTE_STACK" mcrctl operator check \
   --project "$MC_REMOTE_PROJECT" \
   --docker-context default
 test -f "$MC_REMOTE_PROJECT/mc-remote.toml"
@@ -68,7 +67,7 @@ Stack commitが一組に揃う。
 ## 3. exact update planを作る
 
 ```sh
-"$MC_REMOTE_UV" run --project "$MC_REMOTE_STACK" \
+uv run --project "$MC_REMOTE_STACK" \
   mcrctl deployment update plan \
   --project "$MC_REMOTE_PROJECT" \
   --docker-context default \
@@ -88,7 +87,7 @@ MC_REMOTE_PLAN_ID="sha256:<plan出力のid>"
 ## 4. planを適用する
 
 ```sh
-"$MC_REMOTE_UV" run --project "$MC_REMOTE_STACK" \
+uv run --project "$MC_REMOTE_STACK" \
   mcrctl deployment update apply \
   --project "$MC_REMOTE_PROJECT" \
   --plan-id "$MC_REMOTE_PLAN_ID" \
@@ -102,7 +101,7 @@ transactionは同じvolume identityでtargetを起動し、起動後doctorまで
 ## 5. live deploymentを確認する
 
 ```sh
-"$MC_REMOTE_UV" run --project "$MC_REMOTE_STACK" mcrctl doctor \
+uv run --project "$MC_REMOTE_STACK" mcrctl doctor \
   --project "$MC_REMOTE_PROJECT" \
   --output "$MC_REMOTE_PROJECT/generated" \
   --docker-context default
