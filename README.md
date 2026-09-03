@@ -29,8 +29,8 @@ exact locking, artifact acquisition, rendering, and preflight, then derives crea
 managed runtime state.
 
 ```sh
-uv run mcrctl apply ./mc-remote.toml
-uv run mcrctl doctor school-a
+$HOME/.local/bin/uv run mcrctl apply ./mc-remote.toml
+$HOME/.local/bin/uv run mcrctl doctor school-a
 ```
 
 The Scratch runtime schema, fixtures, container mount path, and Scratch image digest come from the contract
@@ -46,26 +46,28 @@ The project is intentionally separate from:
 - `mc-remote-backstage`: private provider, contract, host, and incident operations; public users do not depend on it.
 - a deployment project: instance-specific desired state and lock data.
 
-## Public runbooks
+## Operational runbooks
 
 - [Agent-assisted bootstrap (Japanese)](docs/agent-assisted-bootstrap-guide_ja.md): the no-on-host-agent
   baseline, workstation-over-SSH assistance, and the security gate for limited on-host experiments
-- [CLI validation environment plan (Japanese)](docs/cli-validation-environment-plan_ja.md):
-  responsibilities and safe sequencing across local development, a catering PC, a home server,
-  and the running VPS
-- [Catering-type validation roadmap (Japanese)](docs/catering-type-validation-roadmap_ja.md)
-- [Fresh-host bootstrap (Japanese)](docs/fresh-host-bootstrap-guide_ja.md)
+- [Fresh-host bootstrap (Japanese)](docs/fresh-host-bootstrap-guide_ja.md): prepare the individual
+  administrator, SSH, exact Stack checkout, canonical uv, Python, Docker, and Compose
 - [Public VPS bootstrap (Japanese)](docs/public-vps-bootstrap-guide_ja.md):
-  current two-command same-volume updates first, followed by new-host bootstrap,
-  historical b2/b3/b4 rescue transactions, public doctor, and remaining readiness phases
+  the current same-volume release update from one reviewed handoff through plan, apply, and doctor
+- [Normal dev environment (Japanese)](docs/normal-dev-environment-guide_ja.md): prepare and operate
+  the shared server-side development environment
+- [Home private alpha validation (Japanese)](docs/home-alpha-validation-guide_ja.md)
+- [Wake-on-LAN operation (Japanese)](docs/wake-on-lan-field-note_ja.md): power-state operation for
+  semi-always-on servers
+
+## Design references
+
+- [CLI validation environment plan (Japanese)](docs/cli-validation-environment-plan_ja.md):
+  responsibilities across local development, a catering PC, a home server, and the running VPS
+- [Catering-type validation roadmap (Japanese)](docs/catering-type-validation-roadmap_ja.md)
 - [Deployment operator workflow redesign (Japanese)](docs/deployment-operator-workflow-design_ja.md):
   operator environment, code-first recovery value, release-independent durable update plans,
   live Compose provenance capture, limited rollback, and the 15-minute human-operation SLO
-- [Home private alpha validation (Japanese)](docs/home-alpha-validation-guide_ja.md)
-- [Wake-on-LAN optional operation field note (Japanese)](docs/wake-on-lan-field-note_ja.md):
-  why WoL matters for semi-always-on servers without becoming a hardware requirement, plus directed-broadcast,
-  Python / `wakeonlan`, power-state, and evidence boundaries
-- [Legacy server-runbook migration notes (Japanese)](docs/server-runbook-migration-notes_ja.md)
 - [Preset and lock resolution design (Japanese)](docs/preset-resolution-design_ja.md): the next
   preset registry, preset catalog, compatibility-evidence, and lock-identity model; the bundled
   home profile/preset, typed operator input boundary, instance contract, and operator-facing TOML
@@ -78,16 +80,13 @@ The project is intentionally separate from:
   current-lock and canonical-render binding, explicit local Docker context, managed initial volume,
   Compose startup, and container rollback; upgrades and existing-world reuse remain unsupported
 
-The legacy repository's native-systemd, package-Caddy, and release-symlink procedures are not current instructions:
-they conflict with this repository's Compose and generated-configuration architecture.
-
 ## Development
 
 ```sh
-uv sync --extra dev
-uv run pytest
-uv run ruff check .
-uv run mcrctl --help
+$HOME/.local/bin/uv sync --extra dev
+$HOME/.local/bin/uv run pytest
+$HOME/.local/bin/uv run ruff check .
+$HOME/.local/bin/uv run mcrctl --help
 ```
 
 ## `home-beta` TOML operator path
@@ -100,7 +99,7 @@ the package source checkout. TOML `init` caps the project root at mode `0750` an
 
 ```sh
 MC_REMOTE_PROJECT="$HOME/mc-remote-deployments/home-beta"
-uv run mcrctl init "$MC_REMOTE_PROJECT" \
+$HOME/.local/bin/uv run mcrctl init "$MC_REMOTE_PROJECT" \
   --format toml \
   --deployment-name home \
   --profile home-server@4 \
@@ -138,18 +137,18 @@ motd=McRemote home beta
 Validate after adding any operator input and before resolving:
 
 ```sh
-uv run mcrctl validate --project "$MC_REMOTE_PROJECT"
-uv run mcrctl accept-eula --project "$MC_REMOTE_PROJECT" --yes
+$HOME/.local/bin/uv run mcrctl validate --project "$MC_REMOTE_PROJECT"
+$HOME/.local/bin/uv run mcrctl accept-eula --project "$MC_REMOTE_PROJECT" --yes
 ```
 
 The exact `home-server@4` + `mcremote-paper@1` subject is unverified until its auth-enforced live
 evidence is recorded. Record a specific unverified acknowledgement in the order before continuing:
 
 ```sh
-uv run mcrctl resolve --project "$MC_REMOTE_PROJECT" --allow-unverified
-uv run mcrctl plan --project "$MC_REMOTE_PROJECT"
-uv run mcrctl artifact fetch --project "$MC_REMOTE_PROJECT"
-uv run mcrctl render \
+$HOME/.local/bin/uv run mcrctl resolve --project "$MC_REMOTE_PROJECT" --allow-unverified
+$HOME/.local/bin/uv run mcrctl plan --project "$MC_REMOTE_PROJECT"
+$HOME/.local/bin/uv run mcrctl artifact fetch --project "$MC_REMOTE_PROJECT"
+$HOME/.local/bin/uv run mcrctl render \
   --project "$MC_REMOTE_PROJECT" \
   --output "$MC_REMOTE_PROJECT/generated"
 ```
@@ -167,7 +166,7 @@ do not derive it from ambient state.
 
 ```sh
 REVIEWED_LOCK_IDENTITY="sha256:<reviewed-64-hex>"
-uv run mcrctl apply \
+$HOME/.local/bin/uv run mcrctl apply \
   --project "$MC_REMOTE_PROJECT" \
   --output "$MC_REMOTE_PROJECT/generated" \
   --expected-lock-identity "$REVIEWED_LOCK_IDENTITY" \
@@ -185,7 +184,7 @@ are outside this command.
 Use the read-only doctor after logging in instead of reusing apply as a status command:
 
 ```sh
-uv run mcrctl doctor --project "$MC_REMOTE_PROJECT"
+$HOME/.local/bin/uv run mcrctl doctor --project "$MC_REMOTE_PROJECT"
 ```
 
 By default it checks `<project>/generated` through the local Docker context named `default`. It verifies
@@ -201,89 +200,18 @@ doctor retains an explicit warning even when its runtime is healthy.
 Add `home-alpha` later as a separate initialized project with distinct volume and world identities;
 do not copy the `home-beta` directory or lock.
 
-## Public VPS beta (new TOML vertical slice)
+## Public VPS deployment
 
-The `vps-server@N` line is the catering-style VPS profile family. It bootstraps exact
-`public-web-paper@N` Caddy, Scratch, Bridge, Minecraft, Paper, and McRemote artifacts
-while keeping authentication session-only. Caddy alone joins the public edge; backend
-services remain on an internal app network. The exact profile/preset revision the public
-beta currently runs is tracked in `docs/public-vps-bootstrap-guide_ja.md`'s most recent
-dated apply record (under `## 1. 通常のrelease更新`); this README does not chase release
-revision numbers.
+The canonical public VPS procedure is [the public VPS release deployment runbook](docs/public-vps-bootstrap-guide_ja.md). A reviewed handoff supplies the target mapping, knowledge commit, Stack commit, deployment project, exact profile, exact preset, and authorized action. Follow its environment check, plan, apply, and doctor steps from top to bottom.
 
-The host firewall, provider firewall, and DNS remain explicit human checkpoints outside
-the deployment project; `apply` does not modify them. After reviewing the EULA,
-unverified reason, exact lock, and canonical render, run bootstrap apply on the VPS
-against its local Docker context. A failed apply removes the new containers but retains
-the managed world volume. `doctor` checks the public bind, current lock and render,
-managed multi-service runtime, and enforced authentication without mutation.
-External HTTPS/WSS readiness and the content-addressed homepage remain later claims.
-An existing `vps-server@5` / `public-web-paper@1` runtime must not be updated with the
-bootstrap path; its recovery Compose files, working directory, volumes, and mounts
-require a dedicated reviewed upgrade transaction.
-
-## Legacy `official-vps` vertical slice (regression)
-
-```sh
-uv run mcrctl init ./deployment --profile official-vps
-uv run mcrctl validate --project ./deployment
-uv run mcrctl repo check --project ./deployment
-uv run mcrctl plan --project ./deployment
-uv run mcrctl accept-eula --project ./deployment --yes
-uv run mcrctl render --project ./deployment --output ./deployment/generated
-```
-
-`plan` stops until EULA acceptance and immutable artifact identities are present. This includes the homepage version / archive SHA-256 as well as OCI images, Paper, and plugin JARs. It never converts an unresolved selector into a production deployment implicitly. `render` writes Compose, Caddy, Scratch runtime, Bridge route, and ServerBackup configuration only after the same gates pass. This legacy path is currently a deterministic plan/render regression fixture, not the first home live deployment, and bootstrap apply rejects it. The initialized lock is intentionally version-neutral: a profile selects topology and policy, not a Minecraft or McRemote release. Existing-server migration can therefore pin the recovered artifacts without being forced to upgrade McRemote as part of the infrastructure move.
-
-### Optional beta instance on the same VPS
-
-The `official-vps` preset includes an optional `beta` instance. Setting `beta.enabled: true` renders a `minecraft-beta` service with independent data, backup, OCI image, Paper, and plugin locks. Stable and beta both use the standard `25565/tcp+udp` and `25575/tcp` ports and therefore run exclusively. The stable public names are unsuffixed (`scratch.mc-remote.com`, `bridge.mc-remote.com`, and `sb.mc-remote.com`); beta uses the `-beta` suffix.
-
-The b3 public-beta runtime-config path introduced `vps-server@7`. It requires a non-empty Scratch
-`connection_targets` projection, lists `sb-beta.mc-remote.com` as the beta default, and emits a
-`notices` array. The current `vps-server@12` projection takes an ordered operator notice feed and
-appends the preset-owned Scratch release notice last, so version information cannot disappear with
-an operational announcement edit. Resolve, render, and doctor fail closed when this contract is
-invalid.
-
-The append-only b4 target is `vps-server@8` / `public-web-paper@3`. It pins the released b4
-McRemote JAR and the deployment OCI images built from the final Scratch CI artifact. Public b4
-keeps only session authentication: its hash-only session snapshot is writable under the
-Minecraft data volume, survives an ordinary restart, and may be discarded with that volume.
-It does not approve public long-lived credentials. Existing b3 runtimes use the resumable
-`mcrctl migration public-b4` path after the `vps-server@7` runtime-target projection is live.
-
-The append-only public b4 WireScope target is `vps-server@9` / `public-web-paper@4`.
-`public-routes@2` requires `wirescope-beta.mc-remote.com`, projects its HTTPS URL into the
-Scratch runtime config, and serves the verified ZIP plus detached manifest from a read-only
-Caddy docroot on that distinct origin. This surface provides only the Scratch cross-origin
-MessageChannel handoff; it does not add a public station, source ingress, or Minecraft control
-endpoint.
-
-For a running deployment in the same profile/preset family, use
-`mcrctl deployment update plan` followed by `mcrctl deployment update apply`. The plan
-fetches exact HTTPS artifacts before downtime, derives additional Compose inputs from live
-container provenance, and keeps stateful volume identities unchanged. The apply command accepts
-only the reviewed plan ID, runs the target doctor, and restores the source order/lock/render and
-containers if target startup or verification fails. It does not claim to restore world mutations,
-sessions, pairing, or connections. Release-specific `migration public-b3/public-b4` commands are
-history-bound rescue paths, not templates for future releases.
-
-`minecraft-stable` and `minecraft-beta` belong to separate Compose profiles, so an ordinary `docker compose up` starts neither Minecraft channel. On a 6 GB VPS, do not run stable and beta together. Use the generated exclusive switch operations, which announce the change, run `save-all flush`, stop gracefully, check the standard ports, and restore the previous instance on failure:
-
-```sh
-sudo bash /etc/mc-remote/generated/operations/use-beta.sh
-sudo bash /etc/mc-remote/generated/operations/use-stable.sh
-```
-
-Only a stopped instance counts as dormant. Before removing the exclusive switch and running both instances continuously, test both workloads together and inspect their heaps, host memory, swap, tick time, and disk I/O.
+The deployment project `mc-remote.toml` and exact lock identify the active desired state. The handoff names the next exact set from `mc-remote-knowledge` release gate notes at its stated commit. A new Ubuntu host first completes the [fresh-host bootstrap](docs/fresh-host-bootstrap-guide_ja.md).
 
 ## Encrypted off-host backup transfer
 
 The transfer adapter encrypts a ServerBackup archive with a public age recipient before opening an explicit FTPS session. It requires certificate verification, protects the data connection, uses passive mode, uploads through a temporary remote name, and verifies the final remote size. `--verify-download` additionally downloads the remote ciphertext and compares its SHA-256. A non-secret transfer-record sidecar is published with the ciphertext so recovery does not depend on the source VPS. Plaintext and encrypted local files remain in the queue; transfer does not prune them.
 
 ```sh
-uv run mcrctl backup transfer /backup/outbox/backup.zip \
+$HOME/.local/bin/uv run mcrctl backup transfer /backup/outbox/backup.zip \
   --project ./deployment \
   --transport-config /secure/path/backup-transport.toml \
   --verify-download
@@ -299,7 +227,7 @@ archive with a local `download-verified` transfer record is not sent again.
 ```sh
 install -m 600 /dev/null /secure/state/backup-transfer-activated
 
-uv run mcrctl backup drain /backup/outbox \
+$HOME/.local/bin/uv run mcrctl backup drain /backup/outbox \
   --after /secure/state/backup-transfer-activated \
   --project ./deployment \
   --transport-config /secure/path/backup-transport.toml
@@ -319,24 +247,24 @@ Recovery selection is always explicit. List completed ciphertexts, retrieve the 
 record and archive, then decrypt and verify the original plaintext SHA-256:
 
 ```sh
-uv run mcrctl backup list --project ./deployment \
+$HOME/.local/bin/uv run mcrctl backup list --project ./deployment \
   --transport-config /secure/path/backup-transport.toml
 
 REMOTE_NAME='backup.zip.<encrypted-sha256>.age'
-uv run mcrctl backup download-record "$REMOTE_NAME" \
+$HOME/.local/bin/uv run mcrctl backup download-record "$REMOTE_NAME" \
   --project ./deployment \
   --transport-config /secure/path/backup-transport.toml \
   --output ./recovery/backup.transfer.json
-uv run mcrctl backup download "$REMOTE_NAME" \
+$HOME/.local/bin/uv run mcrctl backup download "$REMOTE_NAME" \
   --project ./deployment \
   --transport-config /secure/path/backup-transport.toml \
   --record ./recovery/backup.transfer.json \
   --output ./recovery/backup.zip.age
-uv run mcrctl backup decrypt ./recovery/backup.zip.age \
+$HOME/.local/bin/uv run mcrctl backup decrypt ./recovery/backup.zip.age \
   --record ./recovery/backup.transfer.json \
   --identity /secure/path/age-identity.txt \
   --output ./recovery/backup.zip
-uv run mcrctl archive inspect ./recovery/backup.zip --json
+$HOME/.local/bin/uv run mcrctl archive inspect ./recovery/backup.zip --json
 ```
 
 In `backup list`, `record=present` means the ciphertext has its remote recovery sidecar.
@@ -353,7 +281,7 @@ The FTPS password is referenced as `secret://backup_ftps_password` and stored wi
 Inspect an existing whole-server recovery point without extracting its secret-bearing contents:
 
 ```sh
-uv run mcrctl archive inspect /path/to/backup.zip --json
+$HOME/.local/bin/uv run mcrctl archive inspect /path/to/backup.zip --json
 ```
 
 The result contains the archive SHA-256, ZIP CRC result, aggregate sizes, region count, root server JAR identities, and active `plugins/*.jar` SHA-256 values. Nested Paper remap caches and plugin libraries are counted but not misreported as active plugins. It does not print plugin configuration contents.
@@ -364,14 +292,14 @@ the transitive content is locked.
 Restore only the selected world roots into a current TOML deployment:
 
 ```sh
-uv run mcrctl world restore plan ./recovery/backup.zip \
+$HOME/.local/bin/uv run mcrctl world restore plan ./recovery/backup.zip \
   --project ./deployment \
   --output ./deployment/generated \
   --source-world world \
   --expected-archive-sha256 '<64-lowercase-hex>' \
   --expected-lock-identity 'sha256:<64-hex>'
 
-uv run mcrctl world restore apply ./recovery/backup.zip \
+$HOME/.local/bin/uv run mcrctl world restore apply ./recovery/backup.zip \
   --project ./deployment \
   --output ./deployment/generated \
   --source-world world \
@@ -423,7 +351,7 @@ Classify explicit runtime dependency downloads and update checks from a startup 
 without reproducing raw log lines or URL paths:
 
 ```sh
-uv run mcrctl runtime audit-log ./minecraft-startup.log --json
+$HOME/.local/bin/uv run mcrctl runtime audit-log ./minecraft-startup.log --json
 ```
 
 This diagnostic recognizes Paper library downloads, Geyser-style runtime content
@@ -433,7 +361,7 @@ plugin made no network request.
 Import only the Paper and plugin JAR members named by a deployment lock from a recovery archive:
 
 ```sh
-uv run mcrctl artifact import-archive /path/to/backup.zip --project ./deployment
+$HOME/.local/bin/uv run mcrctl artifact import-archive /path/to/backup.zip --project ./deployment
 ```
 
 The command verifies the whole archive SHA-256, requires each named member to exist exactly once, verifies each artifact SHA-256 while streaming, and writes only those JARs to a content-addressed local store. It does not extract world data or plugin configuration. `MC_REMOTE_ARTIFACT_HOME` can relocate the local store; `--store` selects an explicit SHA-256 store directory.

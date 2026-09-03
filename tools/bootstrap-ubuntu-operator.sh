@@ -2,6 +2,7 @@
 set -euo pipefail
 
 UV_BOOTSTRAP_VERSION=0.12.3
+UV_BIN="$HOME/.local/bin/uv"
 MINIMUM_COMPOSE_VERSION=2.33.1
 RUNTIME_ROOT=/var/lib/mc-remote
 
@@ -99,16 +100,6 @@ version_at_least() {
   [[ "$(printf '%s\n%s\n' "$minimum" "$actual" | sort -V | head -n1)" == "$minimum" ]]
 }
 
-uv_path() {
-  if command -v uv >/dev/null 2>&1; then
-    command -v uv
-  elif [[ -x "$HOME/.local/bin/uv" ]]; then
-    printf '%s\n' "$HOME/.local/bin/uv"
-  else
-    return 1
-  fi
-}
-
 install_base_packages() {
   sudo apt-get update
   sudo apt-get install -y ca-certificates curl git
@@ -185,8 +176,7 @@ missing=()
 for command_name in curl git; do
   command -v "$command_name" >/dev/null 2>&1 || missing+=("$command_name")
 done
-uv_bin="$(uv_path || true)"
-[[ -n "$uv_bin" ]] || missing+=(uv)
+[[ -x "$UV_BIN" ]] || missing+=(uv)
 command -v docker >/dev/null 2>&1 || missing+=(docker)
 
 if [[ "$mode" == check && ${#missing[@]} -gt 0 ]]; then
@@ -198,9 +188,8 @@ fi
 
 if [[ "$mode" == install ]]; then
   install_base_packages
-  if [[ -z "$uv_bin" ]]; then
+  if [[ ! -x "$UV_BIN" ]]; then
     install_uv
-    uv_bin="$(uv_path)"
   fi
   if ! command -v docker >/dev/null 2>&1; then
     install_docker_engine
@@ -211,11 +200,10 @@ if [[ "$mode" == install ]]; then
   if [[ -n "$repair_artifact_store" ]]; then
     repair_artifact_store_ownership "$repair_artifact_store"
   fi
-  uv_bin="$(uv_path)"
-  "$uv_bin" python install 3.11
+  "$UV_BIN" python install 3.11
   (
     cd -- "$repo_root"
-    PATH="$(dirname -- "$uv_bin"):$PATH" uv sync --extra dev
+    "$UV_BIN" sync --extra dev
   )
 elif [[ ! -x "$repo_root/.venv/bin/mcrctl" ]]; then
   echo "FAIL repo environment is absent: $repo_root/.venv/bin/mcrctl" >&2
@@ -223,9 +211,8 @@ elif [[ ! -x "$repo_root/.venv/bin/mcrctl" ]]; then
   exit 2
 fi
 
-uv_bin="$(uv_path)"
 git --version >/dev/null
-"$uv_bin" --version >/dev/null
+"$UV_BIN" --version >/dev/null
 if ! "$repo_root/.venv/bin/python" -c \
   'import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)'; then
   echo "FAIL repo environment does not use Python 3.11 or newer" >&2
@@ -295,7 +282,7 @@ if ! docker --context default version >/dev/null 2>&1; then
   exit 2
 fi
 
-echo "OK operator bootstrap tools=ready docker-access=direct compose=$compose_version"
+echo "OK operator bootstrap tools=ready uv=$UV_BIN docker-access=direct compose=$compose_version"
 echo "OK repo environment=$repo_root/.venv"
 if [[ -n "$repair_project" ]]; then
   "$repo_root/.venv/bin/mcrctl" operator check \

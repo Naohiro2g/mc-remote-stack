@@ -345,14 +345,14 @@ alpha検証ガイド（§7）を通してlive evidenceを取得後も、これ�
    いけない。同一volumeのまま更新する`mcrctl deployment update plan/apply`
    （2026-08-20実装、NOTES該当節）を使う：
    ```bash
-   uv run mcrctl deployment update plan \
+   $HOME/.local/bin/uv run mcrctl deployment update plan \
      --project "$MC_REMOTE_PROJECT" \
      --docker-context default \
      --to-profile home-server@6 \
      --to-preset home-alpha-full@N+1 \
      --allow-unverified
-   uv run mcrctl deployment update apply --project "$MC_REMOTE_PROJECT" --plan-id <plan出力のID>
-   uv run mcrctl doctor --project "$MC_REMOTE_PROJECT"
+   $HOME/.local/bin/uv run mcrctl deployment update apply --project "$MC_REMOTE_PROJECT" --plan-id <plan出力のID>
+   $HOME/.local/bin/uv run mcrctl doctor --project "$MC_REMOTE_PROJECT"
    ```
    （既存`home-alpha-validation-guide_ja.md`のunverified acknowledgementと
    同じ形で理由を記録してから行う。）
