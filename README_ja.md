@@ -33,10 +33,11 @@ uv run mcrctl apply ./mc-remote.toml
 uv run mcrctl doctor school-a
 ```
 
-Scratch runtime schema、container mount path、Scratch image digestはpresetが固定するScratch contract
-handoffから読み、operatorの別入力にはしない。正式handoffに対応するbundled presetはScratch担当から
-contract commit／directory／mount path／image digest／test結果が返却された後に追加する。返却前に旧Scratch
-sourceや探索版`home-server@7`／`compose@15`からfieldを推測しない。
+Scratch runtime schema、fixture、container mount path、Scratch image digestはpresetが固定するScratch contract
+handoffから読み、operatorの別入力にはしない。`classroom@1`はScratch commit `689fd1ed…`のruntime-config
+contract treeと、同commitからStack担当がbuildしたScratch／Bridge image digestを固定した最初のbundled候補で
+ある。§9のlive横断確認前なので検証済みpresetとはまだ扱わない。contract directory外のScratch source、
+product-config、探索版`home-server@7`／`compose@15`からfieldを取り込まない。
 
 このプロジェクトは、次のものとは意図的に分離している。
 

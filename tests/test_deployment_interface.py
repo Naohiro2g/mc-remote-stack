@@ -16,6 +16,7 @@ from mc_remote_stack.deployment_interface import (
     prepare_interface_deployment,
     validate_interface_runtime,
 )
+from mc_remote_stack.preset_registry import load_preset
 
 RUNTIME_SCHEMA = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -74,12 +75,61 @@ RUNTIME_SCHEMA = {
 }
 
 
+def _git_blob_sha(source: bytes) -> bytes:
+    return hashlib.sha1(b"blob " + str(len(source)).encode() + b"\0" + source).digest()
+
+
+def _git_tree_sha(root: Path) -> str:
+    entries: list[tuple[str, bool, bytes]] = []
+    for path in root.iterdir():
+        if path.is_dir():
+            identity = bytes.fromhex(_git_tree_sha(path))
+            entries.append((path.name, True, identity))
+        else:
+            identity = _git_blob_sha(path.read_bytes())
+            entries.append((path.name, False, identity))
+    entries.sort(key=lambda item: (item[0] + ("/" if item[1] else "")).encode())
+    body = b"".join(
+        (b"40000" if is_directory else b"100644")
+        + b" "
+        + name.encode()
+        + b"\0"
+        + identity
+        for name, is_directory, identity in entries
+    )
+    return hashlib.sha1(b"tree " + str(len(body)).encode() + b"\0" + body).hexdigest()
+
+
 def _fixture(tmp_path: Path, *, order_suffix: str = "") -> tuple[Path, Path]:
     data_root = tmp_path / "data"
     contract = data_root / "scratch-contracts" / ("1" * 40)
-    contract.mkdir(parents=True)
+    (contract / "fixtures" / "invalid").mkdir(parents=True)
     schema_source = json.dumps(RUNTIME_SCHEMA, sort_keys=True).encode()
     (contract / "schema.json").write_bytes(schema_source)
+    (contract / "README.md").write_text("runtime contract\n", encoding="utf-8")
+    accepted_source = json.dumps(
+        {
+            "schema_version": 1,
+            "connection_enabled": True,
+            "bridge_url": "wss://bridge.example.org/",
+            "default_sandbox": "minecraft.example.org",
+            "connection_targets": [
+                {
+                    "id": "classroom",
+                    "label": "Classroom",
+                    "sandbox": "minecraft.example.org",
+                }
+            ],
+        },
+        sort_keys=True,
+    ).encode()
+    rejected_source = json.dumps(
+        {"schema_version": 1, "connection_enabled": True, "unknown": "forbidden"},
+        sort_keys=True,
+    ).encode()
+    (contract / "fixtures" / "valid.json").write_bytes(accepted_source)
+    (contract / "fixtures" / "invalid" / "unknown-field.json").write_bytes(rejected_source)
+    contract_tree_sha = _git_tree_sha(contract)
 
     preset = data_root / "preset_registry" / "classroom" / "1" / "preset.toml"
     preset.parent.mkdir(parents=True)
@@ -107,9 +157,16 @@ mcremote_port = 25575
 [deployment_interface.scratch_contract]
 commit = "{'1' * 40}"
 source_directory = "packages/scratch-gui/contracts/runtime-config"
+directory_tree_sha = "{contract_tree_sha}"
 schema_sha256 = "{hashlib.sha256(schema_source).hexdigest()}"
 container_mount_path = "/usr/share/nginx/html/mc-remote-runtime-config.json"
 image_digest = "sha256:{'2' * 64}"
+accepted_fixtures = ["fixtures/valid.json"]
+rejected_fixtures = ["fixtures/invalid/unknown-field.json"]
+
+[deployment_interface.scratch_contract.fixture_sha256]
+"fixtures/valid.json" = "{hashlib.sha256(accepted_source).hexdigest()}"
+"fixtures/invalid/unknown-field.json" = "{hashlib.sha256(rejected_source).hexdigest()}"
 
 [[components]]
 id = "scratch"
@@ -269,16 +326,24 @@ def test_single_order_fails_closed(order_suffix: str, reason: str, tmp_path: Pat
 
 def test_renderer_uses_handoff_schema_not_a_stack_owned_field_list(tmp_path: Path) -> None:
     order, data_root = _fixture(tmp_path)
-    schema_path = data_root / "scratch-contracts" / ("1" * 40) / "schema.json"
+    contract_path = data_root / "scratch-contracts" / ("1" * 40)
+    schema_path = contract_path / "schema.json"
+    fixture_path = contract_path / "fixtures" / "valid.json"
+    old_tree_sha = _git_tree_sha(contract_path)
+    old_schema_sha = hashlib.sha256(schema_path.read_bytes()).hexdigest()
+    old_fixture_sha = hashlib.sha256(fixture_path.read_bytes()).hexdigest()
     schema = json.loads(schema_path.read_text(encoding="utf-8"))
     schema["required"].append("scratch_owned_future_field")
+    schema["properties"]["scratch_owned_future_field"] = {"const": "contract-owned"}
     schema_path.write_text(json.dumps(schema), encoding="utf-8")
+    fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
+    fixture["scratch_owned_future_field"] = "contract-owned"
+    fixture_path.write_text(json.dumps(fixture), encoding="utf-8")
     preset_path = data_root / "preset_registry" / "classroom" / "1" / "preset.toml"
     source = preset_path.read_text(encoding="utf-8")
-    source = source.replace(
-        'schema_sha256 = "' + hashlib.sha256(json.dumps(RUNTIME_SCHEMA, sort_keys=True).encode()).hexdigest() + '"',
-        'schema_sha256 = "' + hashlib.sha256(schema_path.read_bytes()).hexdigest() + '"',
-    )
+    source = source.replace(old_tree_sha, _git_tree_sha(contract_path))
+    source = source.replace(old_schema_sha, hashlib.sha256(schema_path.read_bytes()).hexdigest())
+    source = source.replace(old_fixture_sha, hashlib.sha256(fixture_path.read_bytes()).hexdigest())
     preset_path.write_text(source, encoding="utf-8")
 
     with pytest.raises(DeploymentInterfaceError, match="scratch_runtime_schema_invalid"):
@@ -298,6 +363,76 @@ def test_contract_handoff_digest_and_scratch_image_must_match(tmp_path: Path) ->
 
     with pytest.raises(DeploymentInterfaceError, match="scratch_image_digest_mismatch"):
         prepare_interface_deployment(order, data_root=data_root)
+
+
+def test_contract_directory_tree_and_fixture_digests_must_match(tmp_path: Path) -> None:
+    order, data_root = _fixture(tmp_path)
+    fixture_path = (
+        data_root
+        / "scratch-contracts"
+        / ("1" * 40)
+        / "fixtures"
+        / "valid.json"
+    )
+    fixture_path.write_text("{}\n", encoding="utf-8")
+
+    with pytest.raises(DeploymentInterfaceError, match="scratch_contract_tree_mismatch"):
+        prepare_interface_deployment(order, data_root=data_root)
+
+
+def test_contract_fixture_accept_reject_expectations_are_verified(tmp_path: Path) -> None:
+    order, data_root = _fixture(tmp_path)
+    preset_path = data_root / "preset_registry" / "classroom" / "1" / "preset.toml"
+    source = preset_path.read_text(encoding="utf-8")
+    source = source.replace(
+        'accepted_fixtures = ["fixtures/valid.json"]',
+        'accepted_fixtures = ["fixtures/invalid/unknown-field.json"]',
+    ).replace(
+        'rejected_fixtures = ["fixtures/invalid/unknown-field.json"]',
+        'rejected_fixtures = ["fixtures/valid.json"]',
+    )
+    preset_path.write_text(source, encoding="utf-8")
+
+    with pytest.raises(DeploymentInterfaceError, match="scratch_contract_fixture_result_mismatch"):
+        prepare_interface_deployment(order, data_root=data_root)
+
+
+def test_bundled_classroom_preset_locks_returned_contract_and_images(tmp_path: Path) -> None:
+    order = tmp_path / "mc-remote.toml"
+    order.write_text(
+        '''schema_version = 1
+deployment = "school-a"
+preset = "classroom@1"
+
+[surfaces]
+scratch_url = "https://scratch.example.org/"
+bridge_url = "wss://bridge.example.org/"
+
+[[targets]]
+id = "classroom"
+label = "Classroom"
+sandbox = "minecraft.example.org"
+default = true
+''',
+        encoding="utf-8",
+    )
+
+    prepared = prepare_interface_deployment(order, artifact_store=tmp_path / "artifacts")
+
+    contract = prepared.lock["scratch_contract"]
+    assert contract["commit"] == "689fd1edc5e123a59a633bbf6528ba18879e39dd"
+    assert contract["directory_tree_sha"] == "ecb669a02ac6c8e502b44850e6dd28260c5adad4"
+    assert contract["schema_sha256"] == (
+        "4e1f8489dc6ea03800f5cf0fefd2f078fd6d71c8efda581f1711f68e384f99e4"
+    )
+    artifacts = {item["id"]: item for item in prepared.lock["artifacts"]}
+    assert artifacts["scratch-image"]["digest"] == (
+        "sha256:e975cc25ab5ae5073b3151728ad2a875ca1a68d6e40f980e646dd2690983be47"
+    )
+    assert artifacts["bridge-image"]["digest"] == (
+        "sha256:606e12213c384318696ab14297a55d143b078e44c26a8d76798b718f2cb2e4c6"
+    )
+    assert load_preset("classroom@1").data["deployment_interface"]["renderer_revision"] == "1"
 
 
 def test_apply_mode_is_derived_from_managed_runtime_state() -> None:

@@ -21,6 +21,7 @@ from urllib.parse import urlsplit
 import yaml
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import SchemaError
+from jsonschema.validators import validator_for
 
 from .artifacts import default_artifact_store
 from .preset_registry import semantic_sha256
@@ -266,18 +267,56 @@ def _load_preset(preset_ref: str, data_root: Traversable) -> tuple[dict[str, Any
     return preset, hashlib.sha256(source).hexdigest()
 
 
-def _runtime_contract(
-    preset: dict[str, Any], data_root: Traversable
-) -> tuple[dict[str, Any], dict[str, Any]]:
-    handoff = preset["deployment_interface"]["scratch_contract"]
-    commit = handoff["commit"]
-    schema_resource = data_root.joinpath("scratch-contracts", commit, "schema.json")
-    if not schema_resource.is_file():
+def _git_blob_identity(source: bytes) -> bytes:
+    header = b"blob " + str(len(source)).encode("ascii") + b"\0"
+    return hashlib.sha1(header + source).digest()
+
+
+def _git_tree_identity(root: Traversable) -> str:
+    if not root.is_dir():
+        _fail("scratch_contract_missing", root, "the locked contract directory is missing")
+    try:
+        children = list(root.iterdir())
+    except OSError as exc:
+        _fail("scratch_contract_read_failed", root, str(exc))
+    entries: list[tuple[str, bool, bytes]] = []
+    for child in children:
+        if child.is_dir():
+            identity = bytes.fromhex(_git_tree_identity(child))
+            entries.append((child.name, True, identity))
+        elif child.is_file():
+            try:
+                identity = _git_blob_identity(child.read_bytes())
+            except OSError as exc:
+                _fail("scratch_contract_read_failed", child, str(exc))
+            entries.append((child.name, False, identity))
+        else:
+            _fail("scratch_contract_entry_invalid", child, "only regular files and directories are allowed")
+    entries.sort(key=lambda entry: (entry[0] + ("/" if entry[1] else "")).encode("utf-8"))
+    body = b"".join(
+        (b"40000" if is_directory else b"100644")
+        + b" "
+        + name.encode("utf-8")
+        + b"\0"
+        + identity
+        for name, is_directory, identity in entries
+    )
+    header = b"tree " + str(len(body)).encode("ascii") + b"\0"
+    return hashlib.sha1(header + body).hexdigest()
+
+
+def _load_verified_contract(
+    handoff: dict[str, Any], data_root: Traversable
+) -> dict[str, Any]:
+    contract_root = data_root.joinpath("scratch-contracts", handoff["commit"])
+    if _git_tree_identity(contract_root) != handoff["directory_tree_sha"]:
         _fail(
-            "scratch_contract_missing",
-            schema_resource,
-            "the returned Scratch contract directory has not been packaged",
+            "scratch_contract_tree_mismatch",
+            contract_root,
+            "packaged directory differs from the locked Scratch Git tree",
         )
+
+    schema_resource = contract_root.joinpath("schema.json")
     try:
         schema_source = schema_resource.read_bytes()
     except OSError as exc:
@@ -286,11 +325,60 @@ def _runtime_contract(
         _fail("scratch_contract_digest_mismatch", schema_resource, "schema bytes are not the locked handoff")
     try:
         schema = json.loads(schema_source)
-        Draft202012Validator.check_schema(schema)
+        validator_class = validator_for(schema)
+        validator_class.check_schema(schema)
     except (UnicodeDecodeError, json.JSONDecodeError, SchemaError) as exc:
         _fail("scratch_contract_schema_invalid", schema_resource, str(exc))
     if not isinstance(schema, dict):
         _fail("scratch_contract_schema_invalid", schema_resource, "schema root must be an object")
+
+    accepted = set(handoff["accepted_fixtures"])
+    rejected = set(handoff["rejected_fixtures"])
+    fixture_sha256 = handoff["fixture_sha256"]
+    if accepted & rejected or accepted | rejected != set(fixture_sha256):
+        _fail(
+            "scratch_contract_fixture_set_mismatch",
+            contract_root.joinpath("fixtures"),
+            "accepted/rejected fixture sets must exactly equal the locked digest set",
+        )
+    validator = validator_class(schema)
+    for relative_path, expected_sha256 in sorted(fixture_sha256.items()):
+        fixture_resource = contract_root.joinpath(*PurePosixPath(relative_path).parts)
+        try:
+            fixture_source = fixture_resource.read_bytes()
+        except OSError as exc:
+            _fail("scratch_contract_read_failed", fixture_resource, str(exc))
+        if hashlib.sha256(fixture_source).hexdigest() != expected_sha256:
+            _fail(
+                "scratch_contract_fixture_digest_mismatch",
+                fixture_resource,
+                "fixture bytes differ from the locked handoff",
+            )
+        try:
+            fixture = json.loads(fixture_source)
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            _fail("scratch_contract_fixture_invalid", fixture_resource, str(exc))
+        errors = list(validator.iter_errors(fixture))
+        if relative_path in accepted and errors:
+            _fail(
+                "scratch_contract_fixture_result_mismatch",
+                fixture_resource,
+                "fixture locked as accept is rejected by the locked schema",
+            )
+        if relative_path in rejected and not errors:
+            _fail(
+                "scratch_contract_fixture_result_mismatch",
+                fixture_resource,
+                "fixture locked as reject is accepted by the locked schema",
+            )
+    return schema
+
+
+def _runtime_contract(
+    preset: dict[str, Any], data_root: Traversable
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    handoff = preset["deployment_interface"]["scratch_contract"]
+    schema = _load_verified_contract(handoff, data_root)
 
     scratch_component = _one_role(preset, "scratch-runtime")
     scratch_artifact = _artifact(preset, scratch_component["artifact"])
@@ -378,17 +466,7 @@ def validate_interface_runtime(
     commit = contract.get("commit")
     if not isinstance(commit, str):
         _fail("scratch_contract_missing", "lock.scratch_contract.commit", "commit is missing")
-    schema_resource = root.joinpath("scratch-contracts", commit, "schema.json")
-    try:
-        source = schema_resource.read_bytes()
-    except OSError as exc:
-        _fail("scratch_contract_read_failed", schema_resource, str(exc))
-    if hashlib.sha256(source).hexdigest() != contract.get("schema_sha256"):
-        _fail("scratch_contract_digest_mismatch", schema_resource, "schema differs from the lock")
-    try:
-        schema = json.loads(source)
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        _fail("scratch_contract_schema_invalid", schema_resource, str(exc))
+    schema = _load_verified_contract(contract, root)
     expected = lock.get("runtime_config")
     if not isinstance(expected, dict):
         _fail("scratch_runtime_lock_invalid", "lock.runtime_config", "expected runtime is missing")

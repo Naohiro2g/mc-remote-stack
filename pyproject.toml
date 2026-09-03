@@ -49,6 +49,9 @@ mc_remote_stack = [
     "data/profiles/*/*/*.toml",
     "data/preset_registry/*/*/*.toml",
     "data/compatibility/records/*.toml",
+    "data/scratch-contracts/*/README.md",
     "data/scratch-contracts/*/schema.json",
+    "data/scratch-contracts/*/fixtures/*.json",
+    "data/scratch-contracts/*/fixtures/invalid/*.json",
     "data/schemas/*.json",
 ]

@@ -33,10 +33,12 @@ uv run mcrctl apply ./mc-remote.toml
 uv run mcrctl doctor school-a
 ```
 
-The Scratch runtime schema, container mount path, and Scratch image digest come from the contract handoff
-locked by the preset; they are not additional operator inputs. A bundled live preset will be added only
-after Scratch returns its contract commit, directory, mount path, image digest, and test result. Until then,
-Stack does not infer fields from old Scratch sources or the unadopted `home-server@7` / `compose@15` prototype.
+The Scratch runtime schema, fixtures, container mount path, and Scratch image digest come from the contract
+handoff locked by the preset; they are not additional operator inputs. `classroom@1` is the first bundled
+candidate: it locks the runtime-config contract tree from Scratch commit `689fd1ed…` and the Scratch/Bridge
+image digests built from that same commit by Stack. It is not a verified live preset until the section 9
+cross-system slice passes. Stack does not read product-config, Scratch source outside the contract directory,
+or the unadopted `home-server@7` / `compose@15` prototype to infer fields.
 
 The project is intentionally separate from:
 
