@@ -263,6 +263,32 @@ tag文字列）をそのまま表示しており、raw commit SHAが利用者へ
 Scratch/Bridge OCIとWireScope appを再ビルド・再検証してから適用した。この一件は
 `public-web-paper@8`のcommit履歴とPR #35のコメント履歴に経緯を残している。
 
+### 2026-09-03 official public beta b7停止stage記録
+
+現行b6を停止・再作成せず、通常更新transactionのtargetとして
+`vps-server@12/public-web-paper@9`をplanした。Scratch／Bridge imageはScratch担当CIの正式handoff
+digestをpullし、Stackではbuildしない。McRemote b7 JARはrelease URLからSHA-256を検証してCASへ保存し、
+WireScopeはowner-built zip／manifestを`artifact import-reviewed`でexact digestへ固定した。
+
+- source lock: `sha256:0940e6a5629d9293ef700d5eb06db86f1527ddca50b787aac400ef9b99f61475`
+- target lock: `sha256:40688b27d2f167acfa6a8516bc7e201d6b89693aa06f0f88ef80de95126f2a96`
+- reviewed plan: `sha256:ad91ab76ea8a69ef330bfbcf49629d6913dd0bc190d4607a58347f4bfb7b2caa`
+- transition: `vps-server@12/public-web-paper@8` → `vps-server@12/public-web-paper@9`
+- transaction phase: `prepared`（`deployment update apply`は未実行）
+- staged Compose project: `official-public-beta-b7-staged`
+- staged runtime: Caddy／Scratch／Bridge／Minecraftの4 containerは全て`Created`、running 0
+- port projection: 現行と同じCaddy TCP 80/443、Minecraft TCP 25565/25575、Bedrock UDP転送
+- stateful identity: 現行b6と同じ3 volumeをtarget lockへ維持
+- current b6: 4 container IDはstage前後で不変、Minecraft healthy、doctorは
+  `runtime=healthy`／`render=current`／`protocol=responsive auth=required`／
+  `homepage=current`／`scratch-runtime=current`／`wirescope=current`
+
+停止stageは起動済みb7のdoctor evidenceではない。b7のruntime schema、exact render、effective Compose、
+artifact digestまでを停止前に検証し、同一portをbindせず待機するための状態である。切替時はstaged
+containerを直接`start`せず、上記plan IDをreviewして正準の`deployment update apply`を実行する。
+applyは現行b6を停止した後に同じvolume identityでtargetを起動し、起動またはdoctor失敗時はb6 projectionを
+自動復帰する。
+
 ## 2. 新規host bootstrapと歴史的救済
 
 ### 運用者環境はdeploymentの一部
