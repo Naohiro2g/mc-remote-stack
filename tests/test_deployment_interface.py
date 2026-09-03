@@ -298,6 +298,18 @@ def test_single_order_resolves_exact_preset_and_renders_one_target(tmp_path: Pat
     assert prepared.compose["services"]["minecraft"]["networks"] == {
         "app": {"aliases": ["minecraft.example.org"]}
     }
+    assert "auth:\n  enforcement: true\n" in prepared.files[
+        "runtime/minecraft/plugins/McRemote/config.yml"
+    ]
+    minecraft = prepared.compose["services"]["minecraft"]
+    assert minecraft["environment"]["COPY_CONFIG_DEST"] == "/data"
+    assert minecraft["environment"]["SYNC_SKIP_NEWER_IN_DESTINATION"] == "true"
+    assert {
+        "type": "bind",
+        "source": "./runtime/minecraft",
+        "target": "/config",
+        "read_only": True,
+    } in minecraft["volumes"]
     assert prepared.compose["services"]["scratch"]["volumes"] == [
         {
             "type": "bind",
