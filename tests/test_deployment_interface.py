@@ -295,6 +295,9 @@ def test_single_order_resolves_exact_preset_and_renders_one_target(tmp_path: Pat
     bridge = prepared.compose["services"]["bridge"]["environment"]
     assert bridge["BRIDGE_SANDBOX_ALLOWLIST"] == "minecraft.example.org"
     assert bridge["BRIDGE_DEFAULT_SANDBOX"] == "minecraft.example.org"
+    assert prepared.compose["services"]["minecraft"]["networks"] == {
+        "app": {"aliases": ["minecraft.example.org"]}
+    }
     assert prepared.compose["services"]["scratch"]["volumes"] == [
         {
             "type": "bind",

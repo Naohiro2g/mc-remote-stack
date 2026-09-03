@@ -9,6 +9,8 @@ Scratch runtime configとBridge allowlistの共通target集合からの生成、
 render、Docker preflight、create／update判定、起動を進める。`doctor <deployment>`は配信runtime configを
 lock済みScratch schemaへ通し、exact image、container稼働／Minecraft health、公開port、実containerのBridge
 allowlist／default target、Bridge containerからMcRemoteへの到達、tokenなし`hello`への`auth_required`を確認する。
+targetの`sandbox`は同じtarget集合からMinecraft serviceの内部network aliasにも生成し、Bridgeが同じdeploymentの
+McRemoteへ接続する経路を固定する。
 
 `apply`はcurrent exact lock、永続world volume、管理containerの三者から状態を判定する。lockとvolumeが揃う
 既存deploymentはcontainerが停止／削除済みでもupdateであり、新規扱いにしない。既存world volumeを再利用する

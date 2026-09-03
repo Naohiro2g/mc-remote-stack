@@ -624,7 +624,11 @@ def _render(
                         "read_only": True,
                     },
                 ],
-                "networks": ["app"],
+                "networks": {
+                    "app": {
+                        "aliases": [target["sandbox"] for target in order["targets"]]
+                    }
+                },
                 "labels": labels,
             },
         },
