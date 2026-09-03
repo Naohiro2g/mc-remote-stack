@@ -17,7 +17,7 @@ from mc_remote_stack.deployment_interface import (
     prepare_interface_deployment,
     validate_interface_runtime,
 )
-from mc_remote_stack.preset_registry import PresetDataError, load_preset
+from mc_remote_stack.preset_registry import load_preset
 
 RUNTIME_SCHEMA = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -398,7 +398,7 @@ def test_contract_fixture_accept_reject_expectations_are_verified(tmp_path: Path
         prepare_interface_deployment(order, data_root=data_root)
 
 
-def test_contract_handoff_is_bundled_without_preset_before_image_digest(tmp_path: Path) -> None:
+def test_bundled_classroom_preset_locks_authoritative_handoff_2(tmp_path: Path) -> None:
     order = tmp_path / "mc-remote.toml"
     order.write_text(
         '''schema_version = 1
@@ -418,17 +418,26 @@ default = true
         encoding="utf-8",
     )
 
-    with pytest.raises(DeploymentInterfaceError, match="preset_missing"):
-        prepare_interface_deployment(order, artifact_store=tmp_path / "artifacts")
-    with pytest.raises(PresetDataError, match="unknown_preset_revision"):
-        load_preset("classroom@1")
+    prepared = prepare_interface_deployment(order, artifact_store=tmp_path / "artifacts")
+
+    contract = prepared.lock["scratch_contract"]
+    assert contract["commit"] == "4c893bd532002d9216665c5c9b9825e09ede1e7c"
+    assert contract["directory_tree_sha"] == "ecb669a02ac6c8e502b44850e6dd28260c5adad4"
+    artifacts = {item["id"]: item for item in prepared.lock["artifacts"]}
+    assert artifacts["scratch-image"]["digest"] == (
+        "sha256:c2693fd5078ba547ced1cfe6b1732d5e9c283ffc44aaf8356bce6967e5aa7f2c"
+    )
+    assert artifacts["bridge-image"]["digest"] == (
+        "sha256:42e9a25cdf6af922219544dbefd74a251eafb1dd78d88d4819c5a7418142b66c"
+    )
+    assert load_preset("classroom@1").data["deployment_interface"]["renderer_revision"] == "1"
 
     contract_root = Path(
         str(
             files("mc_remote_stack").joinpath(
                 "data",
                 "scratch-contracts",
-                "689fd1edc5e123a59a633bbf6528ba18879e39dd",
+                "4c893bd532002d9216665c5c9b9825e09ede1e7c",
             )
         )
     )
@@ -525,6 +534,51 @@ def _docker_runner(*, existing: bool):
         return subprocess.CompletedProcess(command, 0, stdout, "")
 
     return run, calls
+
+
+def test_bundled_handoff_2_runs_through_apply_and_doctor(tmp_path: Path) -> None:
+    order = tmp_path / "mc-remote.toml"
+    order.write_text(
+        '''schema_version = 1
+deployment = "school-a"
+preset = "classroom@1"
+
+[surfaces]
+scratch_url = "https://scratch.example.org/"
+bridge_url = "wss://bridge.example.org/"
+
+[[targets]]
+id = "classroom"
+label = "Classroom"
+sandbox = "minecraft.example.org"
+default = true
+''',
+        encoding="utf-8",
+    )
+    runner, _calls = _docker_runner(existing=False)
+
+    applied = apply_interface_order(
+        order,
+        state_root=tmp_path / "state",
+        artifact_store=tmp_path / "artifacts",
+        runner=runner,
+        artifact_fetcher=lambda _prepared: None,
+    )
+    runtime = json.loads(applied.runtime_config)
+    doctor_runner, _doctor_calls = _docker_runner(existing=True)
+    result = doctor_interface_deployment(
+        "school-a",
+        state_root=tmp_path / "state",
+        runner=doctor_runner,
+        runtime_probe=lambda _url, _timeout: runtime,
+        bridge_environment_probe=lambda _container, _runner: {
+            "BRIDGE_SANDBOX_ALLOWLIST": "minecraft.example.org"
+        },
+    )
+
+    assert applied.mode == "create"
+    assert result.scratch_runtime_status == "current"
+    assert result.bridge_allowlist_status == "current"
 
 
 @pytest.mark.parametrize(("existing", "expected_mode"), [(False, "create"), (True, "update")])

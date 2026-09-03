@@ -34,12 +34,11 @@ uv run mcrctl doctor school-a
 ```
 
 The Scratch runtime schema, fixtures, container mount path, and Scratch image digest come from the contract
-handoff locked by the preset; they are not additional operator inputs. The `classroom@1` above is an example
-of the ref that will be registered after Scratch returns an authoritative image digest; it does not currently
-resolve. The runtime-config contract tree from Scratch commit `689fd1ed…` is bundled, but output from the image
-workflow triggered by Stack is not an accepted artifact and is not referenced by a preset or lock. Stack does
-not build Scratch, Bridge, or Plugin, and does not read product-config, Scratch source outside the contract
-directory, or the unadopted `home-server@7` / `compose@15` prototype to infer fields.
+handoff locked by the preset; they are not additional operator inputs. `classroom@1` locks the unchanged contract
+tree at Scratch commit `4c893bd…` and the Scratch/Bridge image digests published by Scratch's own CI. Stack only
+checks the tag and registry manifest read-only and does not build Scratch, Bridge, or Plugin. Images from the
+earlier workflow triggered by Stack are not referenced. Stack does not read product-config, Scratch source outside
+the contract directory, or the unadopted `home-server@7` / `compose@15` prototype to infer fields.
 
 The project is intentionally separate from:
 

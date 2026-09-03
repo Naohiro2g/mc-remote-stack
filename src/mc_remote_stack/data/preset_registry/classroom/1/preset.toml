@@ -1,0 +1,117 @@
+schema_version = 1
+
+[preset]
+name = "classroom"
+revision = "1"
+description = "Initial 2026-08-31-01 deployment-interface vertical-slice candidate with the authoritative Scratch handoff 2 contract and exact Scratch, Bridge, Minecraft, Paper, and McRemote artifacts"
+
+[requirements]
+profile_capabilities = [
+  "compose",
+  "paper",
+  "persistent-world",
+  "scratch-runtime",
+  "websocket-bridge",
+  "mcremote-auth-enforced",
+]
+allowed_channels = ["alpha"]
+required_claims = ["profile-render", "protocol-hello"]
+
+[deployment_interface]
+renderer_revision = "1"
+bind_address = "127.0.0.1"
+scratch_port = 18080
+bridge_port = 18081
+java_port = 25565
+mcremote_port = 25575
+
+[deployment_interface.scratch_contract]
+commit = "4c893bd532002d9216665c5c9b9825e09ede1e7c"
+source_directory = "packages/scratch-gui/contracts/runtime-config"
+directory_tree_sha = "ecb669a02ac6c8e502b44850e6dd28260c5adad4"
+schema_sha256 = "4e1f8489dc6ea03800f5cf0fefd2f078fd6d71c8efda581f1711f68e384f99e4"
+container_mount_path = "/usr/share/nginx/html/mc-remote-runtime-config.json"
+image_digest = "sha256:c2693fd5078ba547ced1cfe6b1732d5e9c283ffc44aaf8356bce6967e5aa7f2c"
+accepted_fixtures = [
+  "fixtures/disabled.json",
+  "fixtures/valid.json",
+]
+rejected_fixtures = [
+  "fixtures/invalid/enabled-missing-targets.json",
+  "fixtures/invalid/nested-unknown-field.json",
+  "fixtures/invalid/schema-version.json",
+  "fixtures/invalid/unknown-field.json",
+]
+
+[deployment_interface.scratch_contract.fixture_sha256]
+"fixtures/disabled.json" = "bec0cf2c31fbca7d3bd603e29c1d145d82b6ecf7b4661b9adafde31dfa2eec2d"
+"fixtures/valid.json" = "cc2282144e1e87b42d2e31229461f9aeead26eeb446ae817571eb96935360e20"
+"fixtures/invalid/enabled-missing-targets.json" = "f5392059e42431b45fb8f7f03aa09e734fb8b9e79f8fb92913082ff05842736c"
+"fixtures/invalid/nested-unknown-field.json" = "ed0923793b8713ec67615b6f14bc9f8fb342041b0cdeed5d7b9b10110a3c62b7"
+"fixtures/invalid/schema-version.json" = "9e0d32fc83501a2b73095ae59675e27ace5d11fb31e19443b78e49341ba3e766"
+"fixtures/invalid/unknown-field.json" = "35f1f21562e237cce722f5a1f93723f00d927d07769f8b12174d3ff9f73d5e3d"
+
+[[components]]
+id = "scratch"
+role = "scratch-runtime"
+artifact = "scratch-image"
+
+[[components]]
+id = "bridge"
+role = "websocket-bridge"
+artifact = "bridge-image"
+protocol = "23.0.0"
+
+[[components]]
+id = "minecraft-runtime"
+role = "minecraft-runtime"
+artifact = "minecraft-image"
+
+[[components]]
+id = "paper-server"
+role = "paper-server"
+artifact = "paper-jar"
+minecraft_version = "1.21.11"
+
+[[components]]
+id = "mcremote-paper"
+role = "mcremote-plugin"
+artifact = "mcremote-jar"
+protocol = "23.0.0"
+
+[[artifacts]]
+id = "scratch-image"
+kind = "oci"
+version = "sha-4c893bd532002d9216665c5c9b9825e09ede1e7c"
+locator = "ghcr.io/naohiro2g/mc-remote-scratch"
+digest = "sha256:c2693fd5078ba547ced1cfe6b1732d5e9c283ffc44aaf8356bce6967e5aa7f2c"
+
+[[artifacts]]
+id = "bridge-image"
+kind = "oci"
+version = "sha-4c893bd532002d9216665c5c9b9825e09ede1e7c"
+locator = "ghcr.io/naohiro2g/mc-remote-bridge"
+digest = "sha256:42e9a25cdf6af922219544dbefd74a251eafb1dd78d88d4819c5a7418142b66c"
+
+[[artifacts]]
+id = "minecraft-image"
+kind = "oci"
+version = "2026.7.2-java21"
+locator = "docker.io/itzg/minecraft-server"
+digest = "sha256:7f69fd6688e03495c8a8f5a46e8a8e82001b4465f4b55bdcd024c02c3624d8c8"
+
+[[artifacts]]
+id = "paper-jar"
+kind = "https-file"
+version = "1.21.11-132"
+filename = "paper-1.21.11-132.jar"
+sha256 = "5ffef465eeeb5f2a3c23a24419d97c51afd7dbb4923ff42df9a3f58bba1ccfba"
+origin = "https://fill-data.papermc.io/v1/objects/5ffef465eeeb5f2a3c23a24419d97c51afd7dbb4923ff42df9a3f58bba1ccfba/paper-1.21.11-132.jar"
+
+[[artifacts]]
+id = "mcremote-jar"
+kind = "https-file"
+version = "2300.0.0b6"
+filename = "mc-remote-1.21.11-2300.0.0b6.jar"
+sha256 = "0ec8d4c0b105f3034361b260fc39fcb78013e932e684d34d5ca95c9a6c6a87a6"
+origin = "https://github.com/Naohiro2g/McRemote/releases/download/v1.21.11-2300.0.0b6/mc-remote-1.21.11-2300.0.0b6.jar"
