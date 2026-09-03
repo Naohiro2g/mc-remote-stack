@@ -4,6 +4,40 @@
 
 `mc-remote-stack` は、McRemote（マイクラリモコン）サーバーを再現可能な形で設置・運用するためのパッケージ。Scratchクライアントを含む。新設計の `mc-remote.toml`、または移行前の legacy `mc-remote.yml` から、検証済みでdigestを固定したruntime設定を生成する。
 
+## 通常deployment：一つのfile、二つのcommand
+
+通常経路では、検証済みのimmutable presetを選び、URL、接続先、任意のお知らせを一つの
+`mc-remote.toml`へ書く。
+
+```toml
+schema_version = 1
+deployment = "school-a"
+preset = "classroom@1"
+
+[surfaces]
+scratch_url = "https://scratch.example.org/"
+bridge_url = "wss://bridge.example.org/"
+
+[[targets]]
+id = "classroom"
+label = "Classroom"
+sandbox = "minecraft.example.org"
+default = true
+```
+
+通常操作は次の二つである。`apply`がvalidate、preset解決、exact lock、artifact取得、render、
+preflightを内部で行い、managed runtimeの有無からcreate／updateを自動判定する。
+
+```sh
+uv run mcrctl apply ./mc-remote.toml
+uv run mcrctl doctor school-a
+```
+
+Scratch runtime schema、container mount path、Scratch image digestはpresetが固定するScratch contract
+handoffから読み、operatorの別入力にはしない。正式handoffに対応するbundled presetはScratch担当から
+contract commit／directory／mount path／image digest／test結果が返却された後に追加する。返却前に旧Scratch
+sourceや探索版`home-server@7`／`compose@15`からfieldを推測しない。
+
 このプロジェクトは、次のものとは意図的に分離している。
 
 - `mc-remote-knowledge`: 公開アーキテクチャと意思決定のSSOT（Single Source of Truth、信頼できる唯一の情報源）

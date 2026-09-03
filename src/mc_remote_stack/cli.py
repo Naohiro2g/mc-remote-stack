@@ -42,6 +42,11 @@ from .composition import (
     apply_canonical_composition,
     plan_canonical_composition,
 )
+from .deployment_interface import (
+    DeploymentInterfaceError,
+    apply_interface_order,
+    doctor_interface_deployment,
+)
 from .deployment_update import (
     DeploymentUpdateContractError,
     apply_deployment_update,
@@ -684,6 +689,26 @@ def _cmd_render(args: argparse.Namespace) -> int:
 
 
 def _cmd_apply(args: argparse.Namespace) -> int:
+    if args.order is not None:
+        try:
+            result = apply_interface_order(
+                Path(args.order),
+                docker_context=args.docker_context or "default",
+            )
+        except DeploymentInterfaceError as exc:
+            return _print_structured_failure("apply", exc)
+        print(
+            f"OK apply deployment={result.deployment} mode={result.mode} "
+            f"lock={result.lock_identity}"
+        )
+        return 0
+    if args.project is None:
+        return _print_reason_failure(
+            "apply",
+            "apply_order_required",
+            "mc-remote.toml",
+            "pass one mc-remote.toml path",
+        )
     project_path = Path(args.project)
     if not _uses_toml_project(project_path):
         return _print_reason_failure(
@@ -1367,6 +1392,29 @@ def _cmd_public_b4_apply(args: argparse.Namespace) -> int:
 
 
 def _cmd_doctor(args: argparse.Namespace) -> int:
+    if args.deployment is not None:
+        try:
+            result = doctor_interface_deployment(
+                args.deployment,
+                docker_context=args.docker_context,
+                timeout=args.timeout,
+            )
+        except DeploymentInterfaceError as exc:
+            return _print_structured_failure("doctor", exc)
+        print(
+            f"OK doctor deployment={result.deployment} "
+            f"scratch-runtime={result.scratch_runtime_status} "
+            f"bridge-allowlist={result.bridge_allowlist_status} "
+            f"lock={result.lock_identity}"
+        )
+        return 0
+    if args.project is None:
+        return _print_reason_failure(
+            "doctor",
+            "doctor_deployment_required",
+            "deployment",
+            "pass one deployment identity",
+        )
     project_path = Path(args.project)
     if not _uses_toml_project(project_path):
         return _print_reason_failure(
@@ -1945,17 +1993,20 @@ def build_parser() -> argparse.ArgumentParser:
 
     apply_parser = subparsers.add_parser(
         "apply",
-        help="apply an exact managed TOML render to the local Docker daemon",
+        help="create or update one deployment from mc-remote.toml",
     )
-    apply_parser.add_argument("--project", required=True)
-    apply_parser.add_argument("--output", required=True)
-    apply_parser.add_argument("--expected-lock-identity", required=True)
-    apply_parser.add_argument("--docker-context", required=True)
-    apply_parser.add_argument("--bootstrap", action="store_true")
-    apply_parser.add_argument("--yes", action="store_true")
-    apply_parser.add_argument("--allow-unverified", action="store_true")
-    apply_parser.add_argument("--allow-eol", action="store_true")
-    apply_parser.add_argument("--wait-timeout", type=int, default=300)
+    apply_parser.add_argument("order", nargs="?", help="compact mc-remote.toml order")
+    apply_parser.add_argument("--project", help=argparse.SUPPRESS)
+    apply_parser.add_argument("--output", help=argparse.SUPPRESS)
+    apply_parser.add_argument("--expected-lock-identity", help=argparse.SUPPRESS)
+    apply_parser.add_argument("--docker-context")
+    apply_parser.add_argument("--bootstrap", action="store_true", help=argparse.SUPPRESS)
+    apply_parser.add_argument("--yes", action="store_true", help=argparse.SUPPRESS)
+    apply_parser.add_argument("--allow-unverified", action="store_true", help=argparse.SUPPRESS)
+    apply_parser.add_argument("--allow-eol", action="store_true", help=argparse.SUPPRESS)
+    apply_parser.add_argument(
+        "--wait-timeout", type=int, default=300, help=argparse.SUPPRESS
+    )
     apply_parser.set_defaults(handler=_cmd_apply)
 
     deployment_parser = subparsers.add_parser(
@@ -2157,7 +2208,8 @@ def build_parser() -> argparse.ArgumentParser:
         "doctor",
         help="read-only check of one current TOML Docker runtime and protocol",
     )
-    doctor_parser.add_argument("--project", required=True)
+    doctor_parser.add_argument("deployment", nargs="?", help="compact deployment identity")
+    doctor_parser.add_argument("--project")
     doctor_parser.add_argument("--output")
     doctor_parser.add_argument("--docker-context", default="default")
     doctor_parser.add_argument("--timeout", type=int, default=5)

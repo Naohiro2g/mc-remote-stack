@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "preset", "requirements", "deployment_interface", "components", "artifacts"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "preset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "revision", "description"],
+      "properties": {
+        "name": {"$ref": "#/$defs/token"},
+        "revision": {"type": "string", "pattern": "^[1-9][0-9]*$"},
+        "description": {"type": "string", "minLength": 1}
+      }
+    },
+    "requirements": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["profile_capabilities", "allowed_channels", "required_claims"],
+      "properties": {
+        "profile_capabilities": {"type": "array", "items": {"type": "string"}},
+        "allowed_channels": {"type": "array", "items": {"type": "string"}},
+        "required_claims": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "deployment_interface": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["renderer_revision", "bind_address", "scratch_port", "bridge_port", "java_port", "mcremote_port", "scratch_contract"],
+      "properties": {
+        "renderer_revision": {"type": "string", "pattern": "^[1-9][0-9]*$"},
+        "bind_address": {"type": "string", "format": "ipv4"},
+        "scratch_port": {"$ref": "#/$defs/port"},
+        "bridge_port": {"$ref": "#/$defs/port"},
+        "java_port": {"$ref": "#/$defs/port"},
+        "mcremote_port": {"$ref": "#/$defs/port"},
+        "scratch_contract": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["commit", "source_directory", "schema_sha256", "container_mount_path", "image_digest"],
+          "properties": {
+            "commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+            "source_directory": {"const": "packages/scratch-gui/contracts/runtime-config"},
+            "schema_sha256": {"$ref": "#/$defs/sha256"},
+            "container_mount_path": {"const": "/usr/share/nginx/html/mc-remote-runtime-config.json"},
+            "image_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+          }
+        }
+      }
+    },
+    "components": {
+      "type": "array",
+      "minItems": 5,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "role", "artifact"],
+        "properties": {
+          "id": {"$ref": "#/$defs/token"},
+          "role": {"$ref": "#/$defs/token"},
+          "artifact": {"$ref": "#/$defs/token"},
+          "protocol": {"type": "string", "minLength": 1},
+          "minecraft_version": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "minItems": 5,
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "kind", "version", "locator", "digest"],
+            "properties": {
+              "id": {"$ref": "#/$defs/token"},
+              "kind": {"const": "oci"},
+              "version": {"type": "string", "minLength": 1},
+              "locator": {"type": "string", "pattern": "^[^@\\s]+$"},
+              "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "kind", "version", "filename", "sha256", "origin"],
+            "properties": {
+              "id": {"$ref": "#/$defs/token"},
+              "kind": {"const": "https-file"},
+              "version": {"type": "string", "minLength": 1},
+              "filename": {"type": "string", "pattern": "^[^/\\\\]+$"},
+              "sha256": {"$ref": "#/$defs/sha256"},
+              "origin": {"type": "string", "pattern": "^https://"}
+            }
+          }
+        ]
+      }
+    }
+  },
+  "$defs": {
+    "token": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "port": {"type": "integer", "minimum": 1, "maximum": 65535}
+  }
+}

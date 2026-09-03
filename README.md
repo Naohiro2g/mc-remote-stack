@@ -4,6 +4,40 @@
 
 `mc-remote-stack` is the reproducible deployment and operations package for McRemote servers. It turns a new-design `mc-remote.toml`, or a transitional legacy `mc-remote.yml`, into validated, digest-pinned runtime configuration.
 
+## Normal deployment: one file, two commands
+
+Select a reviewed immutable preset and put the URLs and Minecraft target in one `mc-remote.toml`:
+
+```toml
+schema_version = 1
+deployment = "school-a"
+preset = "classroom@1"
+
+[surfaces]
+scratch_url = "https://scratch.example.org/"
+bridge_url = "wss://bridge.example.org/"
+
+[[targets]]
+id = "classroom"
+label = "Classroom"
+sandbox = "minecraft.example.org"
+default = true
+```
+
+The normal operator surface has two commands. `apply` performs validation, immutable preset resolution,
+exact locking, artifact acquisition, rendering, and preflight, then derives create versus update from the
+managed runtime state.
+
+```sh
+uv run mcrctl apply ./mc-remote.toml
+uv run mcrctl doctor school-a
+```
+
+The Scratch runtime schema, container mount path, and Scratch image digest come from the contract handoff
+locked by the preset; they are not additional operator inputs. A bundled live preset will be added only
+after Scratch returns its contract commit, directory, mount path, image digest, and test result. Until then,
+Stack does not infer fields from old Scratch sources or the unadopted `home-server@7` / `compose@15` prototype.
+
 The project is intentionally separate from:
 
 - `mc-remote-knowledge`: public architecture and decision SSOT.
