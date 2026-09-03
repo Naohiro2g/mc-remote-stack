@@ -3,7 +3,7 @@ schema_version = 1
 [preset]
 name = "classroom"
 revision = "1"
-description = "Initial 2026-08-31-01 deployment-interface vertical-slice candidate with the authoritative Scratch handoff 2 contract and exact Scratch, Bridge, Minecraft, Paper, and McRemote artifacts"
+description = "2026-08-31-01 deployment-interface b7 set with the authoritative Scratch handoff 2 contract and exact Scratch, Bridge, Minecraft, Paper, and McRemote artifacts"
 
 [requirements]
 profile_capabilities = [
@@ -60,7 +60,7 @@ artifact = "scratch-image"
 id = "bridge"
 role = "websocket-bridge"
 artifact = "bridge-image"
-protocol = "23.0.0"
+protocol = "23.1.0"
 
 [[components]]
 id = "minecraft-runtime"
@@ -77,7 +77,7 @@ minecraft_version = "1.21.11"
 id = "mcremote-paper"
 role = "mcremote-plugin"
 artifact = "mcremote-jar"
-protocol = "23.0.0"
+protocol = "23.1.0"
 
 [[artifacts]]
 id = "scratch-image"
@@ -111,7 +111,7 @@ origin = "https://fill-data.papermc.io/v1/objects/5ffef465eeeb5f2a3c23a24419d97c
 [[artifacts]]
 id = "mcremote-jar"
 kind = "https-file"
-version = "2300.0.0b6"
-filename = "mc-remote-1.21.11-2300.0.0b6.jar"
-sha256 = "0ec8d4c0b105f3034361b260fc39fcb78013e932e684d34d5ca95c9a6c6a87a6"
-origin = "https://github.com/Naohiro2g/McRemote/releases/download/v1.21.11-2300.0.0b6/mc-remote-1.21.11-2300.0.0b6.jar"
+version = "2301.0.0b7"
+filename = "mc-remote-1.21.11-2301.0.0b7.jar"
+sha256 = "f08388cf393e02db1eb605e707dfaec890792e7a475de5a51caacbc940028ee9"
+origin = "https://github.com/Naohiro2g/McRemote/releases/download/v1.21.11-2301.0.0b7/mc-remote-1.21.11-2301.0.0b7.jar"

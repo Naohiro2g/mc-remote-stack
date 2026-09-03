@@ -430,6 +430,20 @@ default = true
     assert artifacts["bridge-image"]["digest"] == (
         "sha256:42e9a25cdf6af922219544dbefd74a251eafb1dd78d88d4819c5a7418142b66c"
     )
+    assert artifacts["mcremote-jar"] == {
+        "id": "mcremote-jar",
+        "kind": "https-file",
+        "version": "2301.0.0b7",
+        "filename": "mc-remote-1.21.11-2301.0.0b7.jar",
+        "sha256": "f08388cf393e02db1eb605e707dfaec890792e7a475de5a51caacbc940028ee9",
+        "origin": (
+            "https://github.com/Naohiro2g/McRemote/releases/download/"
+            "v1.21.11-2301.0.0b7/mc-remote-1.21.11-2301.0.0b7.jar"
+        ),
+    }
+    components = {item["id"]: item for item in prepared.lock["components"]}
+    assert components["bridge"]["protocol"] == "23.1.0"
+    assert components["mcremote-paper"]["protocol"] == "23.1.0"
     assert load_preset("classroom@1").data["deployment_interface"]["renderer_revision"] == "1"
 
     contract_root = Path(
