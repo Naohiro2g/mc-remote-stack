@@ -529,7 +529,7 @@
         "directory_tree_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
         "schema_sha256": {"$ref": "#/$defs/sha256"},
         "container_mount_path": {"type": "string", "pattern": "^/"},
-        "image_digest": {"$ref": "#/$defs/ociDigest"},
+        "image_digest": {"$ref": "#/$defs/prefixedSha256"},
         "accepted_fixtures": {"$ref": "#/$defs/fixturePaths"},
         "rejected_fixtures": {"$ref": "#/$defs/fixturePaths"},
         "fixture_sha256": {

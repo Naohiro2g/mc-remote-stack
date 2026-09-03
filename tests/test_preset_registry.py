@@ -1,4 +1,6 @@
+import json
 import shutil
+from importlib.resources import files
 from pathlib import Path
 
 import pytest
@@ -1491,3 +1493,27 @@ def test_bundled_public_b7_preset_pins_owner_artifacts_and_runtime_contract() ->
     assert catalog_entry["compatibility_records"] == []
 
     verify_preset_catalog()
+
+
+def test_lock_schema_internal_references_are_defined() -> None:
+    schema = json.loads(
+        files("mc_remote_stack")
+        .joinpath("data", "schemas", "lock.schema.json")
+        .read_text(encoding="utf-8")
+    )
+    references: list[str] = []
+
+    def collect(value: object) -> None:
+        if isinstance(value, dict):
+            reference = value.get("$ref")
+            if isinstance(reference, str) and reference.startswith("#/$defs/"):
+                references.append(reference.removeprefix("#/$defs/"))
+            for child in value.values():
+                collect(child)
+        elif isinstance(value, list):
+            for child in value:
+                collect(child)
+
+    collect(schema)
+
+    assert set(references) <= set(schema["$defs"])
