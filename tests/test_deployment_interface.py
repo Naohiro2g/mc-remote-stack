@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import pytest
 
 import mc_remote_stack.cli as cli_module
+import mc_remote_stack.deployment_interface as deployment_interface_module
 from mc_remote_stack.cli import main
 from mc_remote_stack.deployment_interface import (
     DeploymentInterfaceError,
@@ -17,7 +18,7 @@ from mc_remote_stack.deployment_interface import (
     prepare_interface_deployment,
     validate_interface_runtime,
 )
-from mc_remote_stack.preset_registry import load_preset
+from mc_remote_stack.preset_registry import load_catalog_policy, load_preset, load_preset_catalog
 
 RUNTIME_SCHEMA = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -303,6 +304,10 @@ def test_single_order_resolves_exact_preset_and_renders_one_target(tmp_path: Pat
         }
     ]
 
+    repeated = prepare_interface_deployment(order, data_root=data_root)
+    assert repeated.lock == prepared.lock
+    assert repeated.files == prepared.files
+
 
 @pytest.mark.parametrize(
     ("order_suffix", "reason"),
@@ -455,6 +460,20 @@ default = true
     assert components["bridge"]["protocol"] == "23.1.0"
     assert components["mcremote-paper"]["protocol"] == "23.1.0"
     assert load_preset("classroom@1").data["deployment_interface"]["renderer_revision"] == "1"
+    policy_entry = next(
+        item for item in load_catalog_policy()["presets"] if item["ref"] == "classroom@1"
+    )
+    assert policy_entry == {
+        "ref": "classroom@1",
+        "status": "active",
+        "available_since": "2026-09-04",
+    }
+    catalog_entry = next(
+        item
+        for item in load_preset_catalog()["preset_catalog"]["presets"]
+        if item["ref"] == "classroom@1"
+    )
+    assert catalog_entry["compatibility_status"] == "unverified"
 
     contract_root = Path(
         str(
@@ -488,15 +507,61 @@ default = true
 
 
 def test_apply_mode_is_derived_from_managed_runtime_state() -> None:
-    assert detect_apply_mode([], expected_services={"scratch", "bridge", "minecraft"}) == "create"
+    services = {"scratch", "bridge", "minecraft"}
+    assert (
+        detect_apply_mode(
+            [], expected_services=services, state_exists=False, volume_exists=False
+        )
+        == "create"
+    )
     records = [
         {"service": "scratch", "managed": True},
         {"service": "bridge", "managed": True},
         {"service": "minecraft", "managed": True},
     ]
-    assert detect_apply_mode(records, expected_services={"scratch", "bridge", "minecraft"}) == "update"
+    assert (
+        detect_apply_mode(
+            records, expected_services=services, state_exists=True, volume_exists=True
+        )
+        == "update"
+    )
+    assert (
+        detect_apply_mode(
+            [], expected_services=services, state_exists=True, volume_exists=True
+        )
+        == "update"
+    )
     with pytest.raises(DeploymentInterfaceError, match="deployment_runtime_unmanaged"):
-        detect_apply_mode(records[:-1], expected_services={"scratch", "bridge", "minecraft"})
+        detect_apply_mode(
+            records[:-1], expected_services=services, state_exists=True, volume_exists=True
+        )
+    with pytest.raises(DeploymentInterfaceError, match="deployment_state_incomplete"):
+        detect_apply_mode(
+            [], expected_services=services, state_exists=False, volume_exists=True
+        )
+
+
+def test_preset_revision_order_is_checked_only_for_an_existing_world() -> None:
+    previous = {"preset": {"ref": "classroom@2"}}
+
+    with pytest.raises(DeploymentInterfaceError, match="stateful_preset_downgrade"):
+        deployment_interface_module._validate_stateful_transition(
+            previous, {"preset": {"ref": "classroom@1"}}
+        )
+    with pytest.raises(DeploymentInterfaceError, match="stateful_preset_family_change"):
+        deployment_interface_module._validate_stateful_transition(
+            previous, {"preset": {"ref": "public-web-paper@9"}}
+        )
+
+    assert (
+        detect_apply_mode(
+            [],
+            expected_services={"scratch", "bridge", "minecraft"},
+            state_exists=False,
+            volume_exists=False,
+        )
+        == "create"
+    )
 
 
 def test_doctor_validation_uses_locked_schema_and_exact_allowlist(tmp_path: Path) -> None:
@@ -529,27 +594,72 @@ def test_doctor_validation_uses_locked_schema_and_exact_allowlist(tmp_path: Path
         )
 
 
-def _docker_runner(*, existing: bool):
+def _docker_runner(
+    *,
+    existing: bool,
+    volume_exists: bool | None = None,
+    images: dict[str, str] | None = None,
+    running: bool = True,
+    minecraft_healthy: bool = True,
+):
     calls: list[list[str]] = []
+    if volume_exists is None:
+        volume_exists = existing
+    if images is None:
+        images = {
+            "scratch": "registry.example/scratch@sha256:" + "2" * 64,
+            "bridge": "registry.example/bridge@sha256:" + "3" * 64,
+            "minecraft": "registry.example/minecraft@sha256:" + "4" * 64,
+        }
 
     def run(command: list[str], timeout: int) -> subprocess.CompletedProcess[str]:
         calls.append(command)
         if command[1:4] == ["context", "inspect", "default"]:
             stdout = '[{"Endpoints":{"docker":{"Host":"unix:///var/run/docker.sock"}}}]'
+        elif command[-3:-1] == ["volume", "inspect"]:
+            return subprocess.CompletedProcess(command, 0 if volume_exists else 1, "[]", "")
         elif "ps" in command and "--quiet" in command:
             stdout = "scratch-id\nbridge-id\nminecraft-id\n" if existing else ""
-        elif "inspect" in command:
+        elif "inspect" in command and command[-1].endswith("-id"):
             container_id = command[-1]
             service = container_id.removesuffix("-id")
+            ports = {
+                "scratch": {"8080/tcp": [{"HostIp": "127.0.0.1", "HostPort": "18080"}]},
+                "bridge": {"8080/tcp": [{"HostIp": "127.0.0.1", "HostPort": "18081"}]},
+                "minecraft": {
+                    "25565/tcp": [{"HostIp": "127.0.0.1", "HostPort": "25565"}],
+                    "25575/tcp": [{"HostIp": "127.0.0.1", "HostPort": "25575"}],
+                },
+            }[service]
+            environment = (
+                [
+                    "BRIDGE_SANDBOX_ALLOWLIST=minecraft.example.org",
+                    "BRIDGE_DEFAULT_SANDBOX=minecraft.example.org",
+                    "BRIDGE_SANDBOX_PORT=25575",
+                ]
+                if service == "bridge"
+                else []
+            )
+            state: dict[str, object] = {"Running": running}
+            if service == "minecraft":
+                state["Health"] = {
+                    "Status": "healthy" if minecraft_healthy else "unhealthy"
+                }
             stdout = json.dumps(
                 [
                     {
                         "Config": {
+                            "Image": images[service],
+                            "Env": environment,
                             "Labels": {
+                                "com.docker.compose.project": "school-a",
                                 "com.docker.compose.service": service,
                                 "io.mc-remote.interface": "2026-08-31-01",
+                                "io.mc-remote.deployment": "school-a",
                             }
-                        }
+                        },
+                        "State": state,
+                        "NetworkSettings": {"Ports": ports},
                     }
                 ]
             )
@@ -579,7 +689,12 @@ default = true
 ''',
         encoding="utf-8",
     )
-    runner, _calls = _docker_runner(existing=False)
+    prepared = prepare_interface_deployment(order, artifact_store=tmp_path / "artifacts")
+    images = {
+        service: config["image"]
+        for service, config in prepared.compose["services"].items()
+    }
+    runner, _calls = _docker_runner(existing=False, volume_exists=False)
 
     applied = apply_interface_order(
         order,
@@ -587,17 +702,24 @@ default = true
         artifact_store=tmp_path / "artifacts",
         runner=runner,
         artifact_fetcher=lambda _prepared: None,
+        port_probe=lambda _address, _port: True,
     )
     runtime = json.loads(applied.runtime_config)
-    doctor_runner, _doctor_calls = _docker_runner(existing=True)
+    doctor_runner, _doctor_calls = _docker_runner(
+        existing=True, volume_exists=True, images=images
+    )
     result = doctor_interface_deployment(
         "school-a",
         state_root=tmp_path / "state",
         runner=doctor_runner,
         runtime_probe=lambda _url, _timeout: runtime,
         bridge_environment_probe=lambda _container, _runner: {
-            "BRIDGE_SANDBOX_ALLOWLIST": "minecraft.example.org"
+            "BRIDGE_SANDBOX_ALLOWLIST": "minecraft.example.org",
+            "BRIDGE_DEFAULT_SANDBOX": "minecraft.example.org",
+            "BRIDGE_SANDBOX_PORT": "25575",
         },
+        bridge_upstream_probe=lambda *_args: None,
+        hello_probe=lambda *_args: SimpleNamespace(status="auth-required"),
     )
 
     assert applied.mode == "create"
@@ -605,34 +727,67 @@ default = true
     assert result.bridge_allowlist_status == "current"
 
 
-@pytest.mark.parametrize(("existing", "expected_mode"), [(False, "create"), (True, "update")])
-def test_apply_automatically_selects_create_or_update(
-    existing: bool, expected_mode: str, tmp_path: Path
-) -> None:
+def test_apply_automatically_selects_create_then_stopped_update(tmp_path: Path) -> None:
     order, data_root = _fixture(tmp_path)
-    runner, calls = _docker_runner(existing=existing)
+    create_runner, create_calls = _docker_runner(existing=False, volume_exists=False)
 
-    result = apply_interface_order(
+    created = apply_interface_order(
         order,
         data_root=data_root,
         state_root=tmp_path / "state",
         artifact_store=tmp_path / "artifacts",
-        runner=runner,
+        runner=create_runner,
         artifact_fetcher=lambda _prepared: None,
+        port_probe=lambda _address, _port: True,
+    )
+    stopped_runner, update_calls = _docker_runner(existing=False, volume_exists=True)
+    updated = apply_interface_order(
+        order,
+        data_root=data_root,
+        state_root=tmp_path / "state",
+        artifact_store=tmp_path / "artifacts",
+        runner=stopped_runner,
+        artifact_fetcher=lambda _prepared: None,
+        port_probe=lambda _address, _port: True,
     )
 
-    assert result.mode == expected_mode
-    assert result.lock_identity.startswith("sha256:")
+    assert created.mode == "create"
+    assert updated.mode == "update"
+    assert updated.lock_identity.startswith("sha256:")
     assert (tmp_path / "state" / "school-a" / "current.json").is_file()
-    flattened = [part for call in calls for part in call]
+    flattened = [part for call in create_calls + update_calls for part in call]
     assert "--bootstrap" not in flattened
     assert [part for part in flattened if part == "update"] == []
-    assert any(call[-4:] == ["up", "--detach", "--remove-orphans", "--wait"] for call in calls)
+    assert any(
+        call[-4:] == ["up", "--detach", "--remove-orphans", "--wait"]
+        for call in create_calls + update_calls
+    )
+
+
+def test_apply_rejects_host_port_collision_before_fetch_or_render(tmp_path: Path) -> None:
+    order, data_root = _fixture(tmp_path)
+    runner, calls = _docker_runner(existing=False, volume_exists=False)
+    fetched: list[str] = []
+
+    with pytest.raises(DeploymentInterfaceError, match="deployment_port_in_use"):
+        apply_interface_order(
+            order,
+            data_root=data_root,
+            state_root=tmp_path / "state",
+            artifact_store=tmp_path / "artifacts",
+            runner=runner,
+            artifact_fetcher=lambda _prepared: fetched.append("fetched"),
+            port_probe=lambda _address, port: port != 25565,
+        )
+
+    assert fetched == []
+    assert not (tmp_path / "state" / "school-a" / "renders").exists()
+    assert not any("compose" in call for call in calls)
 
 
 def test_doctor_reads_locked_contract_and_live_bridge_allowlist(tmp_path: Path) -> None:
     order, data_root = _fixture(tmp_path)
-    runner, _calls = _docker_runner(existing=True)
+    runner, _calls = _docker_runner(existing=False, volume_exists=False)
     applied = apply_interface_order(
         order,
         data_root=data_root,
@@ -640,23 +795,121 @@ def test_doctor_reads_locked_contract_and_live_bridge_allowlist(tmp_path: Path) 
         artifact_store=tmp_path / "artifacts",
         runner=runner,
         artifact_fetcher=lambda _prepared: None,
+        port_probe=lambda _address, _port: True,
     )
     runtime = json.loads(applied.runtime_config)
+    prepared = prepare_interface_deployment(order, data_root=data_root)
+    images = {
+        service: config["image"]
+        for service, config in prepared.compose["services"].items()
+    }
+    doctor_runner, _doctor_calls = _docker_runner(
+        existing=True, volume_exists=True, images=images
+    )
 
     result = doctor_interface_deployment(
         "school-a",
         data_root=data_root,
         state_root=tmp_path / "state",
-        runner=runner,
+        runner=doctor_runner,
         runtime_probe=lambda _url, _timeout: runtime,
         bridge_environment_probe=lambda _container, _runner: {
-            "BRIDGE_SANDBOX_ALLOWLIST": "minecraft.example.org"
+            "BRIDGE_SANDBOX_ALLOWLIST": "minecraft.example.org",
+            "BRIDGE_DEFAULT_SANDBOX": "minecraft.example.org",
+            "BRIDGE_SANDBOX_PORT": "25575",
         },
+        bridge_upstream_probe=lambda *_args: None,
+        hello_probe=lambda *_args: SimpleNamespace(status="auth-required"),
     )
 
     assert result.lock_identity == applied.lock_identity
     assert result.scratch_runtime_status == "current"
     assert result.bridge_allowlist_status == "current"
+
+
+def test_doctor_checks_exact_runtime_bridge_reachability_and_auth(tmp_path: Path) -> None:
+    order, data_root = _fixture(tmp_path)
+    prepared = prepare_interface_deployment(order, data_root=data_root)
+    create_runner, _calls = _docker_runner(existing=False, volume_exists=False)
+    applied = apply_interface_order(
+        order,
+        data_root=data_root,
+        state_root=tmp_path / "state",
+        artifact_store=tmp_path / "artifacts",
+        runner=create_runner,
+        artifact_fetcher=lambda _prepared: None,
+        port_probe=lambda _address, _port: True,
+    )
+    images = {
+        service: config["image"]
+        for service, config in prepared.compose["services"].items()
+    }
+    doctor_runner, _doctor_calls = _docker_runner(
+        existing=True,
+        volume_exists=True,
+        images=images,
+    )
+    bridge_probes: list[tuple[str, str, int]] = []
+    hello_probes: list[tuple[str, int, str, str]] = []
+
+    result = doctor_interface_deployment(
+        "school-a",
+        data_root=data_root,
+        state_root=tmp_path / "state",
+        runner=doctor_runner,
+        runtime_probe=lambda _url, _timeout: json.loads(applied.runtime_config),
+        bridge_upstream_probe=lambda container, sandbox, port, _runner, _context, _timeout: (
+            bridge_probes.append((container, sandbox, port))
+        ),
+        hello_probe=lambda address, port, protocol, minecraft_version, timeout: (
+            hello_probes.append((address, port, protocol, minecraft_version))
+            or SimpleNamespace(status="auth-required")
+        ),
+    )
+
+    assert result.runtime_status == "healthy"
+    assert result.image_status == "current"
+    assert result.network_status == "current"
+    assert result.bridge_upstream_status == "reachable"
+    assert result.auth_status == "enforced"
+    assert bridge_probes == [("bridge-id", "minecraft.example.org", 25575)]
+    assert hello_probes == [("127.0.0.1", 25575, "23.0.0", "1.21.11")]
+
+
+def test_doctor_rejects_unhealthy_minecraft_container(tmp_path: Path) -> None:
+    order, data_root = _fixture(tmp_path)
+    create_runner, _calls = _docker_runner(existing=False, volume_exists=False)
+    applied = apply_interface_order(
+        order,
+        data_root=data_root,
+        state_root=tmp_path / "state",
+        artifact_store=tmp_path / "artifacts",
+        runner=create_runner,
+        artifact_fetcher=lambda _prepared: None,
+        port_probe=lambda _address, _port: True,
+    )
+    prepared = prepare_interface_deployment(order, data_root=data_root)
+    images = {
+        service: config["image"]
+        for service, config in prepared.compose["services"].items()
+    }
+    doctor_runner, _doctor_calls = _docker_runner(
+        existing=True,
+        volume_exists=True,
+        images=images,
+        minecraft_healthy=False,
+    )
+
+    with pytest.raises(DeploymentInterfaceError, match="deployment_runtime_unhealthy"):
+        doctor_interface_deployment(
+            "school-a",
+            data_root=data_root,
+            state_root=tmp_path / "state",
+            runner=doctor_runner,
+            runtime_probe=lambda _url, _timeout: json.loads(applied.runtime_config),
+            bridge_upstream_probe=lambda *_args: None,
+            hello_probe=lambda *_args: SimpleNamespace(status="auth-required"),
+        )
 
 
 def test_cli_exposes_compact_apply_without_bootstrap_or_update_choice(
@@ -693,15 +946,21 @@ def test_cli_exposes_doctor_by_deployment_identity(
             lock_identity="sha256:" + "a" * 64,
             scratch_runtime_status="current",
             bridge_allowlist_status="current",
+            runtime_status="healthy",
+            image_status="current",
+            network_status="current",
+            bridge_upstream_status="reachable",
+            auth_status="enforced",
         )
 
     monkeypatch.setattr(cli_module, "doctor_interface_deployment", doctor)
 
     assert main(["doctor", "school-a"]) == 0
     assert calls == ["school-a"]
-    assert "OK doctor deployment=school-a scratch-runtime=current bridge-allowlist=current" in (
-        capsys.readouterr().out
-    )
+    output = capsys.readouterr().out
+    assert "OK doctor deployment=school-a runtime=healthy images=current network=current" in output
+    assert "scratch-runtime=current bridge-allowlist=current" in output
+    assert "bridge-upstream=reachable auth=enforced" in output
 
 
 def test_normal_apply_help_does_not_expose_legacy_bootstrap_or_update(

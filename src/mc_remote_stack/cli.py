@@ -1403,8 +1403,12 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
             return _print_structured_failure("doctor", exc)
         print(
             f"OK doctor deployment={result.deployment} "
+            f"runtime={result.runtime_status} images={result.image_status} "
+            f"network={result.network_status} "
             f"scratch-runtime={result.scratch_runtime_status} "
             f"bridge-allowlist={result.bridge_allowlist_status} "
+            f"bridge-upstream={result.bridge_upstream_status} "
+            f"auth={result.auth_status} "
             f"lock={result.lock_identity}"
         )
         return 0
