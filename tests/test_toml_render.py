@@ -1376,7 +1376,20 @@ def test_compose_v13_appends_preset_release_notice_after_operator_feed(
         render_module,
         "_compose_v12",
         lambda _lock: (
-            {"services": {}},
+            {
+                "services": {
+                    "scratch": {
+                        "volumes": [
+                            {
+                                "type": "bind",
+                                "source": "./runtime/scratch.json",
+                                "target": "/usr/share/nginx/html/mc-remote-runtime-config.json",
+                                "read_only": True,
+                            }
+                        ]
+                    }
+                }
+            },
             {
                 "runtime/scratch.json": json.dumps(
                     {"notices": operator_notices}, ensure_ascii=False
@@ -1399,6 +1412,104 @@ def test_compose_v13_appends_preset_release_notice_after_operator_feed(
         *operator_notices,
         release_notice,
     ]
+
+
+def test_compose_v13_projects_locked_b7_runtime_contract_without_release_identity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime = {
+        "bridge_url": "wss://bridge-beta.mc-remote.com",
+        "default_sandbox": "sb.mc-remote.com",
+        "connection_targets": [
+            {"id": "official", "label": "Official", "sandbox": "sb.mc-remote.com"}
+        ],
+        "connection_enabled": True,
+        "release_identity": "sha-obsolete",
+        "notices": [{"heading": "Operator", "body": "Maintenance notice"}],
+    }
+    release_notice = {
+        "heading": "McRemote b7",
+        "body": "Release information",
+    }
+    contract = {
+        "source_commit": "4c893bd532002d9216665c5c9b9825e09ede1e7c",
+        "source_directory": "packages/scratch-gui/contracts/runtime-config",
+        "directory_tree_sha": "ecb669a02ac6c8e502b44850e6dd28260c5adad4",
+        "schema_sha256": "4e1f8489dc6ea03800f5cf0fefd2f078fd6d71c8efda581f1711f68e384f99e4",
+        "container_mount_path": "/usr/share/nginx/html/mc-remote-runtime-config.json",
+        "image_digest": "sha256:"
+        "c2693fd5078ba547ced1cfe6b1732d5e9c283ffc44aaf8356bce6967e5aa7f2c",
+        "accepted_fixtures": ["fixtures/disabled.json", "fixtures/valid.json"],
+        "rejected_fixtures": [
+            "fixtures/invalid/enabled-missing-targets.json",
+            "fixtures/invalid/nested-unknown-field.json",
+            "fixtures/invalid/schema-version.json",
+            "fixtures/invalid/unknown-field.json",
+        ],
+        "fixture_sha256": {
+            "fixtures/disabled.json": "bec0cf2c31fbca7d3bd603e29c1d145d82b6ecf7b4661b9adafde31dfa2eec2d",
+            "fixtures/valid.json": "cc2282144e1e87b42d2e31229461f9aeead26eeb446ae817571eb96935360e20",
+            "fixtures/invalid/enabled-missing-targets.json": (
+                "f5392059e42431b45fb8f7f03aa09e734fb8b9e79f8fb92913082ff05842736c"
+            ),
+            "fixtures/invalid/nested-unknown-field.json": (
+                "ed0923793b8713ec67615b6f14bc9f8fb342041b0cdeed5d7b9b10110a3c62b7"
+            ),
+            "fixtures/invalid/schema-version.json": "9e0d32fc83501a2b73095ae59675e27ace5d11fb31e19443b78e49341ba3e766",
+            "fixtures/invalid/unknown-field.json": "35f1f21562e237cce722f5a1f93723f00d927d07769f8b12174d3ff9f73d5e3d",
+        },
+    }
+    monkeypatch.setattr(
+        render_module,
+        "_compose_v12",
+        lambda _lock: (
+            {
+                "services": {
+                    "scratch": {
+                        "volumes": [
+                            {
+                                "type": "bind",
+                                "source": "./runtime/scratch.json",
+                                "target": contract["container_mount_path"],
+                                "read_only": True,
+                            }
+                        ]
+                    }
+                }
+            },
+            {"runtime/scratch.json": json.dumps(runtime, ensure_ascii=False) + "\n"},
+        ),
+    )
+
+    _compose, rendered = render_module._compose_v13(
+        {
+            "components": [
+                {
+                    "id": "scratch",
+                    "role": "scratch-runtime",
+                    "artifact": "scratch-image",
+                }
+            ],
+            "artifacts": [
+                {
+                    "id": "scratch-image",
+                    "kind": "oci",
+                    "digest": contract["image_digest"],
+                }
+            ],
+            "scratch_runtime_contract": contract,
+            "presentation": {"scratch_release_notice": release_notice},
+            "render_plan": {
+                "scratch_runtime_contract": contract,
+                "presentation": {"scratch_release_notice": release_notice},
+            },
+        }
+    )
+
+    projected = json.loads(rendered["runtime/scratch.json"])
+    assert projected["schema_version"] == 1
+    assert "release_identity" not in projected
+    assert projected["notices"] == [runtime["notices"][0], release_notice]
 
 
 def test_compose_v13_rejects_release_notice_projection_mismatch(

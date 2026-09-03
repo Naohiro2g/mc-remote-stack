@@ -298,6 +298,8 @@ def _build_candidate(
     }
     if "presentation" in preset:
         render_payload["presentation"] = preset["presentation"]
+    if "scratch_runtime_contract" in preset:
+        render_payload["scratch_runtime_contract"] = preset["scratch_runtime_contract"]
     render_plan = {
         "adapter": profile["renderer"]["name"],
         "adapter_revision": profile["renderer"]["revision"],
@@ -310,6 +312,10 @@ def _build_candidate(
     }
     if "presentation" in preset:
         render_plan["presentation"] = copy.deepcopy(preset["presentation"])
+    if "scratch_runtime_contract" in preset:
+        render_plan["scratch_runtime_contract"] = copy.deepcopy(
+            preset["scratch_runtime_contract"]
+        )
     lifecycle_projection: dict[str, Any] = {"status": lifecycle.status}
     if lifecycle.warning:
         lifecycle_projection["warning"] = lifecycle.warning
@@ -366,6 +372,10 @@ def _build_candidate(
     }
     if "presentation" in preset:
         identity_payload["presentation"] = copy.deepcopy(preset["presentation"])
+    if "scratch_runtime_contract" in preset:
+        identity_payload["scratch_runtime_contract"] = copy.deepcopy(
+            preset["scratch_runtime_contract"]
+        )
     lock = {
         "schema_version": 1,
         "lock_identity": f"sha256:{semantic_sha256(identity_payload)}",

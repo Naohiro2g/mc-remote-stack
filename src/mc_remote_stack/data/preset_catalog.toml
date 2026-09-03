@@ -3,7 +3,7 @@ schema_version = 1
 [preset_catalog]
 generator = "mcrctl-preset-catalog-v1"
 canonicalization = "jcs-rfc8785-v1"
-source_sha256 = "a7d9898cbbd8690c08391cb38ddf4921a33ad368b8a55e8b11f27e5a4dbe2fd6"
+source_sha256 = "ab75872ddd0d744613b96615a80fcf62da9c1a28cecbd9ba56ba0551c65702f4"
 
 [[preset_catalog.presets]]
 ref = "home-alpha-full@1"
@@ -187,6 +187,17 @@ content_sha256 = "9d6091bca4f45619836545d9a67ad67c6019b05e7c97ea5ced58dfef1319d5
 description = "Exact public beta b6 artifacts: sign, pickaxe_poke, mcr_eh_ entity handles, Scratch browser save, and a corrected Scratch footer/notice version label"
 status = "active"
 available_since = "2026-08-28"
+required_profile_capabilities = ["compose", "mcremote-auth-enforced", "mcremote-session-only", "paper", "persistent-world", "public-web", "scratch-runtime", "websocket-bridge", "wirescope-browser"]
+allowed_channels = ["beta"]
+compatibility_status = "unverified"
+compatibility_records = []
+
+[[preset_catalog.presets]]
+ref = "public-web-paper@9"
+content_sha256 = "9a16ac95ccb48dc3bbcfba5e3227916fdbcf7ceefacb2369386d546fdaf371f9"
+description = "Exact public b7 deployment set using owner-published Scratch and Bridge images, owner-built WireScope bytes, and the McRemote b7 release JAR"
+status = "active"
+available_since = "2026-09-03"
 required_profile_capabilities = ["compose", "mcremote-auth-enforced", "mcremote-session-only", "paper", "persistent-world", "public-web", "scratch-runtime", "websocket-bridge", "wirescope-browser"]
 allowed_channels = ["beta"]
 compatibility_status = "unverified"

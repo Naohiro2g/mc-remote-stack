@@ -21,6 +21,11 @@ from .preset_registry import semantic_sha256
 from .resolver import inspect_lock, load_lock
 from .runtime_content import verify_homepage_tree
 from .runtime_contract import MINECRAFT_RUNTIME_GID, MINECRAFT_RUNTIME_UID
+from .scratch_contract import (
+    ScratchContractError,
+    load_runtime_config_schema,
+    validate_runtime_config,
+)
 from .toml_project import load_order
 from .validation import Issue, LoadedProject, validate_project
 from .yamlio import dump_mapping
@@ -332,6 +337,20 @@ def _locked_scratch_release_notice(lock: dict[str, Any]) -> dict[str, Any]:
             "compose@13 requires one preset-owned Scratch release notice",
         )
     return notice
+
+
+def _locked_scratch_runtime_contract(lock: dict[str, Any]) -> dict[str, Any] | None:
+    contract = lock.get("scratch_runtime_contract")
+    render_contract = lock.get("render_plan", {}).get("scratch_runtime_contract")
+    if contract is None and render_contract is None:
+        return None
+    if contract != render_contract or not isinstance(contract, dict):
+        _render_fail(
+            "render_plan_invalid",
+            "render_plan.scratch_runtime_contract",
+            "Scratch runtime contract must exactly match the lock projection",
+        )
+    return contract
 
 
 def _locked_minecraft_server(lock: dict[str, Any]) -> dict[str, Any]:
@@ -1493,6 +1512,36 @@ def _compose_v13(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str]]:
             "compose@13 requires a non-empty operator notice feed",
         )
     runtime_config["notices"] = [*notices, release_notice]
+    contract = _locked_scratch_runtime_contract(lock)
+    if contract is not None:
+        runtime_config["schema_version"] = 1
+        runtime_config.pop("release_identity", None)
+        scratch_artifact = _artifact_for_component(
+            lock, _component_for_role(lock, "scratch-runtime")
+        )
+        if scratch_artifact.get("digest") != contract.get("image_digest"):
+            _render_fail(
+                "scratch_contract_image_mismatch",
+                "scratch_runtime_contract.image_digest",
+                "locked Scratch image differs from its runtime contract handoff",
+            )
+        try:
+            schema = load_runtime_config_schema(contract)
+            validate_runtime_config(runtime_config, schema)
+        except ScratchContractError as exc:
+            _render_fail(exc.reason, exc.path, exc.detail)
+        scratch_mounts = compose.get("services", {}).get("scratch", {}).get("volumes", [])
+        targets = [
+            mount.get("target")
+            for mount in scratch_mounts
+            if isinstance(mount, dict)
+        ]
+        if contract["container_mount_path"] not in targets:
+            _render_fail(
+                "scratch_contract_mount_mismatch",
+                "services.scratch.volumes",
+                "runtime config is not mounted at the locked Scratch contract path",
+            )
     rendered_files[runtime_path] = (
         json.dumps(runtime_config, ensure_ascii=False, indent=2) + "\n"
     )
