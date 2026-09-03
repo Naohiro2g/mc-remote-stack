@@ -1,6 +1,7 @@
 import hashlib
 import json
 import subprocess
+from importlib.resources import files
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -16,7 +17,7 @@ from mc_remote_stack.deployment_interface import (
     prepare_interface_deployment,
     validate_interface_runtime,
 )
-from mc_remote_stack.preset_registry import load_preset
+from mc_remote_stack.preset_registry import PresetDataError, load_preset
 
 RUNTIME_SCHEMA = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -397,7 +398,7 @@ def test_contract_fixture_accept_reject_expectations_are_verified(tmp_path: Path
         prepare_interface_deployment(order, data_root=data_root)
 
 
-def test_bundled_classroom_preset_locks_returned_contract_and_images(tmp_path: Path) -> None:
+def test_contract_handoff_is_bundled_without_preset_before_image_digest(tmp_path: Path) -> None:
     order = tmp_path / "mc-remote.toml"
     order.write_text(
         '''schema_version = 1
@@ -417,22 +418,40 @@ default = true
         encoding="utf-8",
     )
 
-    prepared = prepare_interface_deployment(order, artifact_store=tmp_path / "artifacts")
+    with pytest.raises(DeploymentInterfaceError, match="preset_missing"):
+        prepare_interface_deployment(order, artifact_store=tmp_path / "artifacts")
+    with pytest.raises(PresetDataError, match="unknown_preset_revision"):
+        load_preset("classroom@1")
 
-    contract = prepared.lock["scratch_contract"]
-    assert contract["commit"] == "689fd1edc5e123a59a633bbf6528ba18879e39dd"
-    assert contract["directory_tree_sha"] == "ecb669a02ac6c8e502b44850e6dd28260c5adad4"
-    assert contract["schema_sha256"] == (
-        "4e1f8489dc6ea03800f5cf0fefd2f078fd6d71c8efda581f1711f68e384f99e4"
+    contract_root = Path(
+        str(
+            files("mc_remote_stack").joinpath(
+                "data",
+                "scratch-contracts",
+                "689fd1edc5e123a59a633bbf6528ba18879e39dd",
+            )
+        )
     )
-    artifacts = {item["id"]: item for item in prepared.lock["artifacts"]}
-    assert artifacts["scratch-image"]["digest"] == (
-        "sha256:e975cc25ab5ae5073b3151728ad2a875ca1a68d6e40f980e646dd2690983be47"
-    )
-    assert artifacts["bridge-image"]["digest"] == (
-        "sha256:606e12213c384318696ab14297a55d143b078e44c26a8d76798b718f2cb2e4c6"
-    )
-    assert load_preset("classroom@1").data["deployment_interface"]["renderer_revision"] == "1"
+    assert _git_tree_sha(contract_root) == "ecb669a02ac6c8e502b44850e6dd28260c5adad4"
+    expected_sha256 = {
+        "schema.json": "4e1f8489dc6ea03800f5cf0fefd2f078fd6d71c8efda581f1711f68e384f99e4",
+        "fixtures/valid.json": "cc2282144e1e87b42d2e31229461f9aeead26eeb446ae817571eb96935360e20",
+        "fixtures/disabled.json": "bec0cf2c31fbca7d3bd603e29c1d145d82b6ecf7b4661b9adafde31dfa2eec2d",
+        "fixtures/invalid/schema-version.json": (
+            "9e0d32fc83501a2b73095ae59675e27ace5d11fb31e19443b78e49341ba3e766"
+        ),
+        "fixtures/invalid/enabled-missing-targets.json": (
+            "f5392059e42431b45fb8f7f03aa09e734fb8b9e79f8fb92913082ff05842736c"
+        ),
+        "fixtures/invalid/unknown-field.json": (
+            "35f1f21562e237cce722f5a1f93723f00d927d07769f8b12174d3ff9f73d5e3d"
+        ),
+        "fixtures/invalid/nested-unknown-field.json": (
+            "ed0923793b8713ec67615b6f14bc9f8fb342041b0cdeed5d7b9b10110a3c62b7"
+        ),
+    }
+    for relative, expected in expected_sha256.items():
+        assert hashlib.sha256((contract_root / relative).read_bytes()).hexdigest() == expected
 
 
 def test_apply_mode_is_derived_from_managed_runtime_state() -> None:

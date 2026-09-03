@@ -23,18 +23,20 @@ Stackへ返す正式入力は次の五点である。
 - Scratch image digest
 - Scratch側で実行したtestと結果
 
-受領後、Stack担当はhandoffのruntime-config contract directoryを
+Stack担当は受領済みのruntime-config contract directoryを
 `src/mc_remote_stack/data/scratch-contracts/<commit>/`へそのまま収容する。immutable presetはcommit、Git tree
 SHA、schema SHA-256、全fixtureのSHA-256とaccept／reject期待値、source directory、mount path、Scratch image
 digestを固定する。resolveとdoctorは収容したdirectoryのGit tree identityを再計算し、schema／fixture digestと
 全fixtureの判定を再実行する。presetのScratch artifact digestとhandoff image digestが異なる場合も停止する。
 
-最初の正式handoffはScratch commit `689fd1edc5e123a59a633bbf6528ba18879e39dd`、runtime-config tree
-`ecb669a02ac6c8e502b44850e6dd28260c5adad4`で、bundled `classroom@1`へ固定した。Stack担当が同commitのimage
-workflowを実行し、Scratch index digest
-`sha256:e975cc25ab5ae5073b3151728ad2a875ca1a68d6e40f980e646dd2690983be47`とBridge index digest
-`sha256:606e12213c384318696ab14297a55d143b078e44c26a8d76798b718f2cb2e4c6`をregistry manifestまで照合した。
-このpresetは§9横断確認前の候補であり、live検証済みとは扱わない。
+Scratch commit `689fd1edc5e123a59a633bbf6528ba18879e39dd`、runtime-config tree
+`ecb669a02ac6c8e502b44850e6dd28260c5adad4`のschema／fixtureは収容済みである。ただしScratch担当からの正式な
+image digest handoffは未受領なので、このcontractを使うbundled `classroom@1`はまだ登録しない。Stack担当が
+起動したimage workflowの出力は正式artifactに採らず、presetやlockから参照しない。
+
+Scratch担当からimage digestを受領した後は、そのdigestをScratch artifactと
+`deployment_interface.scratch_contract.image_digest`の双方へ固定した新しいimmutable presetを追加する。
+StackはScratch／Bridge／Plugin imageをbuildせず、digest一致の検証とlockだけを行う。
 
 product-config contractとcontract directory外のScratch sourceは収容・参照しない。
 

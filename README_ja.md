@@ -34,10 +34,11 @@ uv run mcrctl doctor school-a
 ```
 
 Scratch runtime schema、fixture、container mount path、Scratch image digestはpresetが固定するScratch contract
-handoffから読み、operatorの別入力にはしない。`classroom@1`はScratch commit `689fd1ed…`のruntime-config
-contract treeと、同commitからStack担当がbuildしたScratch／Bridge image digestを固定した最初のbundled候補で
-ある。§9のlive横断確認前なので検証済みpresetとはまだ扱わない。contract directory外のScratch source、
-product-config、探索版`home-server@7`／`compose@15`からfieldを取り込まない。
+handoffから読み、operatorの別入力にはしない。上の`classroom@1`は正式image digest handoff後に登録するrefの例で、
+現時点では解決できない。Scratch commit `689fd1ed…`のruntime-config contract treeは収容済みだが、Stackが起動した
+image workflowの出力は正式artifactに採らず、preset／lockから参照しない。StackはScratch／Bridge／Pluginを
+buildしない。contract directory外のScratch source、product-config、探索版`home-server@7`／`compose@15`から
+fieldを取り込まない。
 
 このプロジェクトは、次のものとは意図的に分離している。
 
