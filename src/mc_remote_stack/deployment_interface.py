@@ -195,6 +195,12 @@ def load_interface_order(order_path: Path) -> dict[str, Any]:
             _fail("order_schema_invalid", f"{path}.id", "must be a lowercase identity")
         _nonempty(target.get("label"), f"{path}.label")
         sandbox = _nonempty(target.get("sandbox"), f"{path}.sandbox")
+        if "," in sandbox or any(character.isspace() for character in sandbox):
+            _fail(
+                "order_schema_invalid",
+                f"{path}.sandbox",
+                "must be one Bridge sandbox value without commas or whitespace",
+            )
         if target_id in ids:
             _fail("target_id_duplicate", f"{path}.id", target_id)
         if sandbox in sandboxes:

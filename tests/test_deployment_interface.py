@@ -315,6 +315,16 @@ def test_single_order_resolves_exact_preset_and_renders_one_target(tmp_path: Pat
             '''\n[[targets]]\nid = "second"\nlabel = "Second"\nsandbox = "minecraft.example.org"\ndefault = false\n''',
             "target_sandbox_duplicate",
         ),
+        (
+            '''
+[[targets]]
+id = "second"
+label = "Second"
+sandbox = "one.example.org,two.example.org"
+default = false
+''',
+            "order_schema_invalid",
+        ),
         ("\nrelease_identity = \"forbidden\"\n", "unknown_order_key"),
     ],
 )
