@@ -41,7 +41,7 @@ profile / preset / order / lock / `mcrctl`を使う。
 terminal実行toolを持たない会話型AIでも、利用者がcommandを実行してsanitized出力を返す形で支援できる。
 ただし、そのAIは実行したとも検証したとも主張せず、human-run / human-observedとして区別する。
 
-## 2. `mcrctl`がPATHに入る前から支援する
+## 2. operator toolchainを一入口で準備する
 
 agent支援は`mcrctl`のglobal install後に始まるものではない。agentは次を順に支援できる。
 
@@ -49,18 +49,19 @@ agent支援は`mcrctl`のglobal install後に始まるものではない。agent
 2. OS、Python、Git、uv、Docker / Compose、disk等をread-onlyで棚卸しする。
 3. 足りないtoolだけの導入案を提示し、host mutation前に人間の承認を得る。
 4. repoをcloneし、`AGENTS.md`と最新knowledge runtime protocolを読む。
-5. checkout内で`uv sync --extra dev`、test、Ruffを実行する。
-6. checkoutの`.venv/bin/mcrctl`またはrepo rootで`uv run mcrctl`を使う。
+5. checkout同梱のoperator bootstrapで不足toolを導入し、新しいlogin sessionでcheckする。
+6. checkoutをprojectとして指定し、`uv run --project ... mcrctl`を使う。
 
-bootstrap期は`mcrctl`をuserの`PATH`へinstall済みと仮定しない。ログイン直後に既存checkoutを
-使う場合は、位置を確認して次のようにexact pathを使う。
+bootstrap完了後は、各toolの配置場所をrunbook側で解決し直さない。既存checkoutを使う場合も、
+checkoutをprojectとして明示してcommand名で実行する。
 
 ```bash
-~/mc-remote-stack/.venv/bin/mcrctl --help
+MC_REMOTE_STACK="$HOME/mc-remote-stack"
+uv run --project "$MC_REMOTE_STACK" mcrctl --help
 ```
 
-恒久的な`uv tool install`、symlink、shell profile変更は別のoperator install契約である。
-agentが利便性だけを理由に黙って追加しない。
+固定`uv`、login時のcommand解決、Python、Docker／Compose、repo環境の準備は、checkout同梱の
+operator bootstrapが一組で完了させる。
 
 対象host上でdev agentを実験する場合も、`AGENTS.md`が指定するpublic knowledge取得が必要である。
 ただし、個人用GitHub credentialをserverへ常設して解決しない。public SSOTを取得するための
@@ -139,7 +140,7 @@ agentをinstallせず、次をすべて満たす専用userを使う。
 - 専用userが所有するscratch repoだけをagent workspaceとし、別のhome dataをworkspaceへ追加しない。
   個人管理者がapplyに使うcheckout、`.venv`、deployment projectは別に所有し、agent userから
   書込み不可にする。
-- 個人管理者はagentが書き込めるcheckoutのscript、`.venv/bin/mcrctl`、generated Composeを
+- 個人管理者はagentが書き込めるcheckout内の実行fileやgenerated Composeを
   Docker / sudo権限で実行しない。提案された差分はreviewし、管理者側のtrusted checkoutへ
   人間が反映してから実行する。
 - Linux sandboxの起動warningがないことと、`/status`でworkspaceを人間が確認する。

@@ -1,4 +1,6 @@
+import json
 import shutil
+from importlib.resources import files
 from pathlib import Path
 
 import pytest
@@ -1430,3 +1432,88 @@ def test_bundled_public_b6_preset_pins_protocol_23_exact_set() -> None:
     assert catalog_entry["compatibility_records"] == []
 
     verify_preset_catalog()
+
+
+def test_bundled_public_b7_preset_pins_owner_artifacts_and_runtime_contract() -> None:
+    profile = load_profile("vps-server@12")
+    preset = load_preset("public-web-paper@9")
+
+    assert profile.data["renderer"] == {"name": "compose", "revision": "13"}
+    assert preset.ref == "public-web-paper@9"
+
+    components = {item["id"]: item for item in preset.data["components"]}
+    assert components["bridge"]["protocol"] == "23.1.0"
+    assert components["mcremote-paper"]["protocol"] == "23.1.0"
+
+    artifacts = {item["id"]: item for item in preset.data["artifacts"]}
+    assert artifacts["scratch-image"]["digest"] == (
+        "sha256:c2693fd5078ba547ced1cfe6b1732d5e9c283ffc44aaf8356bce6967e5aa7f2c"
+    )
+    assert artifacts["bridge-image"]["digest"] == (
+        "sha256:42e9a25cdf6af922219544dbefd74a251eafb1dd78d88d4819c5a7418142b66c"
+    )
+    assert artifacts["mcremote-jar"]["sha256"] == (
+        "f08388cf393e02db1eb605e707dfaec890792e7a475de5a51caacbc940028ee9"
+    )
+    assert artifacts["wirescope-zip"]["kind"] == "git-build"
+    assert artifacts["wirescope-zip"]["output_sha256"] == (
+        "98d684dc15f369f6568d249357d8fd3af11893859d3c07c2554295df19a263b8"
+    )
+    assert artifacts["wirescope-manifest"]["kind"] == "git-build"
+    assert artifacts["wirescope-manifest"]["output_sha256"] == (
+        "7498e32150884aec8c3d562b454d8b042032aa21893ae7fe886c06df2baf028f"
+    )
+
+    contract = preset.data["scratch_runtime_contract"]
+    assert contract["source_commit"] == "4c893bd532002d9216665c5c9b9825e09ede1e7c"
+    assert contract["directory_tree_sha"] == (
+        "ecb669a02ac6c8e502b44850e6dd28260c5adad4"
+    )
+    assert contract["schema_sha256"] == (
+        "4e1f8489dc6ea03800f5cf0fefd2f078fd6d71c8efda581f1711f68e384f99e4"
+    )
+    assert contract["image_digest"] == artifacts["scratch-image"]["digest"]
+
+    policy = load_catalog_policy()
+    policy_entry = next(
+        item for item in policy["presets"] if item["ref"] == "public-web-paper@9"
+    )
+    assert policy_entry == {
+        "ref": "public-web-paper@9",
+        "status": "active",
+        "available_since": "2026-09-03",
+    }
+    catalog = load_preset_catalog()
+    catalog_entry = next(
+        item
+        for item in catalog["preset_catalog"]["presets"]
+        if item["ref"] == "public-web-paper@9"
+    )
+    assert catalog_entry["compatibility_status"] == "unverified"
+    assert catalog_entry["compatibility_records"] == []
+
+    verify_preset_catalog()
+
+
+def test_lock_schema_internal_references_are_defined() -> None:
+    schema = json.loads(
+        files("mc_remote_stack")
+        .joinpath("data", "schemas", "lock.schema.json")
+        .read_text(encoding="utf-8")
+    )
+    references: list[str] = []
+
+    def collect(value: object) -> None:
+        if isinstance(value, dict):
+            reference = value.get("$ref")
+            if isinstance(reference, str) and reference.startswith("#/$defs/"):
+                references.append(reference.removeprefix("#/$defs/"))
+            for child in value.values():
+                collect(child)
+        elif isinstance(value, list):
+            for child in value:
+                collect(child)
+
+    collect(schema)
+
+    assert set(references) <= set(schema["$defs"])

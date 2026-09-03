@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "connection_enabled": true,
+  "bridge_url": "wss://bridge.example.org/",
+  "default_sandbox": "minecraft.example.org",
+  "connection_targets": [
+    {
+      "id": "classroom",
+      "label": "Classroom",
+      "sandbox": "minecraft.example.org"
+    }
+  ],
+  "wirescope_url": "https://wirescope.example.org/",
+  "notices": [
+    {
+      "heading": "Class notice",
+      "body": "The server closes at 16:00.",
+      "link": {
+        "href": "https://example.org/classroom/",
+        "label": "Classroom help"
+      }
+    }
+  ],
+  "storage_persist_enabled": false
+}

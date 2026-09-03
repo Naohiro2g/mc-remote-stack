@@ -59,7 +59,7 @@ group変更を報告した場合は再ログインし、`--check`を再実行す
 artifact store、local Docker contextをまとめて検査する。
 
 ```sh
-"$HOME/mc-remote-stack/.venv/bin/mcrctl" operator check \
+uv run --project "$HOME/mc-remote-stack" mcrctl operator check \
   --project "$MC_REMOTE_PROJECT" \
   --docker-context default \
   --bootstrap-ports
@@ -124,7 +124,7 @@ MC_REMOTE_ARTIFACT_STORE="$HOME/.local/share/mc-remote/artifacts"
 EXACT_PRESET_REF="<coordinatorが凍結したpreset@revision>"
 REVIEWED_DEV_BIND_ADDRESS="<private inventoryで確認したLAN bind address>"
 
-"$MC_REMOTE_STACK/.venv/bin/mcrctl" init "$MC_REMOTE_PROJECT" \
+uv run --project "$MC_REMOTE_STACK" mcrctl init "$MC_REMOTE_PROJECT" \
   --format toml \
   --deployment-name dev-integration \
   --profile home-server@5 \
@@ -156,14 +156,12 @@ instance値、compatibility statusを固定する。lockを手編集しない。
 `mcrctl doctor`の順である。
 
 ```sh
-MCRCTL="$MC_REMOTE_STACK/.venv/bin/mcrctl"
-
-"$MCRCTL" operator check \
+uv run --project "$MC_REMOTE_STACK" mcrctl operator check \
   --project "$MC_REMOTE_PROJECT" \
   --docker-context default \
   --bootstrap-ports
-"$MCRCTL" validate --project "$MC_REMOTE_PROJECT"
-"$MCRCTL" accept-eula --project "$MC_REMOTE_PROJECT" --yes
+uv run --project "$MC_REMOTE_STACK" mcrctl validate --project "$MC_REMOTE_PROJECT"
+uv run --project "$MC_REMOTE_STACK" mcrctl accept-eula --project "$MC_REMOTE_PROJECT" --yes
 ```
 
 ### 5.1 理由付きunverified acknowledgement
@@ -189,9 +187,9 @@ one-shot確認である`--allow-unverified`を付けて`resolve`する。order�
 だけでは成功しない。
 
 ```sh
-"$MCRCTL" validate --project "$MC_REMOTE_PROJECT"
-"$MCRCTL" resolve --project "$MC_REMOTE_PROJECT" --allow-unverified
-"$MCRCTL" plan --project "$MC_REMOTE_PROJECT"
+uv run --project "$MC_REMOTE_STACK" mcrctl validate --project "$MC_REMOTE_PROJECT"
+uv run --project "$MC_REMOTE_STACK" mcrctl resolve --project "$MC_REMOTE_PROJECT" --allow-unverified
+uv run --project "$MC_REMOTE_STACK" mcrctl plan --project "$MC_REMOTE_PROJECT"
 ```
 
 成功条件は次のすべてである。
@@ -211,12 +209,12 @@ profile／preset、acknowledgement以外のorderとlockを手編集しない。
 上のacknowledgement設定と再`validate`／`resolve`／`plan`を完了してから、artifact処理へ進む。
 
 ```sh
-"$MCRCTL" artifact fetch --project "$MC_REMOTE_PROJECT"
-"$MCRCTL" artifact import-reviewed "$REVIEWED_MCREMOTE_JAR" \
+uv run --project "$MC_REMOTE_STACK" mcrctl artifact fetch --project "$MC_REMOTE_PROJECT"
+uv run --project "$MC_REMOTE_STACK" mcrctl artifact import-reviewed "$REVIEWED_MCREMOTE_JAR" \
   --project "$MC_REMOTE_PROJECT" \
   --artifact-id mcremote-jar \
   --expected-sha256 "$REVIEWED_MCREMOTE_SHA256"
-"$MCRCTL" render \
+uv run --project "$MC_REMOTE_STACK" mcrctl render \
   --project "$MC_REMOTE_PROJECT" \
   --output "$MC_REMOTE_PROJECT/generated"
 ```
@@ -232,7 +230,7 @@ review済みgit-build outputのimport、renderが成功するまでruntimeを変
 ```sh
 REVIEWED_LOCK_IDENTITY="sha256:<planで確認した64-hex>"
 
-"$MCRCTL" apply \
+uv run --project "$MC_REMOTE_STACK" mcrctl apply \
   --project "$MC_REMOTE_PROJECT" \
   --output "$MC_REMOTE_PROJECT/generated" \
   --expected-lock-identity "$REVIEWED_LOCK_IDENTITY" \
@@ -241,7 +239,7 @@ REVIEWED_LOCK_IDENTITY="sha256:<planで確認した64-hex>"
   --yes \
   --allow-unverified
 
-"$MCRCTL" doctor --project "$MC_REMOTE_PROJECT" --docker-context default
+uv run --project "$MC_REMOTE_STACK" mcrctl doctor --project "$MC_REMOTE_PROJECT" --docker-context default
 ```
 
 成功条件はcurrent lock／render、managed service／volume、exact artifact mount、LAN bind／port、healthy、
@@ -255,13 +253,13 @@ reasonを保持してStackまたはcomponent担当へ戻す。
 追加しない。
 
 ```sh
-"$MCRCTL" deployment update plan \
+uv run --project "$MC_REMOTE_STACK" mcrctl deployment update plan \
   --project "$MC_REMOTE_PROJECT" \
   --to-profile home-server@5 \
   --to-preset "$NEXT_EXACT_PRESET_REF" \
   --docker-context default
 
-"$MCRCTL" deployment update apply \
+uv run --project "$MC_REMOTE_STACK" mcrctl deployment update apply \
   --project "$MC_REMOTE_PROJECT" \
   --plan-id "$REVIEWED_UPDATE_PLAN_ID" \
   --yes

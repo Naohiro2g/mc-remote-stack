@@ -4,34 +4,70 @@
 
 `mc-remote-stack` は、McRemote（マイクラリモコン）サーバーを再現可能な形で設置・運用するためのパッケージ。Scratchクライアントを含む。新設計の `mc-remote.toml`、または移行前の legacy `mc-remote.yml` から、検証済みでdigestを固定したruntime設定を生成する。
 
+## 通常deployment：一つのfile、二つのcommand
+
+通常経路では、検証済みのimmutable presetを選び、URL、接続先、任意のお知らせを一つの
+`mc-remote.toml`へ書く。
+
+```toml
+schema_version = 1
+deployment = "school-a"
+preset = "classroom@1"
+
+[surfaces]
+scratch_url = "https://scratch.example.org/"
+bridge_url = "wss://bridge.example.org/"
+
+[[targets]]
+id = "classroom"
+label = "Classroom"
+sandbox = "minecraft.example.org"
+default = true
+```
+
+通常操作は次の二つである。`apply`がvalidate、preset解決、exact lock、artifact取得、render、
+preflightを内部で行い、managed runtimeの有無からcreate／updateを自動判定する。`uv`の実体は
+fresh host bootstrapが`$HOME/.local/bin/uv`へ配置し、以後のlogin sessionではcommand名だけで実行できる。
+
+```sh
+uv run mcrctl apply ./mc-remote.toml
+uv run mcrctl doctor school-a
+```
+
+Scratch runtime schema、fixture、container mount path、Scratch image digestはpresetが固定するScratch contract
+handoffから読み、operatorの別入力にはしない。`classroom@1`はScratch commit `4c893bd…`の不変contract treeと、
+Scratch自身のCIがpublishしたScratch／Bridge image digestを固定する。Stackはtag／manifestをread-only照合して
+lockするだけで、Scratch／Bridge／Pluginをbuildしない。前回Stackが起動したworkflowのimageは参照しない。
+contract directory外のScratch source、product-config、探索版`home-server@7`／`compose@15`からfieldを取り込まない。
+
 このプロジェクトは、次のものとは意図的に分離している。
 
 - `mc-remote-knowledge`: 公開アーキテクチャと意思決定のSSOT（Single Source of Truth、信頼できる唯一の情報源）
 - `mc-remote-backstage`: provider、契約、実ホスト、incident などの private ops。公開手順の依存先にはしない
 - deployment project: instance固有のdesired state（望ましい状態）とlockデータ
 
-## 公開 runbook
+## 正準 runbook
 
 - [agent-assisted bootstrap](docs/agent-assisted-bootstrap-guide_ja.md): agentを対象hostへ置かない
   基準経路、管理端末からのSSH支援、対象host上agentの限定実験とsecurity gate
-- [CLI検証環境の分担計画](docs/cli-validation-environment-plan_ja.md): ローカル、ケータリングPC、
-  ホームサーバー、稼働中VPSの役割と安全な検証順
-- [fresh host bootstrap](docs/fresh-host-bootstrap-guide_ja.md): 個人管理者ユーザー、SSH、安全な開始点、現行 `mcrctl` の停止境界
-- [public VPS bootstrap](docs/public-vps-bootstrap-guide_ja.md): 二commandのsame-volume通常更新、
-  新規host bootstrap、b2〜b4の歴史的救済、public doctor、残るreadiness phase
+- [fresh host bootstrap](docs/fresh-host-bootstrap-guide_ja.md): 個人管理者、SSH、exact Stack checkout、
+  正準uv、Python、Docker、Composeを準備する一本道
+- [public VPS deployment](docs/public-vps-bootstrap-guide_ja.md): review済みhandoffから
+  plan、apply、doctorまでを上から実行するsame-volume release更新
 - [通常dev環境](docs/normal-dev-environment-guide_ja.md): server側だけを別hostへ置き、開発者workstationの
   Minecraft／Scratch／Python／WireScopeから検証する`dev-integration`のpreflight、初回apply、更新経路
-- [Wake-on-LAN optional operation field note](docs/wake-on-lan-field-note_ja.md): 準24時間運用でWoLを
-  重視しつつhardware要件にしない理由、directed broadcast、Python / `wakeonlan`、
-  power stateごとの検証・証跡境界
-- [旧 server-runbook の振り分け](docs/server-runbook-migration-notes_ja.md): carry した内容と、stale/history として採らなかった内容
+- [home private alpha検証](docs/home-alpha-validation-guide_ja.md)
+- [Wake-on-LAN運用](docs/wake-on-lan-field-note_ja.md): 準24時間serverのpower state操作
+
+## 設計資料
+
+- [CLI検証環境の分担計画](docs/cli-validation-environment-plan_ja.md): ローカル、ケータリングPC、
+  ホームサーバー、稼働中VPSの役割
+- [ケータリング型検証roadmap](docs/catering-type-validation-roadmap_ja.md)
 - [preset / lock 解決の詳細設計](docs/preset-resolution-design_ja.md): preset registry、preset catalog、compatibility evidence、lock identity。bundled home profile/preset、typed operator input、TOML init/resolve/fetch/renderのoperator経路を実装済み
 - [TOML project layout の詳細設計](docs/toml-project-layout-design_ja.md): 一environment一project、includeなし、owner分離、lossless editing、YAML/TOML同居gate。明示的なvolume/world/network契約、`minecraft-motd@1`、managed renderを実装済み
 - [deployment operator workflow redesign](docs/deployment-operator-workflow-design_ja.md): 運用者環境、root実行拒否、保存価値に沿ったin-place更新、release非依存のplan/apply、runbook更新規律
 - [`home-beta` bootstrap apply設計](docs/home-beta-bootstrap-apply-design_ja.md): current lockとcanonical renderに固定したlocal Docker preflight、初回managed volume作成、Compose起動、container rollback。upgradeと既存world流用は未実装
-
-旧 `server-runbook` の native-systemd / package Caddy / release-symlink 手順は、現在の
-Compose・生成設定中心の実装と一致しないため現行 runbook として取り込みません。
 
 ## 何を動かすパッケージか
 
@@ -167,95 +203,15 @@ player / tokenを通常出力へ載せない。compatibilityがまだ`unverified
 `home-alpha` は後から別projectとしてinitし、別volume identity・別world identityを与える。
 `home-beta` のdirectoryやlockをcopyして追加しない。
 
-## Public VPS beta（新TOML vertical slice）
+## Public VPS deployment
 
-`vps-server@N`系列は、exact `public-web-paper@N`のCaddy、Scratch、Bridge、Minecraft、
-Paper、McRemoteを構築するケータリング型VPS profileである。Caddyだけをpublic edgeへ
-接続し、backendはinternal app networkへ限定する。公開betaが現在使っているexact
-profile／preset revisionは、`docs/public-vps-bootstrap-guide_ja.md`の直近の適用記録
-（`## 1. 通常のrelease更新`配下の日付見出し）を正とする。このREADMEはrelease revision
-番号を追いかけない。
+公開VPSの正準手順は[public VPS release deployment runbook](docs/public-vps-bootstrap-guide_ja.md)である。
+review済みhandoffがtarget写像、knowledge commit、Stack commit、deployment project、exact profile、
+exact preset、authorized actionを一組で渡す。環境確認、plan、apply、doctorを上から順に実行する。
 
-host firewall、provider firewall、DNSはproject外の人間checkpointであり、`apply`は変更しない。
-EULA、unverified理由、exact lock、canonical renderをreviewした後、対象VPS上のlocal Docker
-contextで`--bootstrap --yes`を明示してapplyする。失敗時はcontainerをdownするがmanaged world
-volumeは保持する。`doctor`はpublic bind、current lock / render、managed multi-service
-runtime、protocol helloをread-onlyで検証する。外部HTTPS / WSS readinessと
-content-addressed homepageは後続claimである。
-
-`public-routes@2`はScratch runtimeへ`wirescope_url`を投影し、Caddyがexact WireScope ZIPと
-detached manifestを照合・展開したread-only docrootを別originで配信する。これはScratchの
-cross-origin MessageChannel handoffだけを提供し、public station、source ingress、Minecraft
-control endpointを追加しない。operator notice feedは上から新しい順で入力し、preset所有の
-Scratchクライアント版情報を末尾へ必ず追加する。入力欠落、default不包含、notice feedの型不正は
-resolve / render / doctorでfail closedになる。
-
-### 既存deploymentをpresetで更新する
-
-`--bootstrap`は初回applyだけの操作である。既にbootstrap済みのTOML deployment（`home-beta`・
-`official-public-beta`のいずれも同じ経路）を、同じprofile／preset family内の新しいexact
-artifact setへ進めるときは、`mcrctl deployment update`を使う。
-
-```sh
-uv run mcrctl deployment update plan \
-  --project "$MC_REMOTE_PROJECT" \
-  --to-profile <profile>@<revision> \
-  --to-preset <preset>@<revision>
-
-uv run mcrctl deployment update apply \
-  --project "$MC_REMOTE_PROJECT" \
-  --plan-id <planで確認したID> \
-  --yes
-```
-
-`update plan`はexact HTTPS artifactを取得し、稼働中containerのCompose provenanceから
-未管理fileを自動snapshotし、`runtime.volumes`／`world.identity`をそのまま維持する。
-`mc-remote.toml`の`runtime.volumes`や`world.identity`を手で書き換えない — 値を変えると
-Dockerは別volumeとして扱い、既存のworldやruntime dataへ接続しなくなる。`update apply`は
-review済みの`plan-id`だけを受け付け、target `doctor`が失敗した場合はsource order／lock／
-renderとcontainerへ自動的に戻す。world変更、session、pairing、接続の完全復元は主張しない。
-
-`mcrctl migration public-b3` / `public-b4`は、enforced authの新規導入など、当時一回限りの
-構造移行のために書かれた歴史的な救済経路であり、通常のpreset更新には使わない。将来の
-releaseで同種のsubcommandを複製しない。
-
-McRemoteのsession recordはMinecraft data volume内へhash-onlyで保存される。同じworld
-volumeを保った通常のcontainer restart／`update apply`はこれを維持するが、worldを
-交換した場合の認証継続やpublic long-lived credentialは保証しない。
-
-## Legacy `official-vps` 垂直スライス（回帰用）
-
-```sh
-uv run mcrctl init ./deployment --profile official-vps
-uv run mcrctl validate --project ./deployment
-uv run mcrctl repo check --project ./deployment
-uv run mcrctl plan --project ./deployment
-uv run mcrctl accept-eula --project ./deployment --yes
-uv run mcrctl render --project ./deployment --output ./deployment/generated
-```
-
-`plan` は、EULAへの同意と変更不能なartifact identityがそろうまで停止。対象にはOCI image、Paper、plugin JARに加え、ホームページのversionとarchive SHA-256も含まれる。未解決のselectorを暗黙に本番deploymentへ変換することはない。
-`render` は同じgateを通過した後にだけ、Compose、Caddy、Scratch runtime、Bridge route、ServerBackup（Paperプラグイン）の設定を生成。
-このlegacy経路は当面、新TOML設計とのplan/render比較に使う回帰fixtureである。最初のhome live
-deploymentには使わず、bootstrap applyも受理しない。
-
-初期化したlockは、意図的に特定versionへ固定していない。profileが選ぶものはトポロジーとポリシーであり、マイクラやマイクラリモコンのバージョンではない。このため既存サーバーを移行するときは、回収した現物ファイル（バージョン）を固定するため、インフラ移行と同時にMcRemoteのupgradeを強制されずに済む。
-
-### 同じVPSへ開発サーバーも収容する
-
-`official-vps`には任意の`staging` instanceを用意している。`staging.enabled: true`にすると、本番とは別のdata、backup、OCI image、Paper、plugin lockを持つ`minecraft-dev` serviceを生成する。本番は`25565/tcp・udp`と`25575/tcp`、stagingは`25566/tcp・udp`と`25576/tcp`を使う。Scratch stableの既定接続先は`sb.mc-remote.com`、Scratch devは`sb-dev.mc-remote.com`となる。
-
-新TOML `vps-server@N` / `public-web-paper@N`系列の履歴的な各append-only targetの詳細は
-`## Public VPS beta`節と`### 既存deploymentをpresetで更新する`節を参照する。
-
-`minecraft-dev`にはComposeの`staging` profileが付くため、通常の`docker compose up`では起動しない。6GB VPSではprod/devを同時起動せず、生成された排他切替scriptを使う。scriptは1分前から告知し、`save-all flush`、graceful stop、接続確認を行い、失敗時は元のinstanceへ戻す。
-
-```sh
-sudo bash /etc/mc-remote/generated/operations/use-staging.sh
-sudo bash /etc/mc-remote/generated/operations/use-production.sh
-```
-
-停止中のinstanceだけを休眠として扱う。2つを同時に常時稼働する場合は、排他切替を外す前にMinecraftのmain tick threadだけでなく、2つのheap、host memory、swap、disk I/Oを代表負荷で確認する。
+deployment projectの`mc-remote.toml`とexact lockが稼働中のdesired stateを識別する。次のexact setは、
+handoffに記載されたcommitの`mc-remote-knowledge` release gate notesから受け取る。新しいUbuntu hostは先に
+[fresh-host bootstrap](docs/fresh-host-bootstrap-guide_ja.md)を完了する。
 
 ## 暗号化したoff-host backup転送
 

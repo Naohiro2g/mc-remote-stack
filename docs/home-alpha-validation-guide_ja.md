@@ -37,7 +37,7 @@ agentが暗黙停止しない。
 
 ## 2. 初期化
 
-validated checkoutのrepo rootで実行する。
+operator bootstrapを完了したlogin sessionで、validated checkoutのrepo rootから実行する。
 
 ```bash
 MC_REMOTE_PROJECT="$HOME/mc-remote-deployments/home-alpha"

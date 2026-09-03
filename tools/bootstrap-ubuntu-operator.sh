@@ -2,6 +2,7 @@
 set -euo pipefail
 
 UV_BOOTSTRAP_VERSION=0.12.3
+UV_BIN="$HOME/.local/bin/uv"
 MINIMUM_COMPOSE_VERSION=2.33.1
 RUNTIME_ROOT=/var/lib/mc-remote
 
@@ -20,7 +21,8 @@ Usage:
 --check reports every missing operator prerequisite without changing the host.
 --install installs missing Ubuntu packages, pinned uv, Docker Engine/Compose when
 absent, and explicitly grants the current trusted sudo administrator direct
-Docker access. If the conventional runtime root exists, it also grants that
+Docker access. It also makes the canonical $HOME/.local/bin/uv available as uv
+in subsequent login sessions. If the conventional runtime root exists, it grants that
 operator traversal through its dedicated mcremote group. Re-login is required
 after group membership changes.
 --repair-project is accepted only with --install and only below
@@ -99,16 +101,6 @@ version_at_least() {
   [[ "$(printf '%s\n%s\n' "$minimum" "$actual" | sort -V | head -n1)" == "$minimum" ]]
 }
 
-uv_path() {
-  if command -v uv >/dev/null 2>&1; then
-    command -v uv
-  elif [[ -x "$HOME/.local/bin/uv" ]]; then
-    printf '%s\n' "$HOME/.local/bin/uv"
-  else
-    return 1
-  fi
-}
-
 install_base_packages() {
   sudo apt-get update
   sudo apt-get install -y ca-certificates curl git
@@ -124,6 +116,24 @@ install_uv() {
   env UV_INSTALL_DIR="$HOME/.local/bin" UV_NO_MODIFY_PATH=1 sh "$installer"
   rm -f -- "$installer"
   trap - RETURN
+}
+
+ensure_uv_on_login_path() {
+  local path_line profile
+  path_line='export PATH="$HOME/.local/bin:$PATH"'
+
+  for profile in \
+    "$HOME/.profile" \
+    "$HOME/.bash_profile" \
+    "$HOME/.bash_login" \
+    "$HOME/.bashrc"; do
+    if [[ "$profile" != "$HOME/.profile" && ! -e "$profile" ]]; then
+      continue
+    fi
+    if ! grep -Fqx -- "$path_line" "$profile" 2>/dev/null; then
+      printf '\n%s\n' "$path_line" >> "$profile"
+    fi
+  done
 }
 
 install_docker_engine() {
@@ -185,8 +195,7 @@ missing=()
 for command_name in curl git; do
   command -v "$command_name" >/dev/null 2>&1 || missing+=("$command_name")
 done
-uv_bin="$(uv_path || true)"
-[[ -n "$uv_bin" ]] || missing+=(uv)
+[[ "$(command -v uv 2>/dev/null || true)" == "$UV_BIN" ]] || missing+=(uv)
 command -v docker >/dev/null 2>&1 || missing+=(docker)
 
 if [[ "$mode" == check && ${#missing[@]} -gt 0 ]]; then
@@ -198,10 +207,11 @@ fi
 
 if [[ "$mode" == install ]]; then
   install_base_packages
-  if [[ -z "$uv_bin" ]]; then
+  if [[ ! -x "$UV_BIN" ]]; then
     install_uv
-    uv_bin="$(uv_path)"
   fi
+  ensure_uv_on_login_path
+  export PATH="$HOME/.local/bin:$PATH"
   if ! command -v docker >/dev/null 2>&1; then
     install_docker_engine
   fi
@@ -211,11 +221,10 @@ if [[ "$mode" == install ]]; then
   if [[ -n "$repair_artifact_store" ]]; then
     repair_artifact_store_ownership "$repair_artifact_store"
   fi
-  uv_bin="$(uv_path)"
-  "$uv_bin" python install 3.11
+  "$UV_BIN" python install 3.11
   (
     cd -- "$repo_root"
-    PATH="$(dirname -- "$uv_bin"):$PATH" uv sync --extra dev
+    "$UV_BIN" sync --extra dev
   )
 elif [[ ! -x "$repo_root/.venv/bin/mcrctl" ]]; then
   echo "FAIL repo environment is absent: $repo_root/.venv/bin/mcrctl" >&2
@@ -223,9 +232,8 @@ elif [[ ! -x "$repo_root/.venv/bin/mcrctl" ]]; then
   exit 2
 fi
 
-uv_bin="$(uv_path)"
 git --version >/dev/null
-"$uv_bin" --version >/dev/null
+"$UV_BIN" --version >/dev/null
 if ! "$repo_root/.venv/bin/python" -c \
   'import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)'; then
   echo "FAIL repo environment does not use Python 3.11 or newer" >&2
@@ -295,7 +303,7 @@ if ! docker --context default version >/dev/null 2>&1; then
   exit 2
 fi
 
-echo "OK operator bootstrap tools=ready docker-access=direct compose=$compose_version"
+echo "OK operator bootstrap tools=ready uv=$UV_BIN docker-access=direct compose=$compose_version"
 echo "OK repo environment=$repo_root/.venv"
 if [[ -n "$repair_project" ]]; then
   "$repo_root/.venv/bin/mcrctl" operator check \

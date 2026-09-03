@@ -33,6 +33,7 @@ private host、IP、OS user、absolute path、credentialをrepositoryへ記録�
 ## 2. project作成
 
 以下の名前とportは例であり、private inventoryと照合してから使用する。
+operator bootstrapを完了したlogin sessionで実行する。
 
 ```bash
 MC_REMOTE_PROJECT="$HOME/mc-remote-deployments/home-b3-alpha"

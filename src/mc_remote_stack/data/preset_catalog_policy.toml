@@ -81,6 +81,11 @@ status = "active"
 available_since = "2026-08-28"
 
 [[presets]]
+ref = "public-web-paper@9"
+status = "active"
+available_since = "2026-09-03"
+
+[[presets]]
 ref = "home-alpha-full@1"
 status = "active"
 available_since = "2026-08-29"

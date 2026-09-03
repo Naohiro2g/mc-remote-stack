@@ -4,32 +4,71 @@
 
 `mc-remote-stack` is the reproducible deployment and operations package for McRemote servers. It turns a new-design `mc-remote.toml`, or a transitional legacy `mc-remote.yml`, into validated, digest-pinned runtime configuration.
 
+## Normal deployment: one file, two commands
+
+Select a reviewed immutable preset and put the URLs and Minecraft target in one `mc-remote.toml`:
+
+```toml
+schema_version = 1
+deployment = "school-a"
+preset = "classroom@1"
+
+[surfaces]
+scratch_url = "https://scratch.example.org/"
+bridge_url = "wss://bridge.example.org/"
+
+[[targets]]
+id = "classroom"
+label = "Classroom"
+sandbox = "minecraft.example.org"
+default = true
+```
+
+The normal operator surface has two commands. `apply` performs validation, immutable preset resolution,
+exact locking, artifact acquisition, rendering, and preflight, then derives create versus update from the
+managed runtime state. The fresh-host bootstrap installs `uv` at `$HOME/.local/bin/uv` and makes it
+available by command name in subsequent login sessions.
+
+```sh
+uv run mcrctl apply ./mc-remote.toml
+uv run mcrctl doctor school-a
+```
+
+The Scratch runtime schema, fixtures, container mount path, and Scratch image digest come from the contract
+handoff locked by the preset; they are not additional operator inputs. `classroom@1` locks the unchanged contract
+tree at Scratch commit `4c893bd…` and the Scratch/Bridge image digests published by Scratch's own CI. Stack only
+checks the tag and registry manifest read-only and does not build Scratch, Bridge, or Plugin. Images from the
+earlier workflow triggered by Stack are not referenced. Stack does not read product-config, Scratch source outside
+the contract directory, or the unadopted `home-server@7` / `compose@15` prototype to infer fields.
+
 The project is intentionally separate from:
 
 - `mc-remote-knowledge`: public architecture and decision SSOT.
 - `mc-remote-backstage`: private provider, contract, host, and incident operations; public users do not depend on it.
 - a deployment project: instance-specific desired state and lock data.
 
-## Public runbooks
+## Operational runbooks
 
 - [Agent-assisted bootstrap (Japanese)](docs/agent-assisted-bootstrap-guide_ja.md): the no-on-host-agent
   baseline, workstation-over-SSH assistance, and the security gate for limited on-host experiments
-- [CLI validation environment plan (Japanese)](docs/cli-validation-environment-plan_ja.md):
-  responsibilities and safe sequencing across local development, a catering PC, a home server,
-  and the running VPS
-- [Catering-type validation roadmap (Japanese)](docs/catering-type-validation-roadmap_ja.md)
-- [Fresh-host bootstrap (Japanese)](docs/fresh-host-bootstrap-guide_ja.md)
+- [Fresh-host bootstrap (Japanese)](docs/fresh-host-bootstrap-guide_ja.md): prepare the individual
+  administrator, SSH, exact Stack checkout, canonical uv, Python, Docker, and Compose
 - [Public VPS bootstrap (Japanese)](docs/public-vps-bootstrap-guide_ja.md):
-  current two-command same-volume updates first, followed by new-host bootstrap,
-  historical b2/b3/b4 rescue transactions, public doctor, and remaining readiness phases
+  the current same-volume release update from one reviewed handoff through plan, apply, and doctor
+- [Normal dev environment (Japanese)](docs/normal-dev-environment-guide_ja.md): prepare and operate
+  the shared server-side development environment
+- [Home private alpha validation (Japanese)](docs/home-alpha-validation-guide_ja.md)
+- [Wake-on-LAN operation (Japanese)](docs/wake-on-lan-field-note_ja.md): power-state operation for
+  semi-always-on servers
+
+## Design references
+
+- [CLI validation environment plan (Japanese)](docs/cli-validation-environment-plan_ja.md):
+  responsibilities across local development, a catering PC, a home server, and the running VPS
+- [Catering-type validation roadmap (Japanese)](docs/catering-type-validation-roadmap_ja.md)
 - [Deployment operator workflow redesign (Japanese)](docs/deployment-operator-workflow-design_ja.md):
   operator environment, code-first recovery value, release-independent durable update plans,
   live Compose provenance capture, limited rollback, and the 15-minute human-operation SLO
-- [Home private alpha validation (Japanese)](docs/home-alpha-validation-guide_ja.md)
-- [Wake-on-LAN optional operation field note (Japanese)](docs/wake-on-lan-field-note_ja.md):
-  why WoL matters for semi-always-on servers without becoming a hardware requirement, plus directed-broadcast,
-  Python / `wakeonlan`, power-state, and evidence boundaries
-- [Legacy server-runbook migration notes (Japanese)](docs/server-runbook-migration-notes_ja.md)
 - [Preset and lock resolution design (Japanese)](docs/preset-resolution-design_ja.md): the next
   preset registry, preset catalog, compatibility-evidence, and lock-identity model; the bundled
   home profile/preset, typed operator input boundary, instance contract, and operator-facing TOML
@@ -41,9 +80,6 @@ The project is intentionally separate from:
 - [`home-beta` bootstrap apply design (Japanese)](docs/home-beta-bootstrap-apply-design_ja.md):
   current-lock and canonical-render binding, explicit local Docker context, managed initial volume,
   Compose startup, and container rollback; upgrades and existing-world reuse remain unsupported
-
-The legacy repository's native-systemd, package-Caddy, and release-symlink procedures are not current instructions:
-they conflict with this repository's Compose and generated-configuration architecture.
 
 ## Development
 
@@ -165,82 +201,11 @@ doctor retains an explicit warning even when its runtime is healthy.
 Add `home-alpha` later as a separate initialized project with distinct volume and world identities;
 do not copy the `home-beta` directory or lock.
 
-## Public VPS beta (new TOML vertical slice)
+## Public VPS deployment
 
-The `vps-server@N` line is the catering-style VPS profile family. It bootstraps exact
-`public-web-paper@N` Caddy, Scratch, Bridge, Minecraft, Paper, and McRemote artifacts
-while keeping authentication session-only. Caddy alone joins the public edge; backend
-services remain on an internal app network. The exact profile/preset revision the public
-beta currently runs is tracked in `docs/public-vps-bootstrap-guide_ja.md`'s most recent
-dated apply record (under `## 1. 通常のrelease更新`); this README does not chase release
-revision numbers.
+The canonical public VPS procedure is [the public VPS release deployment runbook](docs/public-vps-bootstrap-guide_ja.md). A reviewed handoff supplies the target mapping, knowledge commit, Stack commit, deployment project, exact profile, exact preset, and authorized action. Follow its environment check, plan, apply, and doctor steps from top to bottom.
 
-The host firewall, provider firewall, and DNS remain explicit human checkpoints outside
-the deployment project; `apply` does not modify them. After reviewing the EULA,
-unverified reason, exact lock, and canonical render, run bootstrap apply on the VPS
-against its local Docker context. A failed apply removes the new containers but retains
-the managed world volume. `doctor` checks the public bind, current lock and render,
-managed multi-service runtime, and enforced authentication without mutation.
-External HTTPS/WSS readiness and the content-addressed homepage remain later claims.
-An existing `vps-server@5` / `public-web-paper@1` runtime must not be updated with the
-bootstrap path; its recovery Compose files, working directory, volumes, and mounts
-require a dedicated reviewed upgrade transaction.
-
-## Legacy `official-vps` vertical slice (regression)
-
-```sh
-uv run mcrctl init ./deployment --profile official-vps
-uv run mcrctl validate --project ./deployment
-uv run mcrctl repo check --project ./deployment
-uv run mcrctl plan --project ./deployment
-uv run mcrctl accept-eula --project ./deployment --yes
-uv run mcrctl render --project ./deployment --output ./deployment/generated
-```
-
-`plan` stops until EULA acceptance and immutable artifact identities are present. This includes the homepage version / archive SHA-256 as well as OCI images, Paper, and plugin JARs. It never converts an unresolved selector into a production deployment implicitly. `render` writes Compose, Caddy, Scratch runtime, Bridge route, and ServerBackup configuration only after the same gates pass. This legacy path is currently a deterministic plan/render regression fixture, not the first home live deployment, and bootstrap apply rejects it. The initialized lock is intentionally version-neutral: a profile selects topology and policy, not a Minecraft or McRemote release. Existing-server migration can therefore pin the recovered artifacts without being forced to upgrade McRemote as part of the infrastructure move.
-
-### Optional beta instance on the same VPS
-
-The `official-vps` preset includes an optional `beta` instance. Setting `beta.enabled: true` renders a `minecraft-beta` service with independent data, backup, OCI image, Paper, and plugin locks. Stable and beta both use the standard `25565/tcp+udp` and `25575/tcp` ports and therefore run exclusively. The stable public names are unsuffixed (`scratch.mc-remote.com`, `bridge.mc-remote.com`, and `sb.mc-remote.com`); beta uses the `-beta` suffix.
-
-The b3 public-beta runtime-config path introduced `vps-server@7`. It requires a non-empty Scratch
-`connection_targets` projection, lists `sb-beta.mc-remote.com` as the beta default, and emits a
-`notices` array. The current `vps-server@12` projection takes an ordered operator notice feed and
-appends the preset-owned Scratch release notice last, so version information cannot disappear with
-an operational announcement edit. Resolve, render, and doctor fail closed when this contract is
-invalid.
-
-The append-only b4 target is `vps-server@8` / `public-web-paper@3`. It pins the released b4
-McRemote JAR and the deployment OCI images built from the final Scratch CI artifact. Public b4
-keeps only session authentication: its hash-only session snapshot is writable under the
-Minecraft data volume, survives an ordinary restart, and may be discarded with that volume.
-It does not approve public long-lived credentials. Existing b3 runtimes use the resumable
-`mcrctl migration public-b4` path after the `vps-server@7` runtime-target projection is live.
-
-The append-only public b4 WireScope target is `vps-server@9` / `public-web-paper@4`.
-`public-routes@2` requires `wirescope-beta.mc-remote.com`, projects its HTTPS URL into the
-Scratch runtime config, and serves the verified ZIP plus detached manifest from a read-only
-Caddy docroot on that distinct origin. This surface provides only the Scratch cross-origin
-MessageChannel handoff; it does not add a public station, source ingress, or Minecraft control
-endpoint.
-
-For a running deployment in the same profile/preset family, use
-`mcrctl deployment update plan` followed by `mcrctl deployment update apply`. The plan
-fetches exact HTTPS artifacts before downtime, derives additional Compose inputs from live
-container provenance, and keeps stateful volume identities unchanged. The apply command accepts
-only the reviewed plan ID, runs the target doctor, and restores the source order/lock/render and
-containers if target startup or verification fails. It does not claim to restore world mutations,
-sessions, pairing, or connections. Release-specific `migration public-b3/public-b4` commands are
-history-bound rescue paths, not templates for future releases.
-
-`minecraft-stable` and `minecraft-beta` belong to separate Compose profiles, so an ordinary `docker compose up` starts neither Minecraft channel. On a 6 GB VPS, do not run stable and beta together. Use the generated exclusive switch operations, which announce the change, run `save-all flush`, stop gracefully, check the standard ports, and restore the previous instance on failure:
-
-```sh
-sudo bash /etc/mc-remote/generated/operations/use-beta.sh
-sudo bash /etc/mc-remote/generated/operations/use-stable.sh
-```
-
-Only a stopped instance counts as dormant. Before removing the exclusive switch and running both instances continuously, test both workloads together and inspect their heaps, host memory, swap, tick time, and disk I/O.
+The deployment project `mc-remote.toml` and exact lock identify the active desired state. The handoff names the next exact set from `mc-remote-knowledge` release gate notes at its stated commit. A new Ubuntu host first completes the [fresh-host bootstrap](docs/fresh-host-bootstrap-guide_ja.md).
 
 ## Encrypted off-host backup transfer
 

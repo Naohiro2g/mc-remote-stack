@@ -343,7 +343,7 @@ alpha検証ガイド（§7）を通してlive evidenceを取得後も、これ�
    digest/commitを更新する。
 4. **既存deploymentの更新**なので、`apply --bootstrap`（初回専用）を再実行しては
    いけない。同一volumeのまま更新する`mcrctl deployment update plan/apply`
-   （2026-08-20実装、NOTES該当節）を使う：
+   （2026-08-20実装、NOTES該当節）をoperator bootstrap完了後のlogin sessionで使う：
    ```bash
    uv run mcrctl deployment update plan \
      --project "$MC_REMOTE_PROJECT" \

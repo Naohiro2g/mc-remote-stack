@@ -1,955 +1,137 @@
-# Public VPS bootstrap guide
+# Public VPS release deployment runbook
 
-Ubuntu系VPSへ、ケータリング型のexact order / lock / render / apply境界を使って
-MinecraftとMcRemoteのpublic betaを構築する。provider、実IP、個人名、秘密値へ依存せず、
-対象host上へagentをinstallしなくても人間のterminalだけで完走できる手順を基準にする。
+このrunbookは、review済みのMcRemote release setを、既存のcanonical TOML deploymentへ
+same-volume更新する正準手順である。作業者は上から順に実行し、`deployment update plan`、
+`deployment update apply`、`doctor`の三段階で完了する。
 
-## 0. 現在の完成範囲
+新しいUbuntu hostのoperator環境は、先に
+[`fresh host bootstrap`](fresh-host-bootstrap-guide_ja.md)で準備する。このrunbookは、対象hostへの
+SSH接続、Stack checkout、既存deployment projectがhandoff済みの地点から始める。
 
-このrunbookは、profile／preset revisionが進むたびに手で更新すべき日誌ではない。実際、
-過去にvps-server@6/8/9/10のような具体的なrevision番号を書いた版は複数releaseにわたって
-更新されず、後から読むと現在のrevisionと矛盾していた。exact profile／preset、protocol
-version、release番号の対応は次を正とし、この節では書かない。
+## 1. deployment handoffを受け取る
 
-- release番号対応の全体像: SSOT `10-protocol/beta-to-stable-release-roadmap_ja.md`
-- `official-public-beta`が現在使っているexact revision: 「1. 通常のrelease更新」配下の
-  直近の日付見出し（`YYYY-MM-DD official public beta適用記録`）
+handoffには次の値が一組で入る。
 
-ここでは、release番号に依存しない、この repo が実装済みのpublic VPS bootstrap／update
-transactionの範囲だけを記す。次を一つのpublic bootstrapまたはreview済みdeployment
-update transactionとして扱う。
+| 値 | 内容 | 所有元 |
+| --- | --- | --- |
+| `MC_REMOTE_TARGET` | 対象hostのSSH接続先 | backstage |
+| `MC_REMOTE_KNOWLEDGE_COMMIT` | 今回参照するknowledge commit | gate coordinator |
+| `MC_REMOTE_STACK` | 対象host上のreview済みStack checkout | Stack |
+| `MC_REMOTE_STACK_COMMIT` | checkoutのexact commit | Stack |
+| `MC_REMOTE_PROJECT` | 対象host上のdeployment project | Stack／backstage |
+| `MC_REMOTE_PROFILE` | 更新先のexact profile revision | gate coordinator |
+| `MC_REMOTE_PRESET` | 更新先のexact preset revision | gate coordinator |
+| `authorized next action` | 今回実行するpublic VPS update | gate coordinator／release owner |
 
-- exact OCI Caddy / Scratch / Bridge / Minecraft runtime、Paper JAR、McRemote JAR
-- Caddyだけをpublic edgeへ接続し、backend間通信をinternal app networkへ限定
-- Paper初回起動に必要なMojang取得のため、Minecraftだけを明示IPv4 egressへも接続
-- HTTPS route、Scratch runtime config、Bridge origin / sandbox allowlist
-- explicit public IPv4 bind
-- managed world / Caddy state volume
-- Minecraft EULA、unverified compatibility、exact lock review
-- unknown container / volume、port衝突のfail-closed preflight
-- 起動失敗時のcontainer rollbackとworld volume保持
-- current render、全container、全volume、public port、認証必須helloのdoctor
-- 稼働中のCompose provenanceを自動取得し、周辺plugin／homepage tree／backup bindを
-  型付き入力へ一度で収束させる`deployment composition plan/apply`
-- profile／preset familyを跨がない通常release更新の`deployment update plan/apply`
-  （stateful volumeをin-placeで維持し、target起動またはdoctor失敗時はsource
-  projectionへ自動復帰）
-- 上から新しい順の公開notice feedを型付きoperator inputとして更新する経路
+handoffの根拠は、指定された`MC_REMOTE_KNOWLEDGE_COMMIT`で次の二文書へ接続する。
 
-次はまだ同じtransactionへ入っていないため、後続phaseで完成度を上げる。
+- [release gate notes](https://github.com/Naohiro2g/mc-remote-knowledge/blob/main/00-hub/release-gate-notes_ja.md):
+  exact setとauthorized next action
+- [release operations responsibility](https://github.com/Naohiro2g/mc-remote-knowledge/blob/main/00-hub/release-operations-responsibility-design_ja.md):
+  host写像、private情報、deploy／doctorの実行担当
 
-- provider / host firewall、DNS、TLSの変更
-- Bridge WSS／Minecraft transportまで含む外部smokeのdoctor claim
-- backup / restore、既存world import、stable / beta排他切替
-- stateful schema変更やprofile family変更を含む任意version間migration
+operator向けの実行手順は、このrunbookを正本とする。
 
-## 1. 通常のrelease更新
+## 2. 対象hostで正準環境を確認する
 
-### 一度だけ追加Composeをcanonical化する
-
-`doctor`が`render=additional-compose-files`を返す現行public betaでは、release更新を重ねる前に一度だけ
-runtime compositionをcanonical化する。`plan`はlive Minecraft containerのCompose labelを自動取得し、
-review済みの形に一致する周辺plugin、homepage tree、backup bindだけを型付き入力へ変換する。人間は
-container ID、Compose path、個別plugin SHA、homepage pathを転記しない。
-
-現行の`vps-server@8`／`public-web-paper@3`は、旧`public-routes@1`とhomepage overlayを同時に持つ。
-routeだけを先に更新すると旧overlayが新Caddyfileを隠し、compositionだけを先に行うと新profileが要求する
-WireScope routeをまだ入力できない。そのため、profile／preset更新、WireScope route追加、overlayの型付き
-入力化を次の一つのplanで収束させる。途中状態を手編集で作らない。
+管理端末からhandoffの接続先へ入る。
 
 ```sh
-MC_REMOTE_STACK="$HOME/mc-remote-stack"
-MC_REMOTE_PROJECT="$HOME/mc-remote-deployments/official-public-beta"
+MC_REMOTE_TARGET="<handoffのSSH接続先>"
+ssh "$MC_REMOTE_TARGET"
+```
 
+fresh host bootstrapを完了した新しいlogin sessionでhandoff値を設定する。
+`uv`を含むoperator toolchainは、この時点ですべてcommand名だけで実行できる。
+
+```sh
+MC_REMOTE_STACK="<handoffのStack checkout>"
+MC_REMOTE_STACK_COMMIT="<handoffのStack commit>"
+MC_REMOTE_PROJECT="<handoffのdeployment project>"
+MC_REMOTE_PROFILE="<handoffのexact profile>"
+MC_REMOTE_PRESET="<handoffのexact preset>"
+
+uv --version
+test "$(git -C "$MC_REMOTE_STACK" rev-parse HEAD)" = "$MC_REMOTE_STACK_COMMIT"
+uv sync --project "$MC_REMOTE_STACK" --frozen --extra dev
 "$MC_REMOTE_STACK/tools/bootstrap-ubuntu-operator.sh" --check
-"$MC_REMOTE_STACK/.venv/bin/mcrctl" operator check \
+uv run --project "$MC_REMOTE_STACK" mcrctl operator check \
   --project "$MC_REMOTE_PROJECT" \
   --docker-context default
-
-"$MC_REMOTE_STACK/.venv/bin/mcrctl" deployment composition plan \
-  --project "$MC_REMOTE_PROJECT" \
-  --docker-context default \
-  --to-profile vps-server@10 \
-  --to-preset public-web-paper@4 \
-  --set-input public-routes.wirescope=wirescope-beta.mc-remote.com
+test -f "$MC_REMOTE_PROJECT/mc-remote.toml"
 ```
 
-planはb4 coreを保ったWireScope同梱presetへ進め、周辺plugin JARをcontent-addressed storeへ取り込み、
-homepageを決定論的なtree inventoryで固定する。
-既存のwritable backup pathもtyped inputへ記録する。一方、`/plugins`全体mount、別McRemote JAR、未知の
-service／mount、canonical renderと異なる外部config、既知templateでないCaddyfileはfail closedで拒否する。
-recovery directory内のstaleなMcRemote JARは周辺pluginとして採用しない。
+ここまでの成功で、Python、Docker、Compose、operator権限、project owner、local Docker context、
+Stack commitが一組に揃う。
 
-表示されたsource／target identity、plugin件数、homepage tree SHA、backup path、plan IDをreviewし、
-一つのplan IDだけを適用する。
+## 3. exact update planを作る
 
 ```sh
-REVIEWED_COMPOSITION_PLAN="sha256:<planで確認した64-hex>"
-
-"$MC_REMOTE_STACK/.venv/bin/mcrctl" deployment composition apply \
+uv run --project "$MC_REMOTE_STACK" \
+  mcrctl deployment update plan \
   --project "$MC_REMOTE_PROJECT" \
-  --plan-id "$REVIEWED_COMPOSITION_PLAN" \
+  --docker-context default \
+  --to-profile "$MC_REMOTE_PROFILE" \
+  --to-preset "$MC_REMOTE_PRESET" \
+  --allow-unverified
+```
+
+planは現在のdeploymentをdoctorで確認し、更新先presetを解決し、必要なartifactをdigestで取得し、
+target renderとsame-volume更新内容を生成する。出力された`PLAN deployment-update id=sha256:...`を
+`MC_REMOTE_PLAN_ID`へ設定する。
+
+```sh
+MC_REMOTE_PLAN_ID="sha256:<plan出力のid>"
+```
+
+## 4. planを適用する
+
+```sh
+uv run --project "$MC_REMOTE_STACK" \
+  mcrctl deployment update apply \
+  --project "$MC_REMOTE_PROJECT" \
+  --plan-id "$MC_REMOTE_PLAN_ID" \
   --yes
 ```
 
-apply後のdoctorは`render=current`でなければならず、canonical `compose.yaml`だけでMcRemote、周辺plugin、
-homepage、backupを再現する。失敗時はplanがsnapshotした旧overlayで旧projectionを再起動する。同じplan IDを
-再実行してresumeし、state JSONやgenerated Composeを手編集しない。この処理はlocal artifactを配布可能にした
-という意味ではない。別hostへ再構築する場合は後述のartifact store保全境界に従う。
+transactionは同じvolume identityでtargetを起動し、起動後doctorまで実行する。target検証が完了すると
+`OK deployment-update status=complete`を返す。target起動またはdoctorが失敗した場合はsource projectionを
+復帰し、同じ`MC_REMOTE_PLAN_ID`で再開できる状態を返す。
 
-### 2026-08-21 official public beta適用記録
-
-上記の一回収束経路をofficial public betaへ適用し、次を確認した。
-
-- stack checkout: `eb8fc00a82df01904a2e5e32113cbf1ac1b9deea`
-- reviewed plan: `sha256:9137ec654fae162c0246576ddbb414ddf8521bd6985c8fea54dd215509589e0f`
-- source lock: `sha256:6c7d7df9f5422aea4415f006da5dd10b8962dff2fb29fbac459c4e6410dea457`
-- target lock: `sha256:9da2e50bacc8091308eb989bc9f3bf159528cc9f25b4afe00fa3282070ff8b5e`
-- transition: `vps-server@8/public-web-paper@3` → `vps-server@10/public-web-paper@4`
-- result: transaction `complete`、doctor `runtime=healthy`／`render=current`
-- live Compose provenance: canonical `generated/compose.yaml` 1枚だけ
-- stateful identity: 既存b4の3 volumeを維持
-- McRemote JAR SHA-256: `331633ef15a729658496e89fe49cb8a5eb5ebcb2ec86937b7e5313528d7ec997`
-- Scratch runtime: `sb-beta.mc-remote.com`と`https://wirescope-beta.mc-remote.com/`を配信
-- WireScope public check: HTTPS 200、TLS検証成功
-- expected warning: `compatibility=unverified`
-
-この記録はdeployment経路のsanitizedな実施結果であり、compatibility claimの正式ratifyではない。
-そのためunverified warningを消さず、knowledge側の正式evidenceは別gateとする。
-
-### Scratchお知らせfeedを型付き入力で更新する
-
-`vps-server@12`は`connection-targets@3`を使い、接続先と、上から新しい順の公開notice feedを
-operator inputへ保持する。初回のreview済み入力は
-`examples/operator-inputs/public-beta-connection-targets-b4.toml`である。
-
-Scratchクライアントの版情報は任意の運用告知にしない。`public-web-paper@5`が
-「マイクラリモコンScratchクライアント ver.2100.0.0b4」を所有し、rendererがoperator noticeの後、
-presetから自動的に末尾へ追加する。次版ではpresetの版表示とrelease URLをartifact setと一緒に更新する。
-
-複数noticeをshell引数へ分解せず、review済みTOMLを候補へ丸ごと渡す。
+## 5. live deploymentを確認する
 
 ```sh
-REVIEWED_NOTICE_INPUT="$MC_REMOTE_STACK/examples/operator-inputs/public-beta-connection-targets-b4.toml"
-
-"$MC_REMOTE_STACK/.venv/bin/mcrctl" deployment update plan \
-  --project "$MC_REMOTE_PROJECT" \
-  --docker-context default \
-  --to-profile vps-server@12 \
-  --to-preset public-web-paper@5 \
-  --replace-input "connection-targets=$REVIEWED_NOTICE_INPUT" \
-  --allow-unverified
-```
-
-この入力から、次の順で3件を配信する。
-
-1. 「今後のリリース予定」— `https://mc-remote.com`
-2. 「WireScope（ワイヤースコープ）ライブ画面」— `https://wirescope-beta.mc-remote.com/`
-3. 「マイクラリモコンScratchクライアント ver.2100.0.0b4」— preset所有のrelease情報
-
-noticeは非秘密の見出し、本文、HTTPS URL、link labelを必須とし、runtime JSONやcontainer内を手編集しない。
-運用告知を変えるときは、現在のproject inputをproject外のreview用ファイルへcopyし、編集後の全体を
-`--replace-input`で新しいplanへ渡す。同じprofile／presetでも新しいplan IDを作り、適用後にdoctorと
-実配信JSONを確認する。
-
-notice linkは通常の`target=_blank`リンクであり、Scratch sourceのMessageChannel handoffを実行しない。
-WireScopeの観測を開始する正準入口はScratchブロック画面下部の「WireScopeを開く」である。noticeから
-WireScope appへ直接リンクした画面が観測対象待ちになることは異常ではない。
-
-#### 2026-08-21 official public beta notice feed適用記録
-
-- stack checkout: `a63578a7833ef1c7da3c5d254e29ed4a9e108230`
-- reviewed plan: `sha256:50bc44760750c452c4c7fcc21d76d5e826bfd130cb439862335cbd4a6b5e88b1`
-- source lock: `sha256:9da2e50bacc8091308eb989bc9f3bf159528cc9f25b4afe00fa3282070ff8b5e`
-- target lock: `sha256:931a924093043e3947c5b76a02edeaa25ab8b318cde3ce241fbbc7e99dad3f65`
-- transition: `vps-server@10/public-web-paper@4` → `vps-server@12/public-web-paper@5`
-- stateful identity: 既存b4の3 volumeを維持、追加Composeなし
-- result: transaction `complete`、doctor `runtime=healthy`／`render=current`／
-  `scratch-runtime=current`／`wirescope=current`
-- public runtime config: 上記3 noticeを指定順で配信
-
-初回applyは`compose@13`をdoctorのBedrock UDP公開port許可リストへ追加し忘れたため、
-`doctor_network_mismatch`で停止しsource projectionへ自動rollbackした。source doctorのhealthy／currentを
-確認後、回帰テストを追加しPR #24 merge `a63578a`で修正した。同じplan IDをresumeして完了しており、
-別plan作成、project手編集、volume交換は行っていない。
-
-適用後の公開面確認で`mc-remote.com`が空のHTTP 403を返すことを検出した。Caddy routeとbind mount、
-homepage tree SHAは正しかったが、composition canonicalization時に`mkdtemp()`の`0700`をhomepage CAS
-tree rootへそのままpublishしており、Caddy containerからindexを読めなかった。notice更新はhomepage
-tree identityを変更しておらず、問題はnotice文面ではなく、先行するtree importのpermission contractと
-doctorのhomepage claim欠落である。locked tree rootだけを`0755`へ修復し、同じindex SHAのままHTTPS 200へ
-復旧した。generated file、container内、volumeは手編集していない。
-
-恒久対策として、homepage importは既存entryを含めdirectory `0755`／file `0644`へ正規化する。
-renderはexact modeでなければ停止前に`runtime_content_permissions_invalid`で拒否し、doctorは公開homepage
-indexをlocked treeと照合して`OK doctor homepage=current`を返す。mount path一致だけをhomepage正常の
-根拠にしない。
-
-### 以後のrelease更新
-
-canonical化後、同じprofile／preset family内でdeployment、world、network、volume identityを変えない更新は
-release固有migrationではなく、次の二commandを正準経路とする。planは不足するexact HTTPS artifactを
-content-addressed storeへ取得し、canonicalなlive Composeを検証する。container ID、Compose path、volume名、
-source／target lock SHAを人が会話から転記しない。
-
-次releaseのexact profile／presetがreview済みになった後だけ、次の形でplanする。下のplaceholderは
-次releaseが確定するまで実行しない。
-
-```sh
-MC_REMOTE_STACK="$HOME/mc-remote-stack"
-MC_REMOTE_PROJECT="$HOME/mc-remote-deployments/official-public-beta"
-REVIEWED_NEXT_PROFILE="vps-server@<review済みrevision>"
-REVIEWED_NEXT_PRESET="public-web-paper@<review済みrevision>"
-
-"$MC_REMOTE_STACK/.venv/bin/mcrctl" deployment update plan \
-  --project "$MC_REMOTE_PROJECT" \
-  --docker-context default \
-  --to-profile "$REVIEWED_NEXT_PROFILE" \
-  --to-preset "$REVIEWED_NEXT_PRESET" \
-  --allow-unverified
-```
-
-planはsource／target release、lock差分、`stateful-volumes=in-place`、自動取得したCompose file数、
-限定rollback方針とplan IDを一度に表示する。target renderと全artifact、実効Compose、現行doctorが
-停止前に通らなければplanを作らない。表示された一つのplan IDだけをreviewし、適用する。
-
-```sh
-REVIEWED_UPDATE_PLAN="sha256:<planで確認した64-hex>"
-
-"$MC_REMOTE_STACK/.venv/bin/mcrctl" deployment update apply \
-  --project "$MC_REMOTE_PROJECT" \
-  --plan-id "$REVIEWED_UPDATE_PLAN" \
-  --yes
-```
-
-通常更新ではstateful volumeは同じidentityのまま使い、world全copyや新volume作成を行わない。
-target起動またはdoctor失敗時は旧order／lock／renderをpublishし直してsource containerを再起動する。
-これはworld、session、pairing、接続の完全復元ではない。保存済みScratch `.sb3`／Pythonコードを
-再pairing後に再実行できることが既定の回復基準である。retryは同じplan IDのapplyを再実行する。
-
-この通常節では`--target-volume`、`--preserve-compose-file`を指定せず、Compose pathを手入力しない。
-`migration public-b3`／`migration public-b4`は過去の非canonical runtimeを救済したhistory-only commandであり、
-将来release用に複製しない。
-
-### 2026-08-29 official public beta b6適用記録
-
-上記の通常経路（`deployment update plan/apply`）でofficial public betaをb6へ更新し、次を確認した。
-
-- stack checkout: `23521199701ceb2081de8af3ad64ac6da9682a17`（PR #35マージ、`public-web-paper@8`登録）
-- reviewed plan: `sha256:0c065603d2f568130e9a9cf2936854ec8f9c7e3447b4b9f651f4a650a5072da9`
-- source lock: `sha256:a2e93aaf512f895f4ec5482c443a0763ff534f68f611dd14ca58fb49b109bb92`
-- target lock: `sha256:0940e6a5629d9293ef700d5eb06db86f1527ddca50b787aac400ef9b99f61475`
-- transition: `vps-server@12/public-web-paper@7` → `vps-server@12/public-web-paper@8`
-- result: transaction `complete`、doctor `runtime=healthy`／`render=current`／`homepage=current`／
-  `scratch-runtime=current`／`wirescope=current`
-- stateful identity: 既存b5.1の3 volumeをin-placeで維持、追加Composeなし
-- McRemote JAR SHA-256: `0ec8d4c0b105f3034361b260fc39fcb78013e932e684d34d5ca95c9a6c6a87a6`
-  （GitHub release `v1.21.11-2300.0.0b6`）
-- Scratch/Bridge OCI: `ghcr.io/naohiro2g/mc-remote-{scratch,bridge}:sha-5df50144da13b1a1c8c23b01f2d0138ffd17b953`
-- 外部HTTPS check: `mc-remote.com`、`scratch-beta.mc-remote.com`（GUIおよび
-  `mc-remote-runtime-config.json`）、`wirescope-beta.mc-remote.com`いずれもHTTP 200
-- expected warning: `compatibility=unverified`
-
-この記録はdeployment経路のsanitizedな実施結果であり、compatibility claimの正式ratifyではない。
-そのためunverified warningを消さず、knowledge側の正式evidenceは別gateとする。
-
-`b6-artifact-candidate-set-4`（SSOT記録の正式identity）はScratch/Bridge source commit
-`df9264ec355dd722a848df46e96d4b0fc9340ca2`だが、この適用は意図的にその一つ後のcommit
-`5df50144da13b1a1c8c23b01f2d0138ffd17b953`を使っている。理由は、公開Scratch clientの
-notice pane footerが、deploymentが設定する`release_identity`（`sha-<commit>`形式のOCI
-tag文字列）をそのまま表示しており、raw commit SHAが利用者へ見えていたことを適用準備中に
-発見したため。scratch-editor側で修正（notice-overlayがdeployment設定値ではなく
-ビルド済みclient自身のversion定数からlabelを導出するよう変更）した直後のcommitを使って
-Scratch/Bridge OCIとWireScope appを再ビルド・再検証してから適用した。この一件は
-`public-web-paper@8`のcommit履歴とPR #35のコメント履歴に経緯を残している。
-
-## 2. 新規host bootstrapと歴史的救済
-
-### 運用者環境はdeploymentの一部
-
-このguideでは、個人管理者を信頼されたdeployment operatorとして明示的に構成する。
-Python／uv／Docker／Composeの不足やDocker socket権限を、作業中の代替commandや
-`mcrctl`全体のroot実行で回避しない。[`fresh host bootstrap`](fresh-host-bootstrap-guide_ja.md)の
-`tools/bootstrap-ubuntu-operator.sh`で必要toolと直接Docker accessを準備する。
-
-既存projectでは、live stateを触る前に次をPASSさせる。
-
-```sh
-MC_REMOTE_STACK="$HOME/mc-remote-stack"
-MC_REMOTE_PROJECT="$HOME/mc-remote-deployments/official-public-beta"
-MC_REMOTE_OUTPUT="$MC_REMOTE_PROJECT/generated"
-MC_REMOTE_ARTIFACT_STORE="$HOME/.local/share/mc-remote/artifacts"
-
-"$MC_REMOTE_STACK/.venv/bin/mcrctl" operator check \
-  --project "$MC_REMOTE_PROJECT" \
-  --docker-context default
-```
-
-project order、lock、generated、migration stateは同じ非root operatorが所有する。operator checkは
-project rootだけでなくproject配下を再帰的に検査し、root所有またはoperatorが読書きできないentryが一つでも
-あればmutation前に停止する。`docker group`は
-root相当の権限であるため、この個人管理者だけへ明示的に与える。agent userや一般利用者へは与えない。
-CLI全体をsudo実行せず、Docker操作だけをdirect socket accessで行う。開始gateの正典command名は
-`mcrctl operator check`であり、checkout外からは上記のexact executable pathで呼ぶ。
-
-`/var/lib/mc-remote`が専用`mcremote` groupの`0750`で存在するhostでは、同じbootstrapがtrusted
-operatorをruntime groupへ追加する。これはbackup bind等のhost pathをplan時に検査するためのtraverse権限で、
-runtime rootやbackupのownerを変更しない。追加後はDocker groupと同様にlogout/loginして`--check`を再実行する。
-
-過去のsudo実行でproject配下または宣言済みartifact storeがroot所有になっている場合は、別editorや一時copyで
-回避せず、正準bootstrapへexact pathを渡してownerを一度修復し、logout／login後にcheckを再実行する。
-
-```sh
-"$MC_REMOTE_STACK/tools/bootstrap-ubuntu-operator.sh" --install \
-  --repair-project "$MC_REMOTE_PROJECT" \
-  --repair-artifact-store "$MC_REMOTE_ARTIFACT_STORE"
-
-"$MC_REMOTE_STACK/.venv/bin/mcrctl" operator check \
-  --project "$MC_REMOTE_PROJECT" \
-  --docker-context default
-```
-
-### 現行b2 VPSの停止境界
-
-`official-public-beta`の現行観測は`vps-server@5` / `public-web-paper@1`相当のb2で、
-recovery用の追加Composeと旧generated treeを使っている。新規host用の
-`vps-server@6` / `public-web-paper@2`が解決・renderできることは、そのlive runtimeを
-上書きしてよい根拠にならない。
-
-b2からb3への更新に`--bootstrap`を使わない。先に運用者のdirect Docker accessで
-live Docker inspect / doctorを取得し、現行のCompose file列、working directory、volume、
-plugin / config mountを確定する。専用transactionは新しい3 volumeへsource bytesをcopyし、
-review済みrecovery ComposeをSHA-256でsnapshotしたうえでb3を起動する。
-
-```sh
-MC_REMOTE_STACK="$HOME/mc-remote-stack"
-MC_REMOTE_PROJECT="$HOME/mc-remote-deployments/official-public-beta"
-MC_REMOTE_OUTPUT="$MC_REMOTE_PROJECT/generated"
-AUTH_CONFIG_ROOT="$HOME/.config/mc-remote/runtime/official-public-beta/minecraft"
-```
-
-現行Minecraft containerをexactly oneまで絞り、Dockerが記録したCompose provenanceを確認する。
-
-```sh
-docker ps \
-  --filter "label=com.docker.compose.project=official-public-beta" \
-  --filter "label=com.docker.compose.service=minecraft" \
-  --format '{{.ID}}'
-
-SOURCE_MINECRAFT_CONTAINER="<上で確認したexactly oneのcontainer ID>"
-docker inspect \
-  --format '{{ index .Config.Labels "com.docker.compose.project.config_files" }}' \
-  "$SOURCE_MINECRAFT_CONTAINER"
-```
-
-前段の`auth-enforcement` transactionから起動した現行runtimeでは、追加Composeのidentityは
-原本の`recovery/` pathではなく、そのtransactionが固定したsnapshot pathである。内容が同じでも
-原本へ置き換えず、inspect結果の順序どおりにexact pathを指定する。現在期待する2 pathは次である。
-inspect結果が異なる場合は推測せず、そのruntimeを起動したreview済みfile列を先に確定する。
-
-```sh
-SOURCE_RECOVERY_COMPOSE="$MC_REMOTE_PROJECT/.mcrctl/migrations/auth-enforcement/preserved-compose/00-compose.recovery-plugins.yaml"
-SOURCE_HOMEPAGE_COMPOSE="$MC_REMOTE_PROJECT/.mcrctl/migrations/auth-enforcement/preserved-compose/01-compose.homepage.yaml"
-
-"$MC_REMOTE_STACK/.venv/bin/mcrctl" migration public-b3 plan \
-  --project "$MC_REMOTE_PROJECT" \
-  --output "$MC_REMOTE_OUTPUT" \
-  --docker-context default \
-  --target-volume minecraft-data=official-public-beta-b3-minecraft-data \
-  --target-volume caddy-data=official-public-beta-b3-caddy-data \
-  --target-volume caddy-config=official-public-beta-b3-caddy-config \
-  --preserve-compose-file "$SOURCE_RECOVERY_COMPOSE" \
-  --preserve-compose-file "$SOURCE_HOMEPAGE_COMPOSE" \
-  --auth-config-root "$AUTH_CONFIG_ROOT" \
-  --allow-unverified
-```
-
-planが示すsource / target lock、volume copy、preserved compositionをreviewしてから適用する。
-
-```sh
-REVIEWED_SOURCE_LOCK="sha256:<planで確認したsource>"
-REVIEWED_TARGET_LOCK="sha256:<planで確認したtarget>"
-REVIEWED_COMPOSITION="sha256:<planで確認したpreserved-composition>"
-
-"$MC_REMOTE_STACK/.venv/bin/mcrctl" migration public-b3 apply \
-  --project "$MC_REMOTE_PROJECT" \
-  --output "$MC_REMOTE_OUTPUT" \
-  --docker-context default \
-  --target-volume minecraft-data=official-public-beta-b3-minecraft-data \
-  --target-volume caddy-data=official-public-beta-b3-caddy-data \
-  --target-volume caddy-config=official-public-beta-b3-caddy-config \
-  --preserve-compose-file "$SOURCE_RECOVERY_COMPOSE" \
-  --preserve-compose-file "$SOURCE_HOMEPAGE_COMPOSE" \
-  --auth-config-root "$AUTH_CONFIG_ROOT" \
-  --expected-source-lock-identity "$REVIEWED_SOURCE_LOCK" \
-  --expected-target-lock-identity "$REVIEWED_TARGET_LOCK" \
-  --expected-preserved-composition-identity "$REVIEWED_COMPOSITION" \
-  --allow-unverified \
-  --yes
-```
-
-transactionは`.mcrctl/migrations/public-b3/`へsource render、target candidate、Compose snapshot、
-`source-auth-config.yml`を保存する。source volumeは削除しない。失敗時はphaseと理由を保存し、
-同じlock identityと引数でresumeする。旧runtimeを自動起動せず、旧volumeやsnapshotを削除しない。
-
-旧`official-vps` YAML fixtureは、Caddy / Scratch / Bridgeを含む回帰比較と過去構成の読取りに
-残しているが、新規VPSのapply経路ではない。archiveやprivate inventoryをこのrunbookの
-実行時依存先にしない。
-
-## 3. 対象と人間checkpoint
-
-作業前に人間が次を決める。
-
-- 対象VPSと個人管理者SSH user
-- 新規hostか、既存serviceを停止して置換するhostか
-- worldを空で作ってよいか
-- public Java / McRemote port
-- maintenance開始、停止許容時間、provider consoleの復旧経路
-
-既存worldやserviceに保存価値がない場合も、対象を推測して削除しない。read-only discoveryで
-実対象を確定し、削除対象と再構築後の到達条件を人間がreviewしてからmutationへ進む。
-
-## 4. read-only discovery
-
-対象hostへ個人鍵でSSHし、mutation前の状態を記録する。
-
-```sh
-date --iso-8601=seconds
-id
-cat /etc/os-release
-uname -r
-uptime -s
-free -h
-df -h /
-command -v git
-command -v python3
-command -v uv
-command -v docker
-sudo -v
-docker version
-docker compose version
-docker context inspect default
-sudo ss -lntup
-sudo systemctl --failed
-```
-
-期待値:
-
-- Python 3.11以上
-- Docker EngineとCompose v2
-- `default` contextのDocker endpointが対象hostのlocal Unix socket
-- root/password loginを閉じる前に、別terminalの個人管理者SSHと`sudo -v`が成功
-
-停止条件:
-
-- target、SSH user、host keyが未確認
-- alternate SSH / sudo経路がない
-- Docker contextがSSH / TCP remote
-- 使用予定portを未知processや未知containerが占有
-- disk、memory、failed unitの原因が不明
-
-private host名、IP、provider/account実値はbackstage、秘密を含むraw logはGit外へ置く。
-
-## 5. host baseline
-
-新規hostの個人管理者作成、SSH hardening、Docker導入は
-[`fresh host bootstrap guide`](fresh-host-bootstrap-guide_ja.md)を使う。既存hostは観測済みの
-要件を再利用し、無関係なpackageやserviceを一括削除しない。
-
-管理者をrootful `docker` groupへ暗黙追加しない。Docker mutationは人間のsudo checkpointとし、
-agent支援時は[`agent-assisted bootstrap guide`](agent-assisted-bootstrap-guide_ja.md)の境界に従う。
-
-## 6. stack checkoutの検証
-
-target host上の人間管理checkoutを用意する。
-
-```sh
-git clone https://github.com/Naohiro2g/mc-remote-stack.git
-cd mc-remote-stack
-uv sync --extra dev
-uv run pytest
-uv run ruff check .
-uv run mcrctl --help
-```
-
-bootstrap期はglobal `mcrctl`やPATH変更を要求しない。以後、checkout rootでは`uv run mcrctl`、
-別directoryやsudo checkpointではreview済みcheckoutのexact
-`/path/to/mc-remote-stack/.venv/bin/mcrctl`を使う。
-
-## 7. public deployment project
-
-source checkout外に、一環境だけのprojectを作る。
-
-```sh
-MC_REMOTE_STACK="$HOME/mc-remote-stack"
-MC_REMOTE_PROJECT="$HOME/mc-remote-deployments/official-public-beta"
-MC_REMOTE_ARTIFACT_STORE="$HOME/.local/share/mc-remote/artifacts"
-
-cd "$MC_REMOTE_STACK"
-uv run mcrctl init "$MC_REMOTE_PROJECT" \
-  --format toml \
-  --deployment-name official-public-beta \
-  --profile vps-server@6 \
-  --environment-identity official-public-beta \
-  --channel beta \
-  --exposure public \
-  --purpose integration \
-  --preset public-web-paper@2 \
-  --artifact-store "$MC_REMOTE_ARTIFACT_STORE" \
-  --volume minecraft-data=official-public-beta-minecraft-data \
-  --volume caddy-data=official-public-beta-caddy-data \
-  --volume caddy-config=official-public-beta-caddy-config \
-  --world-identity official-public-beta-world \
-  --bind-address 0.0.0.0 \
-  --java-port 25565 \
-  --mcremote-port 25575
-uv run mcrctl validate --project "$MC_REMOTE_PROJECT"
-uv run mcrctl repo check --project "$MC_REMOTE_PROJECT"
-```
-
-生成された`mc-remote.toml`へ、profileが要求するtyped inputを追加する。
-
-```toml
-[[operator_inputs]]
-role = "public-routes"
-adapter = "public-routes@1"
-path = "operator/public-routes/routes.toml"
-
-[[operator_inputs]]
-role = "minecraft-server"
-adapter = "minecraft-server@1"
-path = "operator/minecraft-server/server.toml"
-```
-
-`$MC_REMOTE_PROJECT/operator/public-routes/routes.toml`を作成し、DNSで実際に向けるlowercase名を
-記録する。これは秘密ではないが環境固有のoperator inputである。
-
-```toml
-homepage = "mc-remote.example"
-homepage_aliases = ["www.mc-remote.example"]
-scratch = "scratch.mc-remote.example"
-bridge = "bridge.mc-remote.example"
-minecraft = "sb.mc-remote.example"
-```
-
-汎用profileはofficial server固有のgameplay / world / performance値を埋め込まない。
-`$MC_REMOTE_PROJECT/operator/minecraft-server/server.toml`へ、このrevisionが所有する
-typed instance設定を置く。
-online mode、secure profile、RCON無効、server port、level identityはこの入力へ委譲せず、
-rendererのsecurity invariantとして固定する。
-
-```toml
-allow_flight = false
-difficulty = "hard"
-enable_query = false
-enable_status = true
-force_gamemode = true
-gamemode = "creative"
-hardcore = true
-log_ips = true
-management_server_enabled = false
-max_players = 18
-max_tick_time = -1
-max_world_size = 9984
-motd = "McRemote Sandbox Server"
-network_compression_threshold = -1
-simulation_distance = 6
-spawn_protection = 150
-view_distance = 10
-white_list = false
-```
-
-`0.0.0.0`は全interfaceでlistenする明示値であり、公開成功や安全性を単独では意味しない。
-provider filter、host firewall、Docker publishの三層を後で照合する。
-
-project rootは最大`0750`、order / lockは最大`0640`とする。world、artifact bytes、backup、
-secretをprojectへ入れない。
-
-## 8. EULAとunverified compatibility
-
-EULAは人間が内容を確認してから明示記録する。
-
-```sh
-cd "$MC_REMOTE_STACK"
-uv run mcrctl accept-eula --project "$MC_REMOTE_PROJECT" --yes
-```
-
-`vps-server@6` + `public-web-paper@2`は、public VPSでのb3 live evidenceが正式着地するまでは
-`unverified`である。bootstrapを行う人間は`mc-remote.toml`へ次を記録する。
-
-```toml
-[acknowledgements]
-allow_unverified = true
-unverified_reason = "public VPS bootstrap evidence is being established"
-allow_eol = false
-eol_reason = ""
-```
-
-理由を空欄、定型の無意味な文、恒久defaultにしない。正式evidence着地後はcompatibility recordを
-別変更で追加し、新規resolveからacknowledgement不要へ移す。
-
-## 9. resolve / plan / artifact / render
-
-```sh
-cd "$MC_REMOTE_STACK"
-uv run mcrctl resolve \
-  --project "$MC_REMOTE_PROJECT" \
-  --allow-unverified
-uv run mcrctl plan --project "$MC_REMOTE_PROJECT"
-uv run mcrctl artifact fetch --project "$MC_REMOTE_PROJECT"
-uv run mcrctl render \
-  --project "$MC_REMOTE_PROJECT" \
-  --output "$MC_REMOTE_PROJECT/generated"
-```
-
-unverified警告がある間、`plan`は内容を表示してstatus 1を返す。これはplan内容を捨てる理由でも、
-警告を成功扱いで隠す理由でもない。人間は少なくとも次をreviewする。
-
-- profile / presetと各content digest
-- lock identity
-- Minecraft / protocol version
-- OCI digest、Paper / McRemote SHA-256
-- public route、public bindとport
-- deployment、environment、world、3つのvolume identity
-- Caddyがedge / app、Scratch / Bridgeがappだけ、Minecraftがapp / egressに所属すること
-- compatibility warningと記録した理由
-- canonical generated tree
-
-reviewしたlock identityを人間が別に控える。shellでlockから自動抽出してapplyへ直結しない。
-
-## 10. existing hostのcutover gate
-
-新規hostなら次節へ進む。既存hostではbootstrap用`mcrctl apply`を使わず、専用の
-`mcrctl migration auth-enforcement`を使う。Docker / Composeをrunbookから直接操作してこの境界を迂回しない。
-
-特に、既存`vps-server@4` runtimeを停止して同じproject名・volumeのまま`vps-server@5`をbootstrap
-しようとすると、lock identityとvolume ownership labelが一致せずfail closedになる。これは
-安全機構であり、手動label変更や生成物の上書きで通さない。migrationではroleごとに新しいvolume
-identityを明示し、旧runtime停止後に旧volumeからcopyする。旧volumeは成功後も自動削除しない。
-
-最初にread-only planを実行する。
-
-```sh
-TARGET_MC_VOLUME="official-public-beta-auth-minecraft-data"
-TARGET_CADDY_DATA="official-public-beta-auth-caddy-data"
-TARGET_CADDY_CONFIG="official-public-beta-auth-caddy-config"
-AUTH_CONFIG_ROOT="$HOME/.config/mc-remote/runtime/official-public-beta/minecraft"
-
-"$MC_REMOTE_STACK/.venv/bin/mcrctl" migration auth-enforcement plan \
-  --project "$MC_REMOTE_PROJECT" \
-  --output "$MC_REMOTE_PROJECT/generated" \
-  --docker-context default \
-  --target-volume "minecraft-data=$TARGET_MC_VOLUME" \
-  --target-volume "caddy-data=$TARGET_CADDY_DATA" \
-  --target-volume "caddy-config=$TARGET_CADDY_CONFIG" \
-  --preserve-compose-file "$MC_REMOTE_PROJECT/recovery/compose.recovery-plugins.yaml" \
-  --preserve-compose-file "$MC_REMOTE_PROJECT/recovery/compose.homepage.yaml" \
-  --auth-config-root "$AUTH_CONFIG_ROOT" \
-  --allow-unverified
-```
-
-planは旧lock、managed volume、空いている新volume identityを検査し、
-`vps-server@5`のtarget lockを一時領域で生成する。project、lock、generated tree、Docker resourceは
-変更しない。旧lock作成後に同じrevisionのbundled profileが更新されていても、order、自己検証済みlock、
-managed generated bytesが一致し、preset / artifact / operator inputがtargetへそのまま保存される場合だけ
-historical sourceとして受理する。`resolve`で稼働中containerと異なるlockへ書き換えない。表示された
-source / target lock identityとvolume copyを人間がreviewする。
-
-現行official public betaではrecovery用の追加Compose fileがplugin set、private config、backup mount、
-homepageを供給している。このcutoverではそれらを外さず、review済みの追加Composeだけをexact SHA-256で保存し、
-transaction内のsnapshotをsource停止とtarget起動の両方に使う。planはlive containerのCompose file列と
-working directoryが指定内容に完全一致しなければ拒否する。private configの内容はplanで読み取らず、applyは
-source停止後にtarget renderの`auth.enforcement: true`を`$AUTH_CONFIG_ROOT/plugins/McRemote/config.yml`へ
-atomicに追加する。既存ファイルが異なる場合は上書きせず停止する。
-
-これは現行サービスを欠落させず認証を修復するための限定的なdeployed-state保存であり、追加plugin / homepageを
-preset / lock / renderへ正規化した意味ではない。移行後もdoctorのrender warningは残り得るため、通常の
-canonical applyやworld restoreを許可する根拠には使わない。
-
-blockerを修理してplanが通った後だけ、maintenance windowで次を実行する。
-
-```sh
-REVIEWED_SOURCE_LOCK="sha256:<planで確認したsource 64-hex>"
-REVIEWED_TARGET_LOCK="sha256:<planで確認したtarget 64-hex>"
-REVIEWED_PRESERVED_COMPOSITION="sha256:<planで確認したpreserved-composition 64-hex>"
-
-"$MC_REMOTE_STACK/.venv/bin/mcrctl" migration auth-enforcement apply \
-  --project "$MC_REMOTE_PROJECT" \
-  --output "$MC_REMOTE_PROJECT/generated" \
-  --docker-context default \
-  --target-volume "minecraft-data=$TARGET_MC_VOLUME" \
-  --target-volume "caddy-data=$TARGET_CADDY_DATA" \
-  --target-volume "caddy-config=$TARGET_CADDY_CONFIG" \
-  --preserve-compose-file "$MC_REMOTE_PROJECT/recovery/compose.recovery-plugins.yaml" \
-  --preserve-compose-file "$MC_REMOTE_PROJECT/recovery/compose.homepage.yaml" \
-  --auth-config-root "$AUTH_CONFIG_ROOT" \
-  --expected-source-lock-identity "$REVIEWED_SOURCE_LOCK" \
-  --expected-target-lock-identity "$REVIEWED_TARGET_LOCK" \
-  --expected-preserved-composition-identity "$REVIEWED_PRESERVED_COMPOSITION" \
-  --allow-unverified \
-  --yes
-```
-
-transaction stateはproject内の`.mcrctl/migrations/auth-enforcement/state.json`へatomicに記録する。
-target起動またはdoctorが失敗しても旧runtimeへ自動復帰しない。停止点と非秘密reasonだけを保持し、
-原因を修理して同じ引数・同じ二つのlock identityでapplyを再実行する。再実行は記録済みphaseから
-target成功へ進む。state JSONを手編集せず、旧volumeを削除せず、別のbootstrapで上書きしない。
-
-このCLIはunit / deterministic transaction試験まで実装済みである。live適用結果は実施時のdoctor結果と
-transaction phaseで記録する。限定的な追加Compose保存をcanonical migration完了と同一視しない。
-
-## 10.1 Scratch runtime configのfail-closed境界
-
-`vps-server@7` / `compose@9`では、Scratchを持つ公開profileの`connection-targets@1`を必須にする。
-未指定のorderはresolveで、空配列または`default_sandbox`を含まないlockはrenderで拒否する。beta channelの
-`runtime/scratch.json`には非空の`connection_targets`と`notices`配列を必ず出す。noticeの文面とURLが
-未確定なら、`notices`は空配列とする。
-
-```toml
-[[operator_inputs]]
-role = "connection-targets"
-adapter = "connection-targets@1"
-path = "operator/connection-targets/targets.toml"
-```
-
-```toml
-[[targets]]
-id = "beta"
-label = "公開ベータ"
-sandbox = "sb-beta.mc-remote.com"
-```
-
-公開betaのorderはprofileを`vps-server@7`へ進め、上記入力を追加してからresolve / renderする。
-同じCompose file集合でruntimeを再作成した後、doctorは
-`https://<scratch route>/mc-remote-runtime-config.json`を取得し、canonical renderとの完全一致、
-非空target、defaultの包含、`notices`配列を確認する。noticeの文面とURLをoperatorが確定するまでは空配列を配信する。
-成功時は`OK doctor scratch-runtime=current`を出す。
-`default_sandbox`だけを配信してScratch内蔵stable fallbackへ委ねる構成は正常系にしない。
-
-## 10.2 public b4 cutover（history-only）
-
-公開b4のtargetは`vps-server@8` / `compose@10` / `public-web-paper@3`である。exact artifactは次で固定する。
-
-- Scratch tag target / CI source: `1d2f18785d260564ad4bc30a26a45ef33fc813d6`、CI artifact
-  `9287627432` / digest `sha256:924254363ab431c1f11ea8661f950b9325da56c248f52613cf87d70cb6562a71`
-- Scratch OCI: `sha256:6425f9ac2549c26440fb418868f2e0fdcc7ad817c1a7ae684142d9e0d879f09f`
-- Bridge CI artifact: `9287631364` / digest
-  `sha256:637dbd94224489aac6fdfd4e273a05e00792d1012b6f2efc4efcd8f5b82730f1`
-- Bridge OCI: `sha256:4225408cf4e40eda8877b0e3cee08649dd53374144edb2910e9365c1544fa146`
-- McRemote JAR: `331633ef15a729658496e89fe49cb8a5eb5ebcb2ec86937b7e5313528d7ec997`
-
-public b4はlong-lived credentialを公開しない。session recordだけをhash-onlyで
-`/data/plugins/McRemote/session-only/`へ保存する。通常restartは越えるが、Minecraft data volumeの交換、
-reset、rollbackで失われてよい。保護対象は保存済みScratch / Python建築コードであり、world、pairing、
-接続状態、認証状態へ完全rollback互換を要求しない。
-
-現行b3が`vps-server@6`なら、先に同じb3 artifact / 同じvolumeのまま`vps-server@7`へ進める。
-`mc-remote.toml`へprofile更新と`connection-targets@1`入力を加え、次のoperator fileを置く。
-
-```toml
-[[targets]]
-id = "beta"
-label = "公開ベータ"
-sandbox = "sb-beta.mc-remote.com"
-```
-
-resolve / render後、現在のcanonical composeとpreserved compose二枚を同じ順序で`up --detach --wait`し、
-doctorと実配信JSONで`default_sandbox`、非空`connection_targets`、`notices = []`を確認する。
-このb3 runtime-config更新が完了するまでb4 migrationをplanしない。
-
-preserved composeで追加pluginを保持する場合も、`/plugins`全体をdirectory mountで置換してはならない。
-周辺pluginは個別file mountとし、generated composeがlockのMcRemote JARをcontent-addressed storeから
-`/plugins/<locked filename>`へread-only mountする経路を残す。doctorはlive mountを、migration planは
-source / target双方のeffective Composeを検査し、exact mountの欠落、`/plugins`を覆うmount、別McRemote
-JAR mountをfail closedにする。
-
-b4 JARをcontent-addressed storeへSHA照合付きで収容した後、read-only planを実行する。
-
-```sh
-B4_MC_VOLUME="official-public-beta-b4-minecraft-data"
-B4_CADDY_DATA="official-public-beta-b4-caddy-data"
-B4_CADDY_CONFIG="official-public-beta-b4-caddy-config"
-
-"$MC_REMOTE_STACK/.venv/bin/mcrctl" migration public-b4 plan \
-  --project "$MC_REMOTE_PROJECT" \
-  --output "$MC_REMOTE_OUTPUT" \
-  --docker-context default \
-  --target-volume "minecraft-data=$B4_MC_VOLUME" \
-  --target-volume "caddy-data=$B4_CADDY_DATA" \
-  --target-volume "caddy-config=$B4_CADDY_CONFIG" \
-  --preserve-compose-file "$MC_REMOTE_PROJECT/.mcrctl/migrations/auth-enforcement/preserved-compose/00-compose.recovery-plugins.yaml" \
-  --preserve-compose-file "$MC_REMOTE_PROJECT/.mcrctl/migrations/auth-enforcement/preserved-compose/01-compose.homepage.yaml" \
-  --auth-config-root "$AUTH_CONFIG_ROOT" \
-  --allow-unverified
-```
-
-planのsource / target lock、3 volume、preserved compositionをreviewしてapplyする。最初のapplyはtargetを
-起動した後、credential healthの人間確認を要求して意図的に停止する。container consoleで順に
-`mcremote credential status`（`UNINITIALIZED`）、`mcremote credential bootstrap`、
-`mcremote credential status`（`HEALTHY`）を確認する。確認後、同じapply引数へ
-`--acknowledge-credential-health`を一度だけ加えて再開する。state JSONを手編集せず、旧volumeを削除しない。
-
-完了後はtoken無しhelloの`auth_required`、新規pairing、ScratchのCatalog Picker / pose / WireScope、
-通常restart後の期限内session token再利用を確認する。お知らせの文面とURLが未確定の間は`notices: []`を維持する。
-
-## 11. bootstrap apply
-
-applyを含む全`mcrctl` commandは、projectを所有する同じ非root operatorで実行する。
-Docker accessがなければapplyへ進まず、運用者bootstrapを修復する。checkout、venv、order、lock、
-generated、transaction stateのownerをcommandごとに変えない。
-
-```sh
-MC_REMOTE_STACK="$HOME/mc-remote-stack"
-MC_REMOTE_PROJECT="$HOME/mc-remote-deployments/official-public-beta"
-REVIEWED_LOCK_IDENTITY="sha256:<planで確認した64-hex>"
-
-"$MC_REMOTE_STACK/.venv/bin/mcrctl" apply \
-  --project "$MC_REMOTE_PROJECT" \
-  --output "$MC_REMOTE_PROJECT/generated" \
-  --expected-lock-identity "$REVIEWED_LOCK_IDENTITY" \
-  --docker-context default \
-  --bootstrap \
-  --yes \
-  --allow-unverified
-```
-
-applyはDocker / Compose、canonical render、current lock、port、container、volumeを再検証する。
-失敗時は新containerをdownするがmanaged world volumeを削除しない。自動rollbackの失敗は
-`apply_rollback_failed`として停止し、成功を主張しない。
-
-長時間無表示にしないため、applyは秘密を含まない固定stepだけを逐次表示する。
-`verify-render`、`validate-lock`、`docker-preflight`、`runtime-preflight`、
-`check-ports`、`pull-images`、`prepare-volumes`、
-`start-services-and-wait timeout=<seconds>`、`post-check`、`complete`が通常経路である。
-失敗時は必要に応じて`rollback-containers`を表示する。Docker log、registry応答、
-container環境値をprogressへ混ぜない。失敗detailはstderr（空ならstdout）の最後の非空行を
-制御文字除去・秘密値mask・長さ制限したものだけであり、完全なDocker出力ではない。
-
-## 12. doctorとpublic reachability
-
-対象host上のread-only doctor:
-
-```sh
-"$MC_REMOTE_STACK/.venv/bin/mcrctl" doctor \
+uv run --project "$MC_REMOTE_STACK" mcrctl doctor \
   --project "$MC_REMOTE_PROJECT" \
   --output "$MC_REMOTE_PROJECT/generated" \
   --docker-context default
 ```
 
-期待値:
+完了時は次の状態が一度に確認できる。
 
-- `runtime=healthy`
-- canonicalな通常起動では`render=current`
-- recovery override等の追加Compose fileが残る移行中runtimeでは
-  `WARN render=additional-compose-files`。health / protocol確認は有効だが、canonical化完了とは
-  扱わない
-- `network=public`
-- Caddy 80 / 443、Minecraft TCP/UDP 25565、McRemote 25575がlockと一致
-- Scratch / Bridgeにはhost publishがなく、app networkは`internal=true`かつIPv6無効
-- Minecraftのdefault gatewayはIPv6無効のegressで、Mojang初回取得が成功する
-- token無しhelloが明示的`auth_required`。成功時は`doctor_auth_not_enforced`でFAIL
-- `homepage=current`。公開homepage indexがlocked static treeのexact bytesと一致
-- `scratch-runtime=current`。公開runtime JSONがcanonical renderと一致
-- `wirescope=current handoff=cross-origin`。公開indexとhandoff headerがcanonical renderと一致
-- compatibilityは正式evidence着地まで`unverified` warning
+- runtimeがhealthy
+- renderがcurrent
+- exact lockと稼働artifactが一致
+- public portとnetwork projectionが一致
+- Scratch runtime configがcurrent
+- Bridge allowlistとScratch target集合が一致
+- McRemote protocolがresponsiveで認証を要求
+- homepageとWireScopeの配信内容がcurrent
 
-別networkから、provider filter、host firewall、Docker publishを通したJava / McRemote
-reachabilityを確認する。target host自身からpublic IPへ接続できることだけで外部到達を代用しない。
-token、pair code、player UUIDをtranscriptへ保存しない。
+## 6. handoffを完了する
 
-新transactionのdoctorと外部到達がPASSした後、現行hostに残るstaging用UFW ruleを人間が
-番号と内容で再確認して削除する。provider filter側の25566 tcp/udp、25576 tcpも同じcheckpointで
-削除する。稼働portのruleと`MC_REMOTE_INGRESS` chainは一括flushしない。
+作業結果として次の値を返す。
 
-```sh
-sudo ufw status numbered
-sudo ufw delete allow 25566/tcp
-sudo ufw delete allow 25566/udp
-sudo ufw delete allow 25576/tcp
-sudo ufw status verbose
-sudo iptables -S DOCKER-USER
-sudo iptables -S MC_REMOTE_INGRESS
+```text
+target: <backstage上の参照>
+stack commit: <MC_REMOTE_STACK_COMMIT>
+project: <MC_REMOTE_PROJECT>
+profile / preset: <MC_REMOTE_PROFILE> / <MC_REMOTE_PRESET>
+plan id: <MC_REMOTE_PLAN_ID>
+transaction: complete
+doctor: <OK行>
+next action: service継続
 ```
 
-## 13. restartabilityと証跡
-
-同じorder / lock / generated treeでdoctorを再実行し、作業を中断しても再開できるhandoffを残す。
-
-```markdown
-- target: backstage上の参照
-- checkout commit:
-- project path:
-- generated path:
-- reviewed lock identity:
-- last PASS:
-- expected warning:
-- host mutation:
-- public reachability:
-- next human checkpoint:
-```
-
-このbootstrapの正式なrelease / protocol根拠に使う回は`live-auto` transcriptをsanitizedし、
-knowledge ownerへevidence draftとしてhandoffする。rawはGit外、private inventoryはbackstage、
-公開可能なrunbookと実装は本repoへ置く。
-
-## 14. 残る完成度phase
-
-Caddy、Scratch、Bridgeのcore transactionは`vps-server@5`へ取り込んだ。過去の6GB official
-VPSで実証したTLS / WSS / rollbackを現行SSOTの自動claimとして完成させる残作業は次である。
-
-1. homepage／周辺plugin artifactの配布元とprovenance
-2. backup retention / off-host live smoke / rollback cleanup contract
-3. Bridge WSS / Bridge→Minecraft smokeのdoctor claim
-4. stable / betaの排他切替、upgrade、同一hash redeploy
-5. provider filter / UFW / `DOCKER-USER`観測のsanitized evidence schema
-
-2026-07-26の6GB実機read-only再確認では、現行legacy Composeに`mc-remote_edge` /
-`mc-remote_app` networkがあり、named volumeはなくruntime stateをhost bind directoryで
-保持していた。UFWには80 / 443 / 25565 tcp+udp / 25575に加え、現行の排他stable / betaでは
-使わない旧staging用25566 tcp+udp / 25576 tcpが残っていた。これらを新profileの既定値へ
-転記しない。provider filter、`DOCKER-USER`からjumpするproject固有chain、実listenを照合し、
-desired lockにないruleを人間review後にcleanupする。
-
-同hostのIPv4 `MC_REMOTE_INGRESS`はRELATED / ESTABLISHED、TCP 80 / 443 / 25565 / 25575、
-UDP 19132を許可して残りをDROPしていた。Bedrockのpublic host portはUDP 25565だが、Composeが
-container UDP 19132へDNATし、`DOCKER-USER` hookではcontainer側portを照合するため、この二つを
-port driftと誤判定しない。一方、IPv6 `DOCKER-USER`には同等chainが無かった。global IPv6、
-provider IPv6 filter、DNS AAAA、Docker IPv6 publishのいずれかが有効なら非対称な公開面になる。
-Phase 2は「IPv6を使わずAAAAも無い」または「IPv4と同等の明示filterを持つ」のどちらかを
-plan / doctorで確認し、未判定のままpublic readinessを主張しない。
-
-backup / restoreの決定論的CLIには、age暗号文とtransfer record sidecarのoff-host転送、
-明示的なremote list / record download / ciphertext download / decrypt、およびcurrent
-lockへ束縛したworld-only `plan` / `apply`がある。world restoreはarchive SHA-256、CRC、
-entry安全性、managed volume、current containerを検証し、plugin dataやcredentialを
-展開しない。起動またはdoctor失敗時は旧worldへrollbackし、成功時も旧worldを保持する。
-残るphase 2は、実FTPS相手の往復smoke、retention値、成功後rollback directoryの削除時点を
-人間review込みで確定することである。
-
-2026-07-26時点で、official homepage / Scratch stable・beta / Bridge stable・beta /
-Minecraft stable・betaの公開名にはAAAA RRが無いことをRR type指定で確認した。CNAMEだけの
-応答やIPv4-mapped addressをAAAAと誤判定しない。これはDNSの時点観測であり、hostのglobal
-IPv6やDocker IPv6設定の確認を省略する理由にはしない。
-
-同日のhost確認では、providerがIPv6 serviceを提供せず、global IPv6 addressは無く、default /
-project `edge` / project `app`の全Docker networkでIPv6が無効だった。現行Composeの短縮port
-syntaxは`docker ps`へ`[::]` publishも表示するが、provider / host / Docker network / DNSの
-いずれにも外部IPv6経路は成立していない。新rendererはこの偶然へ依存せず、公開host bindを
-IPv4として明示する。
-
-現行稼働serviceはCaddy、Scratch stable・beta、Bridge stable・beta、profile起動した
-Minecraft betaである。Minecraft betaだけにcontainer healthがあり、Web / Bridgeはrunning
-だけだった。Phase 2ではprocess runningをservice readinessと同一視せず、Caddy config /
-HTTPS、Scratch runtime、Bridge WSSまたは内部healthをdoctorの個別claimとして検証する。
-
-現行`app` networkは`internal=false`である。これは移行中のstable BridgeがVPS外のbackendへ
-到達する構成を含むためで、恒久的に全backendへ無制限egressを与える根拠にはしない。新profileは
-Bridge routeがproject内だけで閉じる場合と、明示した外部backendを必要とする場合を区別し、
-network isolation / egressをplanへ表示する。実機初回起動ではPaperが
-`piston-data.mojang.com`からruntimeデータを取得するため、Minecraftまでinternal appだけへ
-閉じると`UnknownHostException`でrestart loopになった。このためScratch / Bridgeのapp isolationは
-維持し、Minecraftだけを`gw_priority`付きegressへ接続する。Compose 2.33.1以上を前提とし、
-default gatewayを暗黙のnetwork接続順へ依存させない。
-
-過去の実証済み構造を捨ててWeb面を新規発明しない。archiveの観測を現行contractとtestへ
-再著作し、残るclaimもpublic読者がarchiveなしで完結できる状態へ移す。
+失敗時は同じ欄へtransaction phase、reason、source復帰結果、再開用plan IDを記録する。Stack担当は
+その一組を入力に修復し、同じplanを再実行する。

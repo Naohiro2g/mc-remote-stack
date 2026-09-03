@@ -18,172 +18,108 @@ def test_ssh_hardening_dropin_precedes_cloud_init() -> None:
     assert match.group("name") < "50-cloud-init.conf"
 
 
-def test_public_vps_runbook_uses_the_real_toml_init_cli() -> None:
+def test_public_vps_runbook_is_one_positive_canonical_path() -> None:
     guide = (REPO_ROOT / "docs" / "public-vps-bootstrap-guide_ja.md").read_text(
         encoding="utf-8"
     )
 
-    assert "mcrctl init-toml" not in guide
-    assert "mcrctl init \"$MC_REMOTE_PROJECT\" \\\n  --format toml" in guide
-    assert "--profile vps-server@6" in guide
-    assert "--preset public-web-paper@2" in guide
-    assert "--volume caddy-data=official-public-beta-caddy-data" in guide
-    assert 'adapter = "public-routes@1"' in guide
-    assert 'adapter = "minecraft-server@1"' in guide
-    assert "--exposure public" in guide
+    assert len(guide.splitlines()) <= 180
+    assert "uv run" in guide
+    assert '"$MC_REMOTE_PROJECT/mc-remote.toml"' in guide
+    assert "mcrctl deployment update plan" in guide
+    assert "mcrctl deployment update apply" in guide
+    assert "mcrctl doctor" in guide
+    assert guide.index("mcrctl deployment update plan") < guide.index(
+        "mcrctl deployment update apply"
+    ) < guide.index("mcrctl doctor")
+    assert "00-hub/release-operations-responsibility-design_ja.md" in guide
+    assert "00-hub/release-gate-notes_ja.md" in guide
+    for discarded_record_marker in (
+        "適用記録",
+        "history-only",
+        "migration public-",
+        "現行b2",
+        "2026-08-21",
+        "2026-08-29",
+        "2026-09-03",
+    ):
+        assert discarded_record_marker not in guide
 
 
-def test_public_vps_runbook_keeps_human_apply_checkpoint() -> None:
-    guide = (REPO_ROOT / "docs" / "public-vps-bootstrap-guide_ja.md").read_text(
+def test_operator_uv_has_one_canonical_install_path() -> None:
+    bootstrap = (REPO_ROOT / "tools" / "bootstrap-ubuntu-operator.sh").read_text(
+        encoding="utf-8"
+    )
+    fresh_host = (REPO_ROOT / "docs" / "fresh-host-bootstrap-guide_ja.md").read_text(
         encoding="utf-8"
     )
 
-    assert 'REVIEWED_LOCK_IDENTITY="sha256:<planで確認した64-hex>"' in guide
-    assert "--expected-lock-identity \"$REVIEWED_LOCK_IDENTITY\"" in guide
-    assert "--bootstrap" in guide
-    assert "--yes" in guide
-    assert "--allow-unverified" in guide
+    assert 'UV_BIN="$HOME/.local/bin/uv"' in bootstrap
+    assert "ensure_uv_on_login_path" in bootstrap
+    assert "command -v uv" in bootstrap
+    assert "$HOME/.local/bin/uv" in fresh_host
 
 
-def test_public_vps_runbook_never_runs_mcrctl_through_sudo() -> None:
-    guide = (REPO_ROOT / "docs" / "public-vps-bootstrap-guide_ja.md").read_text(
+def test_operator_runbooks_use_bare_uv_after_bootstrap() -> None:
+    for relative_path in (
+        "docs/fresh-host-bootstrap-guide_ja.md",
+        "docs/public-vps-bootstrap-guide_ja.md",
+    ):
+        guide = (REPO_ROOT / relative_path).read_text(encoding="utf-8")
+
+        assert 'export PATH="$HOME/.local/bin:$PATH"' not in guide
+        assert "MC_REMOTE_UV" not in guide
+        assert "$HOME/.local/bin/uv run" not in guide
+        assert re.search(r"(?m)^uv (?:run|sync|--version)(?: |$)", guide)
+
+
+def test_human_facing_uv_commands_do_not_use_the_install_path_as_a_command() -> None:
+    paths = (
+        "README.md",
+        "README_ja.md",
+        "docs/agent-assisted-bootstrap-guide_ja.md",
+        "docs/b3-credential-isolated-alpha-validation-guide_ja.md",
+        "docs/fresh-host-bootstrap-guide_ja.md",
+        "docs/home-alpha-full-stack-profile-design_ja.md",
+        "docs/home-alpha-validation-guide_ja.md",
+        "docs/normal-dev-environment-guide_ja.md",
+        "docs/public-vps-bootstrap-guide_ja.md",
+    )
+
+    for relative_path in paths:
+        text = (REPO_ROOT / relative_path).read_text(encoding="utf-8")
+        assert 'export PATH="$HOME/.local/bin:$PATH"' not in text
+        assert "$HOME/.local/bin/uv run" not in text
+        assert "$HOME/.local/bin/uv sync" not in text
+        assert '"$MC_REMOTE_UV"' not in text
+
+
+def test_human_runbooks_do_not_execute_mcrctl_by_venv_path_or_command_variable() -> None:
+    for relative_path in (
+        "docs/agent-assisted-bootstrap-guide_ja.md",
+        "docs/normal-dev-environment-guide_ja.md",
+    ):
+        guide = (REPO_ROOT / relative_path).read_text(encoding="utf-8")
+
+        assert ".venv/bin/mcrctl" not in guide
+        assert "MCRCTL=" not in guide
+        assert "uv run --project" in guide
+
+
+def test_readmes_point_to_current_vps_procedure_instead_of_dated_records() -> None:
+    for name in ("README.md", "README_ja.md"):
+        readme = (REPO_ROOT / name).read_text(encoding="utf-8")
+        assert "public-vps-bootstrap-guide_ja.md" in readme
+        assert "most recent dated apply record" not in readme
+        assert "直近の適用記録" not in readme
+        assert "server-runbook-migration-notes_ja.md" not in readme
+
+    assert "## Operational runbooks" in (REPO_ROOT / "README.md").read_text(
         encoding="utf-8"
     )
-
-    assert not re.search(r"sudo\s+[^\n]*mcrctl", guide)
-    assert "mcrctl operator check" in guide
-    assert "docker group" in guide
-    assert "runtime group" in guide
-
-
-def test_public_vps_runbook_puts_generic_same_volume_update_before_history() -> None:
-    guide = (REPO_ROOT / "docs" / "public-vps-bootstrap-guide_ja.md").read_text(
+    assert "## 正準 runbook" in (REPO_ROOT / "README_ja.md").read_text(
         encoding="utf-8"
     )
-    current = guide.split("## 1. 通常のrelease更新", 1)[1].split(
-        "## 2. 新規host bootstrapと歴史的救済", 1
-    )[0]
-    commands = "\n".join(re.findall(r"```sh\n(.*?)```", current, re.S))
-
-    assert "mcrctl\" deployment update plan" in current
-    assert '--to-profile "$REVIEWED_NEXT_PROFILE"' in current
-    assert '--to-preset "$REVIEWED_NEXT_PRESET"' in current
-    assert "次releaseが確定するまで実行しない" in current
-    assert "mcrctl\" deployment update apply" in current
-    assert "--plan-id \"$REVIEWED_UPDATE_PLAN\"" in current
-    assert "stateful volumeは同じidentity" in current
-    assert "Compose pathを手入力しない" in current
-    assert "--target-volume" not in commands
-    assert "--preserve-compose-file" not in commands
-
-
-def test_public_vps_runbook_canonicalizes_live_overlays_before_normal_updates() -> None:
-    guide = (REPO_ROOT / "docs" / "public-vps-bootstrap-guide_ja.md").read_text(
-        encoding="utf-8"
-    )
-    current = guide.split("## 1. 通常のrelease更新", 1)[1].split(
-        "## 2. 新規host bootstrapと歴史的救済", 1
-    )[0]
-    commands = "\n".join(re.findall(r"```sh\n(.*?)```", current, re.S))
-
-    assert "mcrctl\" deployment composition plan" in current
-    assert "--to-profile vps-server@10" in current
-    assert "--to-preset public-web-paper@4" in current
-    assert "public-routes.wirescope=wirescope-beta.mc-remote.com" in current
-    assert "mcrctl\" deployment composition apply" in current
-    assert "--plan-id \"$REVIEWED_COMPOSITION_PLAN\"" in current
-    assert current.index("deployment composition plan") < current.index(
-        "deployment update plan"
-    )
-    assert "周辺plugin、homepage tree、backup bind" in current
-    assert "sha256:9137ec654fae162c0246576ddbb414ddf8521bd6985c8fea54dd215509589e0f" in current
-    assert "sha256:9da2e50bacc8091308eb989bc9f3bf159528cc9f25b4afe00fa3282070ff8b5e" in current
-    assert "render=current" in current
-    assert "compatibility=unverified" in current
-    assert "--to-profile vps-server@12" in current
-    assert "--to-preset public-web-paper@5" in current
-    assert '--replace-input "connection-targets=$REVIEWED_NOTICE_INPUT"' in current
-    assert "staleなMcRemote JAR" in current
-    assert "render=current" in current
-    assert "--preserve-compose-file" not in commands
-
-
-def test_public_vps_runbook_uses_ordered_notice_file_and_keeps_release_notice_last() -> None:
-    guide = (REPO_ROOT / "docs" / "public-vps-bootstrap-guide_ja.md").read_text(
-        encoding="utf-8"
-    )
-
-    assert "--replace-input \"connection-targets=$REVIEWED_NOTICE_INPUT\"" in guide
-    assert "今後のリリース予定" in guide
-    assert "WireScope（ワイヤースコープ）ライブ画面" in guide
-    assert "マイクラリモコンScratchクライアント ver.2100.0.0b4" in guide
-    assert "presetから自動的に末尾" in guide
-    assert "sha256:50bc44760750c452c4c7fcc21d76d5e826bfd130cb439862335cbd4a6b5e88b1" in guide
-    assert "doctor_network_mismatch" in guide
-    assert "同じplan IDをresume" in guide
-    assert "mkdtemp()" in guide
-    assert "runtime_content_permissions_invalid" in guide
-    assert "OK doctor homepage=current" in guide
-
-
-def test_public_vps_runbook_repairs_the_whole_project_tree_before_mutation() -> None:
-    guide = (REPO_ROOT / "docs" / "public-vps-bootstrap-guide_ja.md").read_text(
-        encoding="utf-8"
-    )
-
-    assert "project配下を再帰的に検査" in guide
-    assert "--repair-project \"$MC_REMOTE_PROJECT\"" in guide
-    assert "--repair-artifact-store \"$MC_REMOTE_ARTIFACT_STORE\"" in guide
-    assert "sudoedit" not in guide
-
-
-def test_public_vps_runbook_uses_resumable_auth_migration_transaction() -> None:
-    guide = (REPO_ROOT / "docs" / "public-vps-bootstrap-guide_ja.md").read_text(
-        encoding="utf-8"
-    )
-
-    assert "Docker / Composeをrunbookから直接操作してこの境界を迂回しない" in guide
-    assert "mcrctl\" migration auth-enforcement plan" in guide
-    assert "mcrctl\" migration auth-enforcement apply" in guide
-    assert '--preserve-compose-file "$MC_REMOTE_PROJECT/recovery/compose.recovery-plugins.yaml"' in guide
-    assert '--preserve-compose-file "$MC_REMOTE_PROJECT/recovery/compose.homepage.yaml"' in guide
-    assert '--auth-config-root "$AUTH_CONFIG_ROOT"' in guide
-    assert "review済みの追加Composeだけをexact SHA-256で保存" in guide
-    assert "旧runtimeへ自動復帰しない" in guide
-
-
-def test_public_vps_runbook_does_not_treat_b2_to_b3_as_bootstrap() -> None:
-    guide = (REPO_ROOT / "docs" / "public-vps-bootstrap-guide_ja.md").read_text(
-        encoding="utf-8"
-    )
-
-    assert "vps-server@5` / `public-web-paper@1`" in guide
-    assert "vps-server@6` / `public-web-paper@2`" in guide
-    assert "b2からb3への更新に`--bootstrap`を使わない" in guide
-    assert "live Docker inspect / doctor" in guide
-    assert 'mcrctl" migration public-b3 plan' in guide
-    assert 'mcrctl" migration public-b3 apply' in guide
-    assert "source volumeは削除しない" in guide
-    assert "source-auth-config.yml" in guide
-
-
-def test_public_b3_runbook_reuses_exact_runtime_compose_provenance() -> None:
-    guide = (REPO_ROOT / "docs" / "public-vps-bootstrap-guide_ja.md").read_text(
-        encoding="utf-8"
-    )
-    section = guide.split("### 現行b2 VPSの停止境界", 1)[1].split("## 3.", 1)[0]
-
-    assert "com.docker.compose.project.config_files" in section
-    assert '--preserve-compose-file "$SOURCE_RECOVERY_COMPOSE"' in section
-    assert '--preserve-compose-file "$SOURCE_HOMEPAGE_COMPOSE"' in section
-    assert (
-        '--preserve-compose-file "$MC_REMOTE_PROJECT/recovery/'
-        'compose.recovery-plugins.yaml"'
-    ) not in section
-    assert (
-        '--preserve-compose-file "$MC_REMOTE_PROJECT/recovery/'
-        'compose.homepage.yaml"'
-    ) not in section
 
 
 def test_readmes_report_the_current_b4_credential_alpha_boundary() -> None:
@@ -221,14 +157,17 @@ def test_deployment_workflow_design_replaces_release_named_normal_operations() -
     assert "deployment-operator-workflow-design_ja.md" in readme
 
 
-def test_fresh_host_guide_keeps_canonicalized_local_content_recoverable() -> None:
+def test_fresh_host_guide_returns_to_the_single_deployment_runbook() -> None:
     guide = (REPO_ROOT / "docs" / "fresh-host-bootstrap-guide_ja.md").read_text(
         encoding="utf-8"
     )
 
-    assert "artifact store全体" in guide
-    assert "trees/sha256" in guide
-    assert "配布元が確立した意味ではない" in guide
+    assert len(guide.splitlines()) <= 180
+    assert "public-vps-bootstrap-guide_ja.md" in guide
+    assert "mcrctl init" not in guide
+    assert "mcrctl resolve" not in guide
+    assert "mcrctl render" not in guide
+    assert "mcrctl apply" not in guide
 
 
 def test_normal_dev_runbook_is_server_only_and_gate_coordinator_driven() -> None:
@@ -296,11 +235,19 @@ def test_normal_dev_runbook_documents_reasoned_unverified_acknowledgement() -> N
     assert "unverified_not_acknowledged" in guide
     assert "orderとlockを手編集しない" in guide
     assert "gate coordinatorへ戻す" in guide
-    assert '"$MCRCTL" validate --project "$MC_REMOTE_PROJECT"' in guide
-    assert '"$MCRCTL" resolve --project "$MC_REMOTE_PROJECT" --allow-unverified' in guide
-    mcrctl_assignment = 'MCRCTL="$MC_REMOTE_STACK/.venv/bin/mcrctl"'
-    validate_command = '"$MCRCTL" validate --project "$MC_REMOTE_PROJECT"'
-    assert guide.index(mcrctl_assignment) < guide.index(validate_command)
+    validate_command = (
+        'uv run --project "$MC_REMOTE_STACK" mcrctl validate '
+        '--project "$MC_REMOTE_PROJECT"'
+    )
+    resolve_command = (
+        'uv run --project "$MC_REMOTE_STACK" mcrctl resolve '
+        '--project "$MC_REMOTE_PROJECT" --allow-unverified'
+    )
+    assert validate_command in guide
+    assert resolve_command in guide
+    assert guide.index('MC_REMOTE_STACK="$HOME/mc-remote-stack"') < guide.index(
+        validate_command
+    )
 
 
 def test_normal_dev_exact_preset_template_has_review_slots_without_candidate_values() -> None:

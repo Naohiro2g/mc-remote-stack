@@ -209,7 +209,10 @@ def _load_immutable_record(
     name, revision = _parse_exact_ref(ref)
     resource = root.joinpath(directory, name, revision, filename)
     data = _read_toml(resource, missing_reason=unknown_reason)
-    _validate_schema(data, root, schema_name, resource)
+    selected_schema = schema_name
+    if schema_name == "preset.schema.json" and "deployment_interface" in data:
+        selected_schema = "deployment-interface-preset.schema.json"
+    _validate_schema(data, root, selected_schema, resource)
 
     metadata = data[metadata_key]
     if metadata["name"] != name or metadata["revision"] != revision:

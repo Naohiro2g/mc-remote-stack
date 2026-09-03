@@ -27,6 +27,11 @@ from .runtime_artifacts import (
     expected_mcremote_mount,
     validate_mcremote_mounts,
 )
+from .scratch_contract import (
+    ScratchContractError,
+    load_runtime_config_schema,
+    validate_runtime_config,
+)
 
 MAX_HELLO_BYTES = 64 * 1024
 MAX_SCRATCH_RUNTIME_BYTES = 64 * 1024
@@ -282,8 +287,17 @@ def validate_scratch_runtime_config(
     observed: object,
     *,
     expected: dict[str, Any],
+    schema: dict[str, Any] | None = None,
 ) -> None:
     """Validate the live Scratch route contract before exact desired-state comparison."""
+
+    if schema is not None:
+        try:
+            validate_runtime_config(observed, schema)
+        except ScratchContractError as exc:
+            suffix = exc.path.removeprefix("$").removeprefix(".")
+            path = "scratch.runtime" if not suffix else f"scratch.runtime.{suffix}"
+            _fail("doctor_scratch_runtime_invalid", path, exc.detail)
 
     if not isinstance(observed, dict):
         _fail(
@@ -1187,9 +1201,17 @@ def doctor_toml_project(
             f"https://{routes['scratch']}/mc-remote-runtime-config.json"
         )
         observed_runtime = scratch_runtime_probe(scratch_runtime_url, timeout)
+        schema = None
+        contract = lock.get("scratch_runtime_contract")
+        if contract is not None:
+            try:
+                schema = load_runtime_config_schema(contract, data_root=data_root)
+            except ScratchContractError as exc:
+                _fail(exc.reason, exc.path, exc.detail)
         validate_scratch_runtime_config(
             observed_runtime,
             expected=expected_runtime,
+            schema=schema,
         )
         scratch_runtime_status = "current"
         if lock["render_plan"]["adapter_revision"] in {"11", "12", "13"}:

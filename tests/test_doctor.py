@@ -21,6 +21,8 @@ from mc_remote_stack.doctor import (
     probe_wirescope_public_handoff,
     validate_scratch_runtime_config,
 )
+from mc_remote_stack.preset_registry import load_preset
+from mc_remote_stack.scratch_contract import load_runtime_config_schema
 
 from .test_toml_apply import (
     FakeDocker,
@@ -410,6 +412,32 @@ def test_doctor_rejects_live_scratch_runtime_without_connection_targets() -> Non
 
     assert exc_info.value.reason == "doctor_scratch_runtime_invalid"
     assert exc_info.value.path == "scratch.runtime.connection_targets"
+
+
+def test_doctor_rejects_runtime_unknown_field_against_locked_scratch_schema() -> None:
+    contract = load_preset("public-web-paper@9").data["scratch_runtime_contract"]
+    schema = load_runtime_config_schema(contract)
+    runtime = {
+        "schema_version": 1,
+        "connection_enabled": True,
+        "bridge_url": "wss://bridge-beta.mc-remote.example",
+        "default_sandbox": "sb-beta.mc-remote.example",
+        "connection_targets": [
+            {
+                "id": "beta",
+                "label": "Public beta",
+                "sandbox": "sb-beta.mc-remote.example",
+            }
+        ],
+        "notices": [],
+        "release_identity": "forbidden",
+    }
+
+    with pytest.raises(DoctorContractError) as exc_info:
+        validate_scratch_runtime_config(runtime, expected=runtime, schema=schema)
+
+    assert exc_info.value.reason == "doctor_scratch_runtime_invalid"
+    assert exc_info.value.path == "scratch.runtime"
 
 
 def test_doctor_fetches_public_scratch_runtime_without_credentials(
