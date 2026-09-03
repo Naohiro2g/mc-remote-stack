@@ -3,7 +3,18 @@ schema_version = 1
 [preset_catalog]
 generator = "mcrctl-preset-catalog-v1"
 canonicalization = "jcs-rfc8785-v1"
-source_sha256 = "ab75872ddd0d744613b96615a80fcf62da9c1a28cecbd9ba56ba0551c65702f4"
+source_sha256 = "82dadbfaa607419311492ab064e11715d8f364f2b375b1edc7763567609344ce"
+
+[[preset_catalog.presets]]
+ref = "classroom@1"
+content_sha256 = "1788c6e8846cc258d280ccbbced20bbf4c8364163815bcef636f2306f8755fbe"
+description = "2026-08-31-01 deployment-interface b7 set with the authoritative Scratch handoff 2 contract and exact Scratch, Bridge, Minecraft, Paper, and McRemote artifacts"
+status = "active"
+available_since = "2026-09-04"
+required_profile_capabilities = ["compose", "mcremote-auth-enforced", "paper", "persistent-world", "scratch-runtime", "websocket-bridge"]
+allowed_channels = ["alpha"]
+compatibility_status = "unverified"
+compatibility_records = []
 
 [[preset_catalog.presets]]
 ref = "home-alpha-full@1"

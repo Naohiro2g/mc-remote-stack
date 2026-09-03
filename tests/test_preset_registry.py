@@ -642,9 +642,14 @@ def test_bundled_home_profile_and_preset_are_exact_and_catalogued() -> None:
         "status": "active",
         "available_since": "2026-07-24",
     }
-    assert catalog["preset_catalog"]["presets"][1]["ref"] == "mcremote-paper@1"
-    assert catalog["preset_catalog"]["presets"][1]["compatibility_status"] == "verified"
-    assert catalog["preset_catalog"]["presets"][1]["compatibility_records"] == [
+    catalog_entry = next(
+        item
+        for item in catalog["preset_catalog"]["presets"]
+        if item["ref"] == "mcremote-paper@1"
+    )
+    assert catalog_entry["ref"] == "mcremote-paper@1"
+    assert catalog_entry["compatibility_status"] == "verified"
+    assert catalog_entry["compatibility_records"] == [
         "home-server-2-mcremote-paper-1-live-auto"
     ]
     assert compatibility.data["record"]["test_class"] == "live-auto"
@@ -744,9 +749,14 @@ def test_bundled_alpha_preset_is_immutable_unverified_and_catalogued() -> None:
     }
     assert alpha.data["components"] == beta.data["components"]
     assert alpha.data["artifacts"] == beta.data["artifacts"]
-    assert catalog["preset_catalog"]["presets"][2]["ref"] == "mcremote-paper@2"
-    assert catalog["preset_catalog"]["presets"][2]["compatibility_status"] == "unverified"
-    assert catalog["preset_catalog"]["presets"][2]["compatibility_records"] == []
+    catalog_entry = next(
+        item
+        for item in catalog["preset_catalog"]["presets"]
+        if item["ref"] == "mcremote-paper@2"
+    )
+    assert catalog_entry["ref"] == "mcremote-paper@2"
+    assert catalog_entry["compatibility_status"] == "unverified"
+    assert catalog_entry["compatibility_records"] == []
     verify_preset_catalog()
 
 

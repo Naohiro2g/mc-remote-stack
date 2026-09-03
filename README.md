@@ -26,13 +26,19 @@ default = true
 
 The normal operator surface has two commands. `apply` performs validation, immutable preset resolution,
 exact locking, artifact acquisition, rendering, and preflight, then derives create versus update from the
-managed runtime state. The fresh-host bootstrap installs `uv` at `$HOME/.local/bin/uv` and makes it
+current exact lock, persistent world volume, and managed runtime state. It checks every required host port
+before artifact acquisition or render publication and reports an external owner as a targeted conflict.
+The fresh-host bootstrap installs `uv` at `$HOME/.local/bin/uv` and makes it
 available by command name in subsequent login sessions.
 
 ```sh
 uv run mcrctl apply ./mc-remote.toml
 uv run mcrctl doctor school-a
 ```
+
+`doctor` checks the exact container images, running and Minecraft health state, published ports, served
+Scratch runtime schema and target set, Bridge allowlist and default target, Bridge-container-to-McRemote
+reachability, and token-free `hello` rejection with `auth_required`.
 
 The Scratch runtime schema, fixtures, container mount path, and Scratch image digest come from the contract
 handoff locked by the preset; they are not additional operator inputs. `classroom@1` locks the unchanged contract

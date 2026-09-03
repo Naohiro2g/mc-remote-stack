@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 import re
+import socket
 import subprocess
 import tempfile
 import tomllib
@@ -24,7 +25,12 @@ from jsonschema.exceptions import SchemaError
 from jsonschema.validators import validator_for
 
 from .artifacts import default_artifact_store
-from .preset_registry import semantic_sha256
+from .preset_registry import (
+    PresetDataError,
+    evaluate_lifecycle,
+    load_catalog_policy,
+    semantic_sha256,
+)
 
 EXACT_REF = re.compile(r"^(?P<name>[a-z0-9][a-z0-9-]{0,62})@(?P<revision>[1-9][0-9]*)$")
 IDENTITY = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
@@ -66,9 +72,17 @@ class InterfaceDoctorResult:
     lock_identity: str
     scratch_runtime_status: str
     bridge_allowlist_status: str
+    runtime_status: str
+    image_status: str
+    network_status: str
+    bridge_upstream_status: str
+    auth_status: str
 
 
 CommandRunner = Callable[[list[str], int], subprocess.CompletedProcess[str]]
+PortProbe = Callable[[str, int], bool]
+BridgeUpstreamProbe = Callable[[str, str, int, CommandRunner, str, int], None]
+HelloProbe = Callable[[str, int, str, str, int], object]
 
 
 def _fail(reason: str, path: object, message: str) -> None:
@@ -252,6 +266,20 @@ def _load_preset(preset_ref: str, data_root: Traversable) -> tuple[dict[str, Any
     )
     if not resource.is_file():
         _fail("preset_missing", preset_ref, "immutable preset does not exist")
+    policy_resource = data_root.joinpath("preset_catalog_policy.toml")
+    if policy_resource.is_file():
+        try:
+            lifecycle = evaluate_lifecycle(
+                load_catalog_policy(data_root=data_root), preset_ref
+            )
+        except PresetDataError as exc:
+            _fail(exc.reason, exc.path, str(exc))
+        if not lifecycle.new_resolve_allowed:
+            _fail(
+                "preset_not_offered",
+                preset_ref,
+                "preset lifecycle does not permit a new deployment resolution",
+            )
     try:
         source = resource.read_bytes()
         preset = tomllib.loads(source.decode("utf-8"))
@@ -596,7 +624,11 @@ def _render(
                         "read_only": True,
                     },
                 ],
-                "networks": ["app"],
+                "networks": {
+                    "app": {
+                        "aliases": [target["sandbox"] for target in order["targets"]]
+                    }
+                },
                 "labels": labels,
             },
         },
@@ -640,6 +672,13 @@ def prepare_interface_deployment(
         "surfaces": copy.deepcopy(order["surfaces"]),
         "runtime_config": json.loads(rendered["runtime/scratch.json"]),
         "bridge_allowlist": [target["sandbox"] for target in order["targets"]],
+        "network": {
+            "bind_address": preset["deployment_interface"]["bind_address"],
+            "scratch_port": preset["deployment_interface"]["scratch_port"],
+            "bridge_port": preset["deployment_interface"]["bridge_port"],
+            "java_port": preset["deployment_interface"]["java_port"],
+            "mcremote_port": preset["deployment_interface"]["mcremote_port"],
+        },
         "renderer": {
             "name": "deployment-interface",
             "revision": preset["deployment_interface"]["renderer_revision"],
@@ -650,22 +689,39 @@ def prepare_interface_deployment(
 
 
 def detect_apply_mode(
-    containers: list[dict[str, str]], *, expected_services: set[str]
+    containers: list[dict[str, Any]],
+    *,
+    expected_services: set[str],
+    state_exists: bool,
+    volume_exists: bool,
 ) -> Literal["create", "update"]:
-    """Classify create/update from the exact managed Compose projection."""
+    """Classify create/update from durable state, volume, and managed runtime."""
 
-    if not containers:
-        return "create"
-    services = {container.get("service", "") for container in containers}
-    if (
-        len(containers) != len(expected_services)
-        or services != expected_services
-        or any(container.get("managed") is not True for container in containers)
-    ):
+    if containers:
+        services = {container.get("service", "") for container in containers}
+        if (
+            len(containers) != len(expected_services)
+            or services != expected_services
+            or any(container.get("managed") is not True for container in containers)
+        ):
+            _fail(
+                "deployment_runtime_unmanaged",
+                "docker.containers",
+                "existing Compose projection does not exactly match the preset services",
+            )
+    if not state_exists:
+        if not containers and not volume_exists:
+            return "create"
         _fail(
-            "deployment_runtime_unmanaged",
-            "docker.containers",
-            "existing Compose projection does not exactly match the preset services",
+            "deployment_state_incomplete",
+            "deployment.state",
+            "runtime or persistent volume exists without the current exact lock",
+        )
+    if not volume_exists:
+        _fail(
+            "deployment_state_incomplete",
+            "deployment.volume",
+            "current exact lock exists but its persistent world volume is missing",
         )
     return "update"
 
@@ -748,9 +804,127 @@ def _container_records(
                 "id": container_id,
                 "service": service,
                 "managed": labels.get("io.mc-remote.interface") == "2026-08-31-01",
+                "record": record,
             }
         )
     return result
+
+
+def _volume_exists(runner: CommandRunner, context: str, volume: str) -> bool:
+    command = ["docker", "--context", context, "volume", "inspect", volume]
+    try:
+        result = runner(command, 30)
+    except (FileNotFoundError, OSError, subprocess.TimeoutExpired) as exc:
+        _fail("deployment_volume_inspect_failed", volume, str(exc))
+    if result.returncode == 0:
+        return True
+    if result.returncode == 1:
+        return False
+    _fail(
+        "deployment_volume_inspect_failed",
+        volume,
+        f"docker volume inspect exited with status {result.returncode}",
+    )
+
+
+def _load_current_lock(state_root: Path, deployment: str) -> dict[str, Any] | None:
+    current_path = state_root / deployment / "current.json"
+    if not current_path.exists():
+        return None
+    try:
+        current = json.loads(current_path.read_text(encoding="utf-8"))
+        render_root = Path(current["render_root"])
+        lock = json.loads((render_root / "mc-remote.lock.json").read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError) as exc:
+        _fail("deployment_state_invalid", current_path, str(exc))
+    payload = {key: value for key, value in lock.items() if key != "lock_identity"}
+    expected_identity = f"sha256:{semantic_sha256(payload)}"
+    if (
+        current.get("deployment") != deployment
+        or lock.get("deployment") != deployment
+        or current.get("lock_identity") != expected_identity
+        or lock.get("lock_identity") != expected_identity
+    ):
+        _fail("deployment_state_invalid", current_path, "current state and exact lock differ")
+    return lock
+
+
+def _validate_stateful_transition(previous: dict[str, Any], requested: dict[str, Any]) -> None:
+    previous_ref = previous.get("preset", {}).get("ref")
+    requested_ref = requested.get("preset", {}).get("ref")
+    previous_match = EXACT_REF.fullmatch(previous_ref) if isinstance(previous_ref, str) else None
+    requested_match = EXACT_REF.fullmatch(requested_ref) if isinstance(requested_ref, str) else None
+    if previous_match is None or requested_match is None:
+        _fail("deployment_state_invalid", "preset.ref", "existing or requested preset identity is invalid")
+    if previous_match.group("name") != requested_match.group("name"):
+        _fail(
+            "stateful_preset_family_change",
+            "preset",
+            "an existing world volume requires an explicit migration to change preset family",
+        )
+    if int(requested_match.group("revision")) < int(previous_match.group("revision")):
+        _fail(
+            "stateful_preset_downgrade",
+            "preset",
+            "an existing world volume requires an explicit migration to use an older preset revision",
+        )
+
+
+def _default_port_probe(address: str, port: int) -> bool:
+    family = socket.AF_INET6 if ":" in address else socket.AF_INET
+    try:
+        with socket.socket(family, socket.SOCK_STREAM) as listener:
+            listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            listener.bind((address, port))
+    except OSError:
+        return False
+    return True
+
+
+def _required_host_ports(compose: dict[str, Any]) -> set[tuple[str, int]]:
+    required: set[tuple[str, int]] = set()
+    for service in compose["services"].values():
+        for projection in service.get("ports", []):
+            try:
+                address, host_port, _container_port = projection.rsplit(":", 2)
+                required.add((address, int(host_port)))
+            except (AttributeError, ValueError) as exc:
+                _fail("preset_network_invalid", "compose.ports", str(exc))
+    return required
+
+
+def _owned_host_ports(containers: list[dict[str, Any]]) -> set[tuple[str, int]]:
+    owned: set[tuple[str, int]] = set()
+    for container in containers:
+        record = container.get("record", {})
+        network = record.get("NetworkSettings") if isinstance(record, dict) else None
+        ports = network.get("Ports") if isinstance(network, dict) else None
+        if not isinstance(ports, dict):
+            continue
+        for projections in ports.values():
+            if not isinstance(projections, list):
+                continue
+            for projection in projections:
+                try:
+                    owned.add((projection["HostIp"], int(projection["HostPort"])))
+                except (KeyError, TypeError, ValueError):
+                    continue
+    return owned
+
+
+def _preflight_host_ports(
+    compose: dict[str, Any], containers: list[dict[str, Any]], probe: PortProbe
+) -> None:
+    owned = _owned_host_ports(containers)
+    for address, port in sorted(_required_host_ports(compose)):
+        if (address, port) in owned:
+            continue
+        if not probe(address, port):
+            _fail(
+                "deployment_port_in_use",
+                f"{address}:{port}",
+                "required host port is owned outside this deployment",
+            )
 
 
 def _fetch_interface_artifacts(prepared: PreparedDeployment) -> None:
@@ -778,6 +952,7 @@ def apply_interface_order(
     docker_context: str = "default",
     runner: CommandRunner = _default_runner,
     artifact_fetcher: Callable[[PreparedDeployment], None] = _fetch_interface_artifacts,
+    port_probe: PortProbe = _default_port_probe,
 ) -> InterfaceApplyResult:
     """Resolve, lock, render, and create/update one deployment from one order."""
 
@@ -787,8 +962,6 @@ def apply_interface_order(
         artifact_store=artifact_store,
     )
     resolved_state_root = (state_root or default_interface_state_root()).resolve()
-    render_root = _publish_render(prepared, resolved_state_root)
-    artifact_fetcher(prepared)
     _docker_context(runner, docker_context)
 
     expected_services = set(prepared.compose["services"])
@@ -797,7 +970,21 @@ def apply_interface_order(
         docker_context,
         prepared.lock["deployment"],
     )
-    mode = detect_apply_mode(containers, expected_services=expected_services)
+    volume = prepared.compose["volumes"]["minecraft-data"]["name"]
+    volume_exists = _volume_exists(runner, docker_context, volume)
+    previous_lock = _load_current_lock(resolved_state_root, prepared.lock["deployment"])
+    mode = detect_apply_mode(
+        containers,
+        expected_services=expected_services,
+        state_exists=previous_lock is not None,
+        volume_exists=volume_exists,
+    )
+    if previous_lock is not None:
+        _validate_stateful_transition(previous_lock, prepared.lock)
+    _preflight_host_ports(prepared.compose, containers, port_probe)
+
+    render_root = _publish_render(prepared, resolved_state_root)
+    artifact_fetcher(prepared)
     compose = [
         "docker",
         "--context",
@@ -858,6 +1045,126 @@ def _bridge_environment(
     return result
 
 
+def _expected_interface_images(lock: dict[str, Any]) -> dict[str, str]:
+    return {
+        "scratch": _oci_image(lock, "scratch-runtime"),
+        "bridge": _oci_image(lock, "websocket-bridge"),
+        "minecraft": _oci_image(lock, "minecraft-runtime"),
+    }
+
+
+def _expected_interface_ports(lock: dict[str, Any]) -> dict[str, dict[str, list[dict[str, str]]]]:
+    network = lock.get("network")
+    if not isinstance(network, dict):
+        _fail("deployment_lock_invalid", "lock.network", "network projection is missing")
+    address = network["bind_address"]
+    return {
+        "scratch": {
+            "8080/tcp": [{"HostIp": address, "HostPort": str(network["scratch_port"])}]
+        },
+        "bridge": {
+            "8080/tcp": [{"HostIp": address, "HostPort": str(network["bridge_port"])}]
+        },
+        "minecraft": {
+            "25565/tcp": [{"HostIp": address, "HostPort": str(network["java_port"])}],
+            "25575/tcp": [
+                {"HostIp": address, "HostPort": str(network["mcremote_port"])}
+            ],
+        },
+    }
+
+
+def _validate_interface_containers(
+    containers: list[dict[str, Any]], lock: dict[str, Any]
+) -> None:
+    images = _expected_interface_images(lock)
+    ports = _expected_interface_ports(lock)
+    for container in containers:
+        service = container["service"]
+        record = container.get("record")
+        if not isinstance(record, dict):
+            _fail("deployment_runtime_inspect_failed", service, "Docker inspect record is missing")
+        config = record.get("Config")
+        if not isinstance(config, dict) or config.get("Image") != images[service]:
+            _fail(
+                "deployment_image_mismatch",
+                service,
+                "live container does not use the exact image reference from the lock",
+            )
+        state = record.get("State")
+        if not isinstance(state, dict) or state.get("Running") is not True:
+            _fail("deployment_runtime_not_running", service, "container is not running")
+        if service == "minecraft":
+            health = state.get("Health")
+            if not isinstance(health, dict) or health.get("Status") != "healthy":
+                _fail("deployment_runtime_unhealthy", service, "Minecraft container is not healthy")
+        network = record.get("NetworkSettings")
+        live_ports = network.get("Ports") if isinstance(network, dict) else None
+        if not isinstance(live_ports, dict):
+            _fail("deployment_network_mismatch", service, "published port data is missing")
+        published = {key: value for key, value in live_ports.items() if value}
+        if published != ports[service]:
+            _fail(
+                "deployment_network_mismatch",
+                service,
+                "live published ports do not match the exact lock",
+            )
+
+
+def _default_bridge_upstream_probe(
+    container_id: str,
+    sandbox: str,
+    port: int,
+    runner: CommandRunner,
+    docker_context: str,
+    timeout: int,
+) -> None:
+    script = (
+        "const net=require('net');"
+        "const s=net.createConnection({host:process.argv[1],port:Number(process.argv[2])});"
+        "s.setTimeout(Number(process.argv[3])*1000);"
+        "s.on('connect',()=>{s.end();process.exit(0)});"
+        "s.on('timeout',()=>{s.destroy();process.exit(2)});"
+        "s.on('error',()=>process.exit(3));"
+    )
+    _run(
+        runner,
+        [
+            "docker",
+            "--context",
+            docker_context,
+            "exec",
+            container_id,
+            "node",
+            "-e",
+            script,
+            sandbox,
+            str(port),
+            str(timeout),
+        ],
+        timeout + 5,
+        "bridge_upstream_unreachable",
+    )
+
+
+def _default_hello_probe(
+    address: str, port: int, protocol: str, minecraft_version: str, timeout: int
+) -> object:
+    from .doctor import DoctorContractError, probe_protocol_hello  # noqa: PLC0415
+
+    try:
+        return probe_protocol_hello(
+            address,
+            port,
+            protocol,
+            minecraft_version,
+            "__auth_probe__",
+            timeout,
+        )
+    except DoctorContractError as exc:
+        _fail(exc.reason, exc.path, str(exc))
+
+
 def doctor_interface_deployment(
     deployment: str,
     *,
@@ -868,8 +1175,10 @@ def doctor_interface_deployment(
     runner: CommandRunner = _default_runner,
     runtime_probe: Callable[[str, int], object] | None = None,
     bridge_environment_probe: Callable[[str, CommandRunner], dict[str, str]] | None = None,
+    bridge_upstream_probe: BridgeUpstreamProbe = _default_bridge_upstream_probe,
+    hello_probe: HelloProbe = _default_hello_probe,
 ) -> InterfaceDoctorResult:
-    """Check live Scratch config against its locked handoff and Bridge allowlist."""
+    """Check the compact deployment's exact runtime, routing, and auth contract."""
 
     if not IDENTITY.fullmatch(deployment):
         _fail("deployment_invalid", deployment, "must be a lowercase deployment identity")
@@ -878,20 +1187,27 @@ def doctor_interface_deployment(
     root = data_root or files("mc_remote_stack").joinpath("data")
     resolved_state_root = (state_root or default_interface_state_root()).resolve()
     current_path = resolved_state_root / deployment / "current.json"
-    try:
-        current = json.loads(current_path.read_text(encoding="utf-8"))
-        render_root = Path(current["render_root"])
-        lock = json.loads((render_root / "mc-remote.lock.json").read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError) as exc:
-        _fail("deployment_state_invalid", current_path, str(exc))
-    identity_payload = {key: value for key, value in lock.items() if key != "lock_identity"}
-    expected_identity = f"sha256:{semantic_sha256(identity_payload)}"
-    if current.get("lock_identity") != expected_identity or lock.get("lock_identity") != expected_identity:
-        _fail("deployment_lock_invalid", current_path, "current state and exact lock differ")
+    lock = _load_current_lock(resolved_state_root, deployment)
+    if lock is None:
+        _fail("deployment_state_invalid", current_path, "current exact lock is missing")
+    expected_identity = lock["lock_identity"]
 
     _docker_context(runner, docker_context)
     containers = _container_records(runner, docker_context, deployment)
-    detect_apply_mode(containers, expected_services={"scratch", "bridge", "minecraft"})
+    volume = f"{deployment}-minecraft-data"
+    detect_apply_mode(
+        containers,
+        expected_services={"scratch", "bridge", "minecraft"},
+        state_exists=True,
+        volume_exists=_volume_exists(runner, docker_context, volume),
+    )
+    if not containers:
+        _fail(
+            "deployment_runtime_not_running",
+            deployment,
+            "the exact deployment has no running container projection",
+        )
+    _validate_interface_containers(containers, lock)
     bridge = next(container for container in containers if container["service"] == "bridge")
     environment = (
         bridge_environment_probe(bridge["id"], runner)
@@ -899,6 +1215,28 @@ def doctor_interface_deployment(
         else _bridge_environment(bridge["id"], runner, docker_context)
     )
     allowlist = environment.get("BRIDGE_SANDBOX_ALLOWLIST", "")
+    default_sandbox = environment.get("BRIDGE_DEFAULT_SANDBOX", "")
+    bridge_port_text = environment.get("BRIDGE_SANDBOX_PORT", "")
+    if default_sandbox != lock["runtime_config"].get("default_sandbox"):
+        _fail(
+            "bridge_default_target_mismatch",
+            "bridge.BRIDGE_DEFAULT_SANDBOX",
+            "Bridge default target differs from the exact Scratch runtime",
+        )
+    try:
+        bridge_port = int(bridge_port_text)
+    except ValueError:
+        _fail(
+            "bridge_upstream_invalid",
+            "bridge.BRIDGE_SANDBOX_PORT",
+            "Bridge upstream port must be an integer",
+        )
+    if bridge_port != 25575:
+        _fail(
+            "bridge_upstream_invalid",
+            "bridge.BRIDGE_SANDBOX_PORT",
+            "Bridge must use the McRemote container port",
+        )
     if runtime_probe is None:
         from .doctor import probe_scratch_runtime_config  # noqa: PLC0415
 
@@ -910,9 +1248,44 @@ def doctor_interface_deployment(
         bridge_allowlist=allowlist,
         data_root=root,
     )
+    bridge_upstream_probe(
+        bridge["id"],
+        default_sandbox,
+        bridge_port,
+        runner,
+        docker_context,
+        timeout,
+    )
+
+    plugin = _one_role(lock, "mcremote-plugin")
+    paper = _one_role(lock, "paper-server")
+    network = lock["network"]
+    probe_address = network["bind_address"]
+    if probe_address == "0.0.0.0":
+        probe_address = "127.0.0.1"
+    elif probe_address == "::":
+        probe_address = "::1"
+    hello = hello_probe(
+        probe_address,
+        network["mcremote_port"],
+        plugin["protocol"],
+        paper["minecraft_version"],
+        timeout,
+    )
+    if getattr(hello, "status", None) != "auth-required":
+        _fail(
+            "doctor_auth_not_enforced",
+            "protocol.hello",
+            "token-free hello must be rejected with auth_required",
+        )
     return InterfaceDoctorResult(
         deployment=deployment,
         lock_identity=expected_identity,
         scratch_runtime_status="current",
         bridge_allowlist_status="current",
+        runtime_status="healthy",
+        image_status="current",
+        network_status="current",
+        bridge_upstream_status="reachable",
+        auth_status="enforced",
     )

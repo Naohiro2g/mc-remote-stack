@@ -7,7 +7,16 @@
 operatorが編集する入力は`mc-remote.toml`一つである。`apply <mc-remote.toml>`はpreset解決、exact lock、
 Scratch runtime configとBridge allowlistの共通target集合からの生成、Scratch schema validation、artifact取得、
 render、Docker preflight、create／update判定、起動を進める。`doctor <deployment>`は配信runtime configを
-lock済みScratch schemaへ通し、実containerのBridge allowlistが同じtarget集合と一致することを確認する。
+lock済みScratch schemaへ通し、exact image、container稼働／Minecraft health、公開port、実containerのBridge
+allowlist／default target、Bridge containerからMcRemoteへの到達、tokenなし`hello`への`auth_required`を確認する。
+targetの`sandbox`は同じtarget集合からMinecraft serviceの内部network aliasにも生成し、Bridgeが同じdeploymentの
+McRemoteへ接続する経路を固定する。
+
+`apply`はcurrent exact lock、永続world volume、管理containerの三者から状態を判定する。lockとvolumeが揃う
+既存deploymentはcontainerが停止／削除済みでもupdateであり、新規扱いにしない。既存world volumeを再利用する
+場合だけpreset family変更とrevision後退をmigration要求として停止する。新しいdeployment／volumeにはrevisionの
+大小を持ち込まない。必要host portはartifact取得とrender公開より前に確認し、同deploymentが現在所有するportだけを
+update時の占有から除外する。
 
 生成したlockとrenderはoperator入力ではなく、既定では
 `$XDG_STATE_HOME/mc-remote/deployments/<deployment>/`へ置く。`MC_REMOTE_STATE_HOME`を指定した場合は、
