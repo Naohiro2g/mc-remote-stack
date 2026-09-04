@@ -1,4 +1,7 @@
+import os
 import re
+import subprocess
+import sys
 import tomllib
 from pathlib import Path
 
@@ -120,6 +123,68 @@ def test_readmes_point_to_current_vps_procedure_instead_of_dated_records() -> No
     assert "## 正準 runbook" in (REPO_ROOT / "README_ja.md").read_text(
         encoding="utf-8"
     )
+
+
+def test_release_artifact_intake_is_one_canonical_path_before_deployment() -> None:
+    guide_path = "docs/release-preset-preparation-guide_ja.md"
+    guide = (REPO_ROOT / guide_path).read_text(encoding="utf-8")
+    public_vps = (REPO_ROOT / "docs/public-vps-bootstrap-guide_ja.md").read_text(
+        encoding="utf-8"
+    )
+    normal_dev = (REPO_ROOT / "docs/normal-dev-environment-guide_ja.md").read_text(
+        encoding="utf-8"
+    )
+
+    for readme_name in ("README.md", "README_ja.md"):
+        assert guide_path in (REPO_ROOT / readme_name).read_text(encoding="utf-8")
+    assert guide_path.split("/", 1)[1] in public_vps
+    assert guide_path.split("/", 1)[1] in normal_dev
+
+    assert len(guide.splitlines()) <= 220
+    for required_input in (
+        "release name",
+        "component release handoff",
+        "Scratch contract handoff",
+        "GitHub Releases",
+        "GHCR",
+        "Paper",
+        "OCI registry",
+    ):
+        assert required_input in guide
+
+    assert 'gh api "repos/Naohiro2g/McRemote/releases/tags/$MC_REMOTE_TAG"' in guide
+    assert 'gh release download "$MC_REMOTE_TAG"' in guide
+    assert "sha256sum" in guide
+    assert "docker buildx imagetools inspect" in guide
+    assert 'git -C "$SCRATCH_SOURCE" archive' in guide
+    assert "scratch-contracts/$SCRATCH_COMMIT" in guide
+    assert "src/mc_remote_stack/data/preset_registry/<name>/<revision>/preset.toml" in guide
+    assert "uv run tools/rebuild-preset-catalog.py" in guide
+    assert "uv run mcrctl preset show" in guide
+    assert "uv run pytest" in guide
+    assert "uv run ruff check ." in guide
+
+    assert guide.index("component release handoff") < guide.index("GitHub Releases")
+    assert guide.index("GitHub Releases") < guide.index("preset_registry/<name>/<revision>")
+    assert guide.index("preset_registry/<name>/<revision>") < guide.index("uv run pytest")
+
+
+def test_preset_catalog_has_a_supported_rebuild_command() -> None:
+    tool_path = REPO_ROOT / "tools" / "rebuild-preset-catalog.py"
+    tool = tool_path.read_text(encoding="utf-8")
+    result = subprocess.run(
+        [sys.executable, str(tool_path), "--check"],
+        cwd=REPO_ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+        env={**os.environ, "PYTHONPATH": str(REPO_ROOT / "src")},
+    )
+
+    assert "build_preset_catalog" in tool
+    assert "preset_catalog.toml" in tool
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "status=unchanged" in result.stdout
 
 
 def test_readmes_report_the_current_b4_credential_alpha_boundary() -> None:

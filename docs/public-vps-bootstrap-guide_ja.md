@@ -10,6 +10,10 @@ SSH接続、Stack checkout、既存deployment projectがhandoff済みの地点�
 
 ## 1. deployment handoffを受け取る
 
+exact presetがまだ無いreleaseは、先に
+[`release artifact／preset準備runbook`](release-preset-preparation-guide_ja.md)で公式配布物を照合し、
+push済みのimmutable preset refを作る。preset準備後は、以下のdeployment handoffから上から順に実行する。
+
 handoffには次の値が一組で入る。
 
 | 値 | 内容 | 所有元 |

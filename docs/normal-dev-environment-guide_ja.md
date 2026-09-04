@@ -97,7 +97,9 @@ exact presetとbootstrap tupleのreview入力枠は
 [`examples/normal-dev-exact-preset.template.toml`](../examples/normal-dev-exact-preset.template.toml)
 に置く。これはresolverが読むbundled presetではなく、placeholderを残したまま使用できないreview checklistである。
 exact set受領後の別PRで、全placeholderをreview済み値へ置換したappend-only presetをregistryへ追加し、catalogを
-再生成する。同じPRで、template冒頭に示すexact 5-tupleだけを`BOOTSTRAP_CONTRACTS`へappendする。
+再生成する。artifact照合からpreset作成までは
+[`release artifact／preset準備runbook`](release-preset-preparation-guide_ja.md)を上から実行する。同じPRで、
+template冒頭に示すexact 5-tupleだけを`BOOTSTRAP_CONTRACTS`へappendする。
 
 `artifact fetch`はlockにあるcredential-free HTTPS fileを取得する。GitHub Releaseを先行作成せずに固定する
 McRemote JARは`kind = "git-build"`としてsource／build provenanceとoutput SHA-256をpreset／lockへ固定し、

@@ -55,6 +55,9 @@ The project is intentionally separate from:
 
 ## Operational runbooks
 
+- [Release artifact and preset preparation (Japanese)](docs/release-preset-preparation-guide_ja.md):
+  resolve one named release through its component handoffs and official distribution endpoints,
+  verify exact file and OCI identities, and publish an append-only immutable preset for deployment
 - [Agent-assisted bootstrap (Japanese)](docs/agent-assisted-bootstrap-guide_ja.md): the no-on-host-agent
   baseline, workstation-over-SSH assistance, and the security gate for limited on-host experiments
 - [Fresh-host bootstrap (Japanese)](docs/fresh-host-bootstrap-guide_ja.md): prepare the individual

@@ -48,6 +48,8 @@ contract directory外のScratch source、product-config、探索版`home-server@
 
 ## 正準 runbook
 
+- [release artifact／preset準備](docs/release-preset-preparation-guide_ja.md): 指定releaseのcomponent handoffと
+  公式配布元からexact artifact identityを照合し、append-onlyのimmutable presetへ固定する
 - [agent-assisted bootstrap](docs/agent-assisted-bootstrap-guide_ja.md): agentを対象hostへ置かない
   基準経路、管理端末からのSSH支援、対象host上agentの限定実験とsecurity gate
 - [fresh host bootstrap](docs/fresh-host-bootstrap-guide_ja.md): 個人管理者、SSH、exact Stack checkout、
