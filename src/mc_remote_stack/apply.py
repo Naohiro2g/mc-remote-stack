@@ -15,94 +15,6 @@ from typing import Any, Protocol
 from .render import RenderContractError, verify_toml_render_output
 from .runtime_contract import MINECRAFT_RUNTIME_GID, MINECRAFT_RUNTIME_UID
 
-BOOTSTRAP_CONTRACTS = frozenset(
-    {
-        (
-            "home-server@4",
-            "mcremote-paper@1",
-            "beta",
-            "isolated",
-            "integration",
-        ),
-        (
-            "home-server@4",
-            "mcremote-paper@2",
-            "alpha",
-            "isolated",
-            "integration",
-        ),
-        (
-            "home-server@3",
-            "mcremote-paper@3",
-            "alpha",
-            "isolated",
-            "integration",
-        ),
-        (
-            "home-server@3",
-            "mcremote-paper@6",
-            "alpha",
-            "isolated",
-            "integration",
-        ),
-        (
-            "home-server@5",
-            "mcremote-paper@7",
-            "dev",
-            "lan-only",
-            "integration",
-        ),
-        (
-            "home-server@6",
-            "home-alpha-full@1",
-            "alpha",
-            "isolated",
-            "integration",
-        ),
-        (
-            "vps-server@7",
-            "public-web-paper@2",
-            "beta",
-            "public",
-            "integration",
-        ),
-        (
-            "vps-server@8",
-            "public-web-paper@3",
-            "beta",
-            "public",
-            "integration",
-        ),
-        (
-            "vps-server@9",
-            "public-web-paper@4",
-            "beta",
-            "public",
-            "integration",
-        ),
-        (
-            "vps-server@10",
-            "public-web-paper@4",
-            "beta",
-            "public",
-            "integration",
-        ),
-        (
-            "vps-server@11",
-            "public-web-paper@4",
-            "beta",
-            "public",
-            "integration",
-        ),
-        (
-            "vps-server@12",
-            "public-web-paper@5",
-            "beta",
-            "public",
-            "integration",
-        ),
-    }
-)
 DOCKER_CONTEXT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$")
 ANSI_ESCAPE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 URL_USERINFO = re.compile(
@@ -631,19 +543,6 @@ def _validate_bootstrap_contract(
     allow_unverified: bool,
     allow_eol: bool,
 ) -> None:
-    actual_contract = (
-        lock["input"]["profile"]["ref"],
-        lock["input"]["preset"]["ref"],
-        lock["environment"]["channel"],
-        lock["environment"]["exposure"],
-        lock["environment"]["purpose"],
-    )
-    if actual_contract not in BOOTSTRAP_CONTRACTS:
-        _fail(
-            "bootstrap_contract_unsupported",
-            "environment",
-            "initial live apply supports only explicitly listed bootstrap contracts",
-        )
     if lock["agreements"]["minecraft_eula"] is not True:
         _fail(
             "minecraft_eula_not_accepted",
