@@ -40,7 +40,23 @@ gate coordinatorがexact setとauthorized next actionを渡す。指定された
 
 operator向けの実行手順は、このrunbookを正本とする。
 
-## 2. 対象hostで正準環境を確認する
+## 2. 更新前の人間checkpoint
+
+typed operator input（Notice、接続先、plugin一覧等）を変更する更新では、作業前に人間が次を決める。
+Stack担当はこれらを会話で確認せずに、既存project内の値や他projectの値をそのまま複製・推測して
+進めない。
+
+- Notice文言・リンク先が現在も正しいか（過去のreview用ファイルや他environmentのnoticeをそのまま
+  採用しない）
+- 引き継ぐworld内のplugin設定／DB（LuckPermsの権限設定等）を変更する必要が無いか
+- maintenance開始、停止許容時間
+
+稼働中projectの`mc-remote.toml`／`mc-remote.lock.toml`／`generated/`を、人間がその場で直接編集したり、
+Stack担当が`resolve`／`render`を単独実行したりしない。理由は`8. 稼働中projectへのresolve／render単独
+実行を避ける理由`を参照。typed inputの変更は、必ずproject外のreview用copyを編集し、
+`--replace-input`で渡す（`4. exact update planを作る`参照）。
+
+## 3. 対象hostで正準環境を確認する
 
 管理端末からhandoffの接続先へ入る。
 
@@ -72,7 +88,7 @@ test -f "$MC_REMOTE_PROJECT/mc-remote.toml"
 ここまでの成功で、Python、Docker、Compose、operator権限、project owner、local Docker context、
 Stack commitが一組に揃う。
 
-## 3. exact update planを作る
+## 4. exact update planを作る
 
 ```sh
 uv run --project "$MC_REMOTE_STACK" \
@@ -92,7 +108,7 @@ target renderとsame-volume更新内容を生成する。出力された`PLAN de
 MC_REMOTE_PLAN_ID="sha256:<plan出力のid>"
 ```
 
-## 4. planを適用する
+## 5. planを適用する
 
 ```sh
 uv run --project "$MC_REMOTE_STACK" \
@@ -106,7 +122,7 @@ transactionは同じvolume identityでtargetを起動し、起動後doctorまで
 `OK deployment-update status=complete`を返す。target起動またはdoctorが失敗した場合はsource projectionを
 復帰し、同じ`MC_REMOTE_PLAN_ID`で再開できる状態を返す。
 
-## 5. live deploymentを確認する
+## 6. live deploymentを確認する
 
 ```sh
 uv run --project "$MC_REMOTE_STACK" mcrctl doctor \
@@ -126,7 +142,7 @@ uv run --project "$MC_REMOTE_STACK" mcrctl doctor \
 - McRemote protocolがresponsiveで認証を要求
 - homepageとWireScopeの配信内容がcurrent
 
-## 6. handoffを完了する
+## 7. handoffを完了する
 
 作業結果として次の値を返す。
 
@@ -143,3 +159,21 @@ next action: service継続
 
 失敗時は同じ欄へtransaction phase、reason、source復帰結果、再開用plan IDを記録する。Stack担当は
 その一組を入力に修復し、同じplanを再実行する。
+
+## 8. 稼働中projectへのresolve／render単独実行を避ける理由
+
+`mcrctl resolve`と`mcrctl render`を、稼働中containerを持つprojectへ直接（`deployment update
+plan`／`apply`のtransactionを経由せず）実行すると、実機で次の破損が再現した。
+
+- `render`はprojectの`generated/`を新しいinodeへ差し替える。ファイル単位でbind mountしている
+  content（例: Scratch runtime configの`runtime/scratch.json`）は稼働中containerが古いinodeを
+  保持し続けるため、見かけ上は壊れない。
+- 一方、ディレクトリ単位でbind mountしているcontent（例: WireScopeの`generated/wirescope`
+  → `/srv/wirescope`）は、稼働中containerのbind先が空になり、対象containerを再起動するまで
+  404を返し続ける。
+
+`deployment update plan`は候補を`.mcrctl/updates/`配下の隔離領域に作るため、この破損を起こさない。
+`apply`はtarget起動を含む一つのtransactionとしてcontainerを作り直すため、bind mountも正しく
+更新される（`5. planを適用する`）。稼働中projectを直接触る必要が生じた場合（`stale_lock`等）は、
+このrunbookの通常経路（`--replace-input`）へ戻すか、Stack担当が対象containerを手動で再起動して
+復旧してから、人間へ状況を報告する。
