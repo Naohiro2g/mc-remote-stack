@@ -2,7 +2,6 @@ import os
 import re
 import subprocess
 import sys
-import tomllib
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -98,15 +97,13 @@ def test_human_facing_uv_commands_do_not_use_the_install_path_as_a_command() -> 
 
 
 def test_human_runbooks_do_not_execute_mcrctl_by_venv_path_or_command_variable() -> None:
-    for relative_path in (
-        "docs/agent-assisted-bootstrap-guide_ja.md",
-        "docs/normal-dev-environment-guide_ja.md",
-    ):
-        guide = (REPO_ROOT / relative_path).read_text(encoding="utf-8")
+    guide = (REPO_ROOT / "docs/agent-assisted-bootstrap-guide_ja.md").read_text(
+        encoding="utf-8"
+    )
 
-        assert ".venv/bin/mcrctl" not in guide
-        assert "MCRCTL=" not in guide
-        assert "uv run --project" in guide
+    assert ".venv/bin/mcrctl" not in guide
+    assert "MCRCTL=" not in guide
+    assert "uv run --project" in guide
 
 
 def test_readmes_point_to_current_vps_procedure_instead_of_dated_records() -> None:
@@ -235,100 +232,46 @@ def test_fresh_host_guide_returns_to_the_single_deployment_runbook() -> None:
     assert "mcrctl apply" not in guide
 
 
-def test_normal_dev_runbook_is_server_only_and_gate_coordinator_driven() -> None:
+def test_normal_dev_runbook_tracks_the_current_host_native_runtime() -> None:
     guide = (REPO_ROOT / "docs" / "normal-dev-environment-guide_ja.md").read_text(
         encoding="utf-8"
     )
     readme = (REPO_ROOT / "README_ja.md").read_text(encoding="utf-8")
 
     assert "normal-dev-environment-guide_ja.md" in readme
-    assert "home-server@5" in guide
+    assert len(guide.splitlines()) <= 180
     assert "dev-integration" in guide
+    assert "host-native" in guide
+    assert "run.sh" in guide
+    assert "Screen" in guide
     assert "channel: `dev`" in guide
     assert "exposure: `lan-only`" in guide
-    assert "25565" in guide
-    assert "25575" in guide
-    assert "25566" not in guide
-    assert "25576" not in guide
-    assert "Minecraft client" in guide
-    assert "開発者workstation" in guide
-    assert "GUI、browser、Minecraft Launcherをserver hostへ導入しない" in guide
-    assert "EXACT_PRESET_REF" in guide
-    assert "exact set未凍結中は設定しない" in guide
-    assert "BOOTSTRAP_CONTRACTS" in guide
-    assert "profile追加だけでは初回applyを許可しない" in guide
-    assert "mcrctl operator check" in guide
-    assert "exact set未凍結中は`--install`を実行しない" in guide
-    assert "coordinatorがhost installを明示許可" in guide
-    assert "別portを選ぶ" not in guide
-    assert "backstage inventoryで所有者、用途、期待状態を確定" in guide
-    assert "未知のlistenerを許容しない" in guide
-    assert "mcrctl resolve" in guide
-    assert "mcrctl plan" in guide
-    assert "mcrctl artifact fetch" in guide
-    assert "mcrctl artifact import-reviewed" in guide
-    assert (
-        "McRemoteのpush済みsource commit、artifact名、version、bytes、SHA-256、"
-        "credential-free HTTPS取得元"
-        not in guide
-    )
-    assert "git-build provenance" in guide
-    assert "review済みbytes import" in guide
-    assert "normal-dev-exact-preset.template.toml" in guide
-    assert "mcrctl render" in guide
-    assert "mcrctl apply" in guide
-    assert "mcrctl doctor" in guide
-    assert "mcrctl deployment update plan" in guide
-    assert "mcrctl deployment update apply" in guide
-    assert "candidate deployは未許可" in guide
-    assert "sudo mcrctl" not in guide
-    assert "ケータリング" not in guide
+    assert "release-preset-preparation-guide_ja.md" in guide
+    assert "backstage inventory" in guide
+    assert "authorized next action" in guide
+    assert 'SERVER_ROOT="<backstage handoff>"' in guide
+    assert 'SCREEN_SESSION="<backstage handoff>"' in guide
+    assert "sha256sum" in guide
+    assert "stop" in guide
+    assert "operator-backup" in guide
+    assert "Credential domain health: HEALTHY" in guide
+    assert "auth_required" in guide
 
+    assert "/home/tsuji" not in guide
+    assert "home-server@5" not in guide
+    assert "compose@5" not in guide
+    assert "systemd" not in guide
+    assert "b5" not in guide
+    assert "b6" not in guide
+    assert "b7" not in guide
+    assert "使用しない経路" not in guide
 
-def test_normal_dev_runbook_documents_reasoned_unverified_acknowledgement() -> None:
-    guide = (REPO_ROOT / "docs" / "normal-dev-environment-guide_ja.md").read_text(
-        encoding="utf-8"
-    )
-
-    assert "[acknowledgements]" in guide
-    assert "allow_unverified = true" in guide
-    assert (
-        'unverified_reason = "b5 exact compatibility set integration evidence is being established"'
-        in guide
-    )
-    assert "acknowledgement_reason_required" in guide
-    assert "unverified_not_acknowledged" in guide
-    assert "orderとlockを手編集しない" in guide
-    assert "gate coordinatorへ戻す" in guide
-    validate_command = (
-        'uv run --project "$MC_REMOTE_STACK" mcrctl validate '
-        '--project "$MC_REMOTE_PROJECT"'
-    )
-    resolve_command = (
-        'uv run --project "$MC_REMOTE_STACK" mcrctl resolve '
-        '--project "$MC_REMOTE_PROJECT" --allow-unverified'
-    )
-    assert validate_command in guide
-    assert resolve_command in guide
-    assert guide.index('MC_REMOTE_STACK="$HOME/mc-remote-stack"') < guide.index(
-        validate_command
+    assert guide.index("## 2. read-only preflight") < guide.index(
+        "## 3. artifact staging"
+    ) < guide.index("## 4. 正常停止と一件交換") < guide.index(
+        "## 5. 起動とreadiness"
     )
 
 
-def test_normal_dev_exact_preset_template_has_review_slots_without_candidate_values() -> None:
-    template = (
-        REPO_ROOT / "examples" / "normal-dev-exact-preset.template.toml"
-    ).read_text(encoding="utf-8")
-
-    assert 'allowed_channels = ["dev"]' in template
-    assert 'kind = "git-build"' in template
-    assert 'id = "mcremote-jar"' in template
-    assert 'repository = "<REVIEWED_HTTPS_REPOSITORY>"' in template
-    assert 'commit = "<REVIEWED_FULL_COMMIT_SHA>"' in template
-    assert 'output_sha256 = "<REVIEWED_OUTPUT_SHA256>"' in template
-    assert 'BOOTSTRAP_CONTRACT = ["home-server@5"' in template
-    parsed = tomllib.loads(template)
-    assert parsed["requirements"]["allowed_channels"] == ["dev"]
-    assert parsed["artifacts"][-1]["kind"] == "git-build"
-    assert "6214a6a5efe5180c1cd0f374089736908b07ee34" not in template
-    assert "f293e63a77f178bc8d3cba8276e95124f2ee6b3eca77c15867a6fc5e5f166531" not in template
+def test_normal_dev_legacy_preset_review_template_is_removed() -> None:
+    assert not (REPO_ROOT / "examples" / "normal-dev-exact-preset.template.toml").exists()

@@ -64,8 +64,8 @@ The project is intentionally separate from:
   administrator, SSH, exact Stack checkout, canonical uv, Python, Docker, and Compose
 - [Public VPS bootstrap (Japanese)](docs/public-vps-bootstrap-guide_ja.md):
   the current same-volume release update from one reviewed handoff through plan, apply, and doctor
-- [Normal dev environment (Japanese)](docs/normal-dev-environment-guide_ja.md): prepare and operate
-  the shared server-side development environment
+- [Normal dev environment (Japanese)](docs/normal-dev-environment-guide_ja.md): update and verify
+  the host-native `run.sh` / Screen runtime without replacing its world, configuration, or credentials
 - [Home private alpha validation (Japanese)](docs/home-alpha-validation-guide_ja.md)
 - [Wake-on-LAN operation (Japanese)](docs/wake-on-lan-field-note_ja.md): power-state operation for
   semi-always-on servers

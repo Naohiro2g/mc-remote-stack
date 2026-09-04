@@ -56,8 +56,8 @@ contract directory外のScratch source、product-config、探索版`home-server@
   正準uv、Python、Docker、Composeを準備する一本道
 - [public VPS deployment](docs/public-vps-bootstrap-guide_ja.md): review済みhandoffから
   plan、apply、doctorまでを上から実行するsame-volume release更新
-- [通常dev環境](docs/normal-dev-environment-guide_ja.md): server側だけを別hostへ置き、開発者workstationの
-  Minecraft／Scratch／Python／WireScopeから検証する`dev-integration`のpreflight、初回apply、更新経路
+- [通常dev環境](docs/normal-dev-environment-guide_ja.md): host-nativeの`run.sh`／Screen runtimeを
+  world、config、credentialを維持して更新し、開発者workstationから確認する正準経路
 - [home private alpha検証](docs/home-alpha-validation-guide_ja.md)
 - [Wake-on-LAN運用](docs/wake-on-lan-field-note_ja.md): 準24時間serverのpower state操作
 
