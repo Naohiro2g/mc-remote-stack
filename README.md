@@ -4,9 +4,11 @@
 
 `mc-remote-stack` is the reproducible deployment and operations package for McRemote servers. It turns a new-design `mc-remote.toml`, or a transitional legacy `mc-remote.yml`, into validated, digest-pinned runtime configuration.
 
-## Normal deployment: one file, two commands
+## Normal deployment: a short request, one file, two commands
 
-Select a reviewed immutable preset and put the URLs and Minecraft target in one `mc-remote.toml`:
+A short request such as “deploy the b7 set to dev using the catering method” is enough. The Stack
+operator turns the conversation, Backstage inventory, and release handoff into one `mc-remote.toml`
+with a reviewed immutable preset, URLs, and Minecraft target. A user may also create or edit that file directly:
 
 ```toml
 schema_version = 1
@@ -41,11 +43,11 @@ Scratch runtime schema and target set, Bridge allowlist and default target, Brid
 reachability, and token-free `hello` rejection with `auth_required`.
 
 The Scratch runtime schema, fixtures, container mount path, and Scratch image digest come from the contract
-handoff locked by the preset; they are not additional operator inputs. `classroom@1` locks the unchanged contract
-tree at Scratch commit `4c893bd…` and the Scratch/Bridge image digests published by Scratch's own CI. Stack only
-checks the tag and registry manifest read-only and does not build Scratch, Bridge, or Plugin. Images from the
-earlier workflow triggered by Stack are not referenced. Stack does not read product-config, Scratch source outside
-the contract directory, or the unadopted `home-server@7` / `compose@15` prototype to infer fields.
+handoff locked by the preset. The component owner builds and publishes each release asset or OCI image; Stack
+verifies its tag, manifest, and digest read-only. A normal `apply` acquires only exact artifacts published by the
+component owner. An explicitly handed-off git-build artifact becomes reviewed CAS bytes in a separate artifact
+preparation step after its component-owned provenance and expected digest match. The Scratch contract directory
+owns runtime fields, while the image-owned product config owns product information.
 
 The project is intentionally separate from:
 
@@ -62,9 +64,9 @@ The project is intentionally separate from:
   baseline, workstation-over-SSH assistance, and the security gate for limited on-host experiments
 - [Fresh-host bootstrap (Japanese)](docs/fresh-host-bootstrap-guide_ja.md): prepare the individual
   administrator, SSH, exact Stack checkout, canonical uv, Python, Docker, and Compose
-- [Public VPS bootstrap (Japanese)](docs/public-vps-bootstrap-guide_ja.md):
-  the current same-volume release update from one reviewed handoff through plan, apply, and doctor
-- [Normal dev environment (Japanese)](docs/normal-dev-environment-guide_ja.md): update and verify
+- [Existing public VPS same-volume update (Japanese)](docs/public-vps-bootstrap-guide_ja.md):
+  update a canonical TOML deployment that carries its current world volume through plan, apply, and doctor
+- [Normal dev, host-native method (Japanese)](docs/normal-dev-environment-guide_ja.md): update and verify
   the host-native `run.sh` / Screen runtime without replacing its world, configuration, or credentials
 - [Home private alpha validation (Japanese)](docs/home-alpha-validation-guide_ja.md)
 - [Wake-on-LAN operation (Japanese)](docs/wake-on-lan-field-note_ja.md): power-state operation for

@@ -1,8 +1,9 @@
 # Release artifact／preset準備runbook
 
 このrunbookは、指定されたMcRemote release nameを、Stackが取得可能な一組のimmutable presetへ
-変換する正準手順である。component担当はartifactをbuild／publishし、Stack担当は公開済みartifactを
-公式配布元からread-onlyで照合してpresetへ固定する。完成したexact preset refをdeployment runbookへ渡す。
+変換する正準手順である。component担当がbuild／publishしたartifact、またはcomponent handoffが明示する
+git-build artifactのreviewed bytesを、Stack担当がexact identityへ照合してpresetへ固定する。
+完成したexact preset refをdeployment runbookへ渡す。
 
 ## 1. release handoffを一組にする
 
@@ -122,7 +123,31 @@ docker buildx imagetools inspect "$BRIDGE_IMAGE@$BRIDGE_EXPECTED_DIGEST"
 
 各tagの`Digest`をhandoff値と一致させ、presetのOCI artifactは`locator`と`digest`へ分けて固定する。
 
-## 4. foundation artifactを公式配布元で照合する
+## 4. git-build artifactをreviewed bytesへ固定する
+
+component handoffがdistribution modeとして`git-build`を指定した場合は、repository、full commit、recipe、toolchain、
+build input、output SHA-256を一組で受け取る。component担当が渡したreviewed output、またはhandoffが再現を委任した
+場合にartifact準備環境でexact recipeから作ったoutputを、期待SHA-256へ一致させる。
+
+resolved lockが指すartifact idと同じ一件をCASへ収容する。
+
+```sh
+GIT_BUILD_PROJECT="<resolved deployment project>"
+GIT_BUILD_ARTIFACT_ID="<lockのartifact id>"
+REVIEWED_OUTPUT="<reviewed output path>"
+REVIEWED_OUTPUT_SHA256="<handoffのoutput SHA-256>"
+
+test "$(sha256sum "$REVIEWED_OUTPUT" | awk '{print $1}')" = "$REVIEWED_OUTPUT_SHA256"
+uv run mcrctl artifact import-reviewed "$REVIEWED_OUTPUT" \
+  --project "$GIT_BUILD_PROJECT" \
+  --artifact-id "$GIT_BUILD_ARTIFACT_ID" \
+  --expected-sha256 "$REVIEWED_OUTPUT_SHA256"
+```
+
+OCI imageにはこの経路を使わない。OCIはcomponent ownerのCIがpublishしたtag／digestを§3で照合する。
+artifact準備環境とdeployment hostを分け、通常`apply`はCASのreviewed bytesを使用する。
+
+## 5. foundation artifactを公式配布元で照合する
 
 topologyが使うPaperは公式Paper配布URLから取得し、McRemote assetと同じく`sha256sum`を期待値へ一致させる。
 Minecraft runtime等のOCI imageは、その公式OCI registryを`docker buildx imagetools inspect
@@ -135,7 +160,7 @@ Minecraft runtime等のOCI imageは、その公式OCI registryを`docker buildx 
 role | kind | version/tag | source commit | official locator | exact digest | verification
 ```
 
-## 5. append-only presetを作る
+## 6. append-only presetを作る
 
 新しいrevisionを次へ追加する。
 
@@ -148,14 +173,15 @@ presetには、必要な全component role、各artifactの公式locatorとexact 
 正準commandで再生成する。
 
 ```sh
+PRESET_REF="<name>@<revision>"
 uv run tools/rebuild-preset-catalog.py
 uv run tools/rebuild-preset-catalog.py --check
-uv run mcrctl preset show <name>@<revision>
+uv run mcrctl preset show "$PRESET_REF"
 ```
 
 表示されたpreset ref、semantic digest、component／artifact一覧を収集表と照合する。
 
-## 6. presetを決定論的に検証する
+## 7. presetを決定論的に検証する
 
 ```sh
 uv sync --extra dev
@@ -169,7 +195,7 @@ Scratch contract testは収容tree、schema／fixture digest、accept／reject�
 集合から生成されることを確認する。`apply` testはhost port preflight後にHTTPS artifactをSHA-256付きCASへ
 取得し、OCI imageをdigest参照でpullすることを確認する。
 
-## 7. deployment handoffへ渡す
+## 8. deployment handoffへ渡す
 
 準備完了時は次を一組で返す。
 
@@ -184,6 +210,6 @@ tests: <実行commandとPASS>
 stack commit: <push済みcommit>
 ```
 
-deployment担当はこのexact preset refを`mc-remote.toml`へ設定する。通常operator経路の`apply`が
-HTTPS artifact取得、OCI pull、lock、render、create／update判定、起動までを行い、`doctor`がlive identityを
-確認する。
+deployment担当はこのexact preset refを`mc-remote.toml`へ設定する。通常operator経路の`apply`は
+component担当がpublishしたexact artifactだけを取得し、OCI pull、lock、render、create／update判定、起動までを
+行う。`doctor`がlive identityを確認する。

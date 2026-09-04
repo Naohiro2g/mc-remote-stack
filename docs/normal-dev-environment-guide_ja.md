@@ -1,8 +1,8 @@
-# 通常dev環境 host-native runbook
+# 通常dev topology — host-native方式 runbook
 
-通常dev環境は、server hostでPaper／McRemoteを直接実行し、人間がMinecraft consoleを操作できる
-host-native環境である。Minecraft client、Scratch、Bridge、Python、WireScopeは開発者workstationで動かす。
-Scratch／Bridgeがworkstationのloopbackを使うため、server側のWeb証明書は必要ない。
+このrunbookは、通常dev topologyをhost-native方式で構築したenvironmentに適用する。Paper／McRemoteはserver hostで直接実行する。
+Minecraft client、Scratch、Bridge、Python、WireScopeは開発者workstationで動かし、Scratch／Bridgeはloopbackを使う。
+ケータリング型で構築する通常devは、対応profileのcompact `apply`／`doctor`を使う。
 
 - logical deployment／environment: `dev-integration`
 - channel: `dev`
@@ -24,7 +24,7 @@ handoffには次を一組で入れる。
 | `JAVA_PORT`、`MCREMOTE_PORT`、`PAPER_JAR`、`CURRENT_MCREMOTE_JAR` | backstage inventory＋実機preflight |
 | `MCREMOTE_TAG`、`MCREMOTE_ASSET`、`MCREMOTE_URL`、`MCREMOTE_SHA256` | component release handoff＋Stack artifact照合 |
 | `EXPECTED_PAPER_SHA256`、`EXPECTED_JAVA_MAJOR`、`EXPECTED_PROTOCOL` | exact release set |
-| `authorized next action` | human operator／gate coordinator |
+| `authorized next action` | human operator（release済みset）／gate coordinator（candidate） |
 
 公開artifactの取得元とdigestは
 [`release artifact／preset準備runbook`](release-preset-preparation-guide_ja.md)で照合する。このhost-native

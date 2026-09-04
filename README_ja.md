@@ -4,10 +4,11 @@
 
 `mc-remote-stack` は、McRemote（マイクラリモコン）サーバーを再現可能な形で設置・運用するためのパッケージ。Scratchクライアントを含む。新設計の `mc-remote.toml`、または移行前の legacy `mc-remote.yml` から、検証済みでdigestを固定したruntime設定を生成する。
 
-## 通常deployment：一つのfile、二つのcommand
+## 通常deployment：短い依頼、一つのfile、二つのcommand
 
-通常経路では、検証済みのimmutable presetを選び、URL、接続先、任意のお知らせを一つの
-`mc-remote.toml`へ書く。
+通常経路の入口は「b7セットをdevへケータリング型で」のような短い依頼でよい。Stack担当が会話、
+Backstage inventory、release handoffをつなぎ、検証済みpreset、URL、接続先、任意のお知らせを一つの
+`mc-remote.toml`へ具体化する。利用者が同じfileを直接作成・編集することもできる。
 
 ```toml
 schema_version = 1
@@ -35,10 +36,10 @@ uv run mcrctl doctor school-a
 ```
 
 Scratch runtime schema、fixture、container mount path、Scratch image digestはpresetが固定するScratch contract
-handoffから読み、operatorの別入力にはしない。`classroom@1`はScratch commit `4c893bd…`の不変contract treeと、
-Scratch自身のCIがpublishしたScratch／Bridge image digestを固定する。Stackはtag／manifestをread-only照合して
-lockするだけで、Scratch／Bridge／Pluginをbuildしない。前回Stackが起動したworkflowのimageは参照しない。
-contract directory外のScratch source、product-config、探索版`home-server@7`／`compose@15`からfieldを取り込まない。
+handoffから読む。component担当がbuild／publishしたrelease assetとOCI imageを正式入力とし、Stackはtag、
+manifest、digestをread-only照合する。通常`apply`はcomponent担当がpublishしたexact artifactだけを取得する。
+handoffが明示するgit-build artifactは、artifact準備工程でcomponent所有のprovenanceと期待digestへ一致させた
+reviewed bytesをCASへ収容する。Scratch fieldの正本はcontract directory、product情報の正本はimage-owned product configである。
 
 このプロジェクトは、次のものとは意図的に分離している。
 
@@ -54,9 +55,9 @@ contract directory外のScratch source、product-config、探索版`home-server@
   基準経路、管理端末からのSSH支援、対象host上agentの限定実験とsecurity gate
 - [fresh host bootstrap](docs/fresh-host-bootstrap-guide_ja.md): 個人管理者、SSH、exact Stack checkout、
   正準uv、Python、Docker、Composeを準備する一本道
-- [public VPS deployment](docs/public-vps-bootstrap-guide_ja.md): review済みhandoffから
-  plan、apply、doctorまでを上から実行するsame-volume release更新
-- [通常dev環境](docs/normal-dev-environment-guide_ja.md): host-nativeの`run.sh`／Screen runtimeを
+- [既存public VPSのsame-volume更新](docs/public-vps-bootstrap-guide_ja.md): 同一world volumeを継承する
+  canonical TOML deploymentをplan、apply、doctorで更新する現行経路
+- [通常dev・host-native方式](docs/normal-dev-environment-guide_ja.md): `run.sh`／Screen runtimeを
   world、config、credentialを維持して更新し、開発者workstationから確認する正準経路
 - [home private alpha検証](docs/home-alpha-validation-guide_ja.md)
 - [Wake-on-LAN運用](docs/wake-on-lan-field-note_ja.md): 準24時間serverのpower state操作

@@ -7,6 +7,10 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
+def _shell_blocks(source: str) -> list[str]:
+    return re.findall(r"(?ms)^```sh\n(.*?)^```$", source)
+
+
 def test_ssh_hardening_dropin_precedes_cloud_init() -> None:
     guide = (REPO_ROOT / "docs" / "fresh-host-bootstrap-guide_ja.md").read_text(
         encoding="utf-8"
@@ -36,6 +40,11 @@ def test_public_vps_runbook_is_one_positive_canonical_path() -> None:
     ) < guide.index("mcrctl doctor")
     assert "00-hub/release-operations-responsibility-design_ja.md" in guide
     assert "00-hub/release-gate-notes_ja.md" in guide
+    assert "同一world volumeを継承する既存deployment" in guide
+    assert "Stack担当がbackstage inventoryを読み" in guide
+    assert "release済みset" in guide
+    assert "gate coordinatorを通常handoffの必須者にしない" in guide
+    assert "compact state adoption" in guide
     for discarded_record_marker in (
         "適用記録",
         "history-only",
@@ -122,6 +131,21 @@ def test_readmes_point_to_current_vps_procedure_instead_of_dated_records() -> No
     )
 
 
+def test_readmes_start_from_a_short_request_and_keep_component_artifact_ownership() -> None:
+    readme_ja = (REPO_ROOT / "README_ja.md").read_text(encoding="utf-8")
+    readme_en = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+
+    assert "短い依頼" in readme_ja
+    assert "Stack担当が" in readme_ja
+    assert "直接作成・編集" in readme_ja
+    assert "component担当がbuild／publish" in readme_ja
+    assert "component担当がpublishしたexact artifactだけを取得" in readme_ja
+    assert "git-build artifact" in readme_ja
+    assert "artifact準備工程" in readme_ja
+    assert "short request" in readme_en
+    assert "component owner" in readme_en
+
+
 def test_release_artifact_intake_is_one_canonical_path_before_deployment() -> None:
     guide_path = "docs/release-preset-preparation-guide_ja.md"
     guide = (REPO_ROOT / guide_path).read_text(encoding="utf-8")
@@ -153,6 +177,21 @@ def test_release_artifact_intake_is_one_canonical_path_before_deployment() -> No
     assert 'gh release download "$MC_REMOTE_TAG"' in guide
     assert "sha256sum" in guide
     assert "docker buildx imagetools inspect" in guide
+    assert "component担当がbuild／publish" in guide
+    assert "component担当がpublishしたexact artifactだけを取得" in guide
+    assert "git-build artifact" in guide
+    assert "artifact準備環境" in guide
+    for provenance_field in (
+        "repository",
+        "full commit",
+        "recipe",
+        "toolchain",
+        "build input",
+        "output SHA-256",
+    ):
+        assert provenance_field in guide
+    assert "mcrctl artifact import-reviewed" in guide
+    assert "OCI imageにはこの経路を使わない" in guide
     assert 'git -C "$SCRATCH_SOURCE" archive' in guide
     assert "scratch-contracts/$SCRATCH_COMMIT" in guide
     assert "src/mc_remote_stack/data/preset_registry/<name>/<revision>/preset.toml" in guide
@@ -164,6 +203,26 @@ def test_release_artifact_intake_is_one_canonical_path_before_deployment() -> No
     assert guide.index("component release handoff") < guide.index("GitHub Releases")
     assert guide.index("GitHub Releases") < guide.index("preset_registry/<name>/<revision>")
     assert guide.index("preset_registry/<name>/<revision>") < guide.index("uv run pytest")
+
+
+def test_current_deployment_runbook_shell_blocks_parse() -> None:
+    for relative_path in (
+        "docs/release-preset-preparation-guide_ja.md",
+        "docs/public-vps-bootstrap-guide_ja.md",
+        "docs/normal-dev-environment-guide_ja.md",
+    ):
+        source = (REPO_ROOT / relative_path).read_text(encoding="utf-8")
+        for index, block in enumerate(_shell_blocks(source), start=1):
+            result = subprocess.run(
+                ["bash", "-n"],
+                input=block,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            assert result.returncode == 0, (
+                f"{relative_path} shell block {index}: {result.stderr}"
+            )
 
 
 def test_preset_catalog_has_a_supported_rebuild_command() -> None:
@@ -244,11 +303,15 @@ def test_normal_dev_runbook_tracks_the_current_host_native_runtime() -> None:
     assert "host-native" in guide
     assert "run.sh" in guide
     assert "Screen" in guide
+    assert "通常dev topologyをhost-native方式" in guide
+    assert "ケータリング型で構築する通常dev" in guide
+    assert "compact `apply`／`doctor`" in guide
     assert "channel: `dev`" in guide
     assert "exposure: `lan-only`" in guide
     assert "release-preset-preparation-guide_ja.md" in guide
     assert "backstage inventory" in guide
     assert "authorized next action" in guide
+    assert "human operator（release済みset）" in guide
     assert 'SERVER_ROOT="<backstage handoff>"' in guide
     assert 'SCREEN_SESSION="<backstage handoff>"' in guide
     assert "sha256sum" in guide
