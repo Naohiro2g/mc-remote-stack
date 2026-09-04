@@ -585,46 +585,45 @@ def _parse_connection_targets_v3(path: Path, source: bytes) -> dict[str, Any]:
         )
     semantic_notices: list[dict[str, Any]] = []
     for index, notice in enumerate(notices):
-        if not isinstance(notice, dict) or set(notice) != {
-            "heading",
-            "body",
-            "href",
-            "label",
-        }:
+        notice_keys = set(notice) if isinstance(notice, dict) else set()
+        has_link = notice_keys == {"heading", "body", "href", "label"}
+        has_no_link = notice_keys == {"heading", "body"}
+        if not isinstance(notice, dict) or not (has_link or has_no_link):
             _fail(
                 "operator_input_parse_failed",
                 path,
-                f"notices[{index}] must contain exactly heading, body, href, and label",
+                f"notices[{index}] must contain heading and body, plus either "
+                "both href and label or neither",
             )
-        semantic_notices.append(
-            {
-                "heading": _notice_text(
+        semantic_notice: dict[str, Any] = {
+            "heading": _notice_text(
+                path,
+                f"notices[{index}].heading",
+                notice["heading"],
+                maximum=MAX_LABEL_CHARACTERS,
+            ),
+            "body": _notice_text(
+                path,
+                f"notices[{index}].body",
+                notice["body"],
+                maximum=MAX_NOTICE_BODY_CHARACTERS,
+            ),
+        }
+        if has_link:
+            semantic_notice["link"] = {
+                "href": _notice_href(
                     path,
-                    f"notices[{index}].heading",
-                    notice["heading"],
+                    notice["href"],
+                    key=f"notices[{index}].href",
+                ),
+                "label": _notice_text(
+                    path,
+                    f"notices[{index}].label",
+                    notice["label"],
                     maximum=MAX_LABEL_CHARACTERS,
                 ),
-                "body": _notice_text(
-                    path,
-                    f"notices[{index}].body",
-                    notice["body"],
-                    maximum=MAX_NOTICE_BODY_CHARACTERS,
-                ),
-                "link": {
-                    "href": _notice_href(
-                        path,
-                        notice["href"],
-                        key=f"notices[{index}].href",
-                    ),
-                    "label": _notice_text(
-                        path,
-                        f"notices[{index}].label",
-                        notice["label"],
-                        maximum=MAX_LABEL_CHARACTERS,
-                    ),
-                },
             }
-        )
+        semantic_notices.append(semantic_notice)
     return {
         "targets": _connection_targets_semantic(path, value["targets"]),
         "notices": semantic_notices,
