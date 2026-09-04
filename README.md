@@ -43,11 +43,11 @@ Scratch runtime schema and target set, Bridge allowlist and default target, Brid
 reachability, and token-free `hello` rejection with `auth_required`.
 
 The Scratch runtime schema, fixtures, container mount path, and Scratch image digest come from the contract
-handoff locked by the preset. The component owner builds and publishes each release asset or OCI image; Stack
-verifies its tag, manifest, and digest read-only. A normal `apply` acquires only exact artifacts published by the
-component owner. An explicitly handed-off git-build artifact becomes reviewed CAS bytes in a separate artifact
-preparation step after its component-owned provenance and expected digest match. The Scratch contract directory
-owns runtime fields, while the image-owned product config owns product information.
+handoff locked by the preset. The handoff selects each artifact identity and acquisition or generation method;
+Stack verifies the actual tag, manifest, bytes, and digest, then locks that exact identity in the preset and lock.
+An explicitly handed-off git-build artifact becomes reviewed CAS bytes after its provenance and expected digest
+match. A normal `apply` uses the artifacts named by the lock. The Scratch contract directory owns runtime fields,
+while the image-owned product config owns product information.
 
 The project is intentionally separate from:
 

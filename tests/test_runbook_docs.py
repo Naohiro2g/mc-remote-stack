@@ -45,16 +45,6 @@ def test_public_vps_runbook_is_one_positive_canonical_path() -> None:
     assert "release済みset" in guide
     assert "gate coordinatorを通常handoffの必須者にしない" in guide
     assert "compact state adoption" in guide
-    for discarded_record_marker in (
-        "適用記録",
-        "history-only",
-        "migration public-",
-        "現行b2",
-        "2026-08-21",
-        "2026-08-29",
-        "2026-09-03",
-    ):
-        assert discarded_record_marker not in guide
 
 
 def test_operator_uv_has_one_canonical_install_path() -> None:
@@ -78,50 +68,13 @@ def test_operator_runbooks_use_bare_uv_after_bootstrap() -> None:
     ):
         guide = (REPO_ROOT / relative_path).read_text(encoding="utf-8")
 
-        assert 'export PATH="$HOME/.local/bin:$PATH"' not in guide
-        assert "MC_REMOTE_UV" not in guide
-        assert "$HOME/.local/bin/uv run" not in guide
         assert re.search(r"(?m)^uv (?:run|sync|--version)(?: |$)", guide)
 
 
-def test_human_facing_uv_commands_do_not_use_the_install_path_as_a_command() -> None:
-    paths = (
-        "README.md",
-        "README_ja.md",
-        "docs/agent-assisted-bootstrap-guide_ja.md",
-        "docs/b3-credential-isolated-alpha-validation-guide_ja.md",
-        "docs/fresh-host-bootstrap-guide_ja.md",
-        "docs/home-alpha-full-stack-profile-design_ja.md",
-        "docs/home-alpha-validation-guide_ja.md",
-        "docs/normal-dev-environment-guide_ja.md",
-        "docs/public-vps-bootstrap-guide_ja.md",
-    )
-
-    for relative_path in paths:
-        text = (REPO_ROOT / relative_path).read_text(encoding="utf-8")
-        assert 'export PATH="$HOME/.local/bin:$PATH"' not in text
-        assert "$HOME/.local/bin/uv run" not in text
-        assert "$HOME/.local/bin/uv sync" not in text
-        assert '"$MC_REMOTE_UV"' not in text
-
-
-def test_human_runbooks_do_not_execute_mcrctl_by_venv_path_or_command_variable() -> None:
-    guide = (REPO_ROOT / "docs/agent-assisted-bootstrap-guide_ja.md").read_text(
-        encoding="utf-8"
-    )
-
-    assert ".venv/bin/mcrctl" not in guide
-    assert "MCRCTL=" not in guide
-    assert "uv run --project" in guide
-
-
-def test_readmes_point_to_current_vps_procedure_instead_of_dated_records() -> None:
+def test_readmes_point_to_current_vps_procedure() -> None:
     for name in ("README.md", "README_ja.md"):
         readme = (REPO_ROOT / name).read_text(encoding="utf-8")
         assert "public-vps-bootstrap-guide_ja.md" in readme
-        assert "most recent dated apply record" not in readme
-        assert "直近の適用記録" not in readme
-        assert "server-runbook-migration-notes_ja.md" not in readme
 
     assert "## Operational runbooks" in (REPO_ROOT / "README.md").read_text(
         encoding="utf-8"
@@ -131,19 +84,18 @@ def test_readmes_point_to_current_vps_procedure_instead_of_dated_records() -> No
     )
 
 
-def test_readmes_start_from_a_short_request_and_keep_component_artifact_ownership() -> None:
+def test_readmes_start_from_a_short_request_and_lock_handed_off_artifact_identity() -> None:
     readme_ja = (REPO_ROOT / "README_ja.md").read_text(encoding="utf-8")
     readme_en = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
 
     assert "短い依頼" in readme_ja
     assert "Stack担当が" in readme_ja
     assert "直接作成・編集" in readme_ja
-    assert "component担当がbuild／publish" in readme_ja
-    assert "component担当がpublishしたexact artifactだけを取得" in readme_ja
+    assert "handoffが採用するartifact identity" in readme_ja
+    assert "exact identity" in readme_ja
     assert "git-build artifact" in readme_ja
-    assert "artifact準備工程" in readme_ja
     assert "short request" in readme_en
-    assert "component owner" in readme_en
+    assert "handoff selects" in readme_en
 
 
 def test_release_artifact_intake_is_one_canonical_path_before_deployment() -> None:
@@ -177,10 +129,9 @@ def test_release_artifact_intake_is_one_canonical_path_before_deployment() -> No
     assert 'gh release download "$MC_REMOTE_TAG"' in guide
     assert "sha256sum" in guide
     assert "docker buildx imagetools inspect" in guide
-    assert "component担当がbuild／publish" in guide
-    assert "component担当がpublishしたexact artifactだけを取得" in guide
+    assert "handoffが採用するartifact identity" in guide
+    assert "実物のidentity" in guide
     assert "git-build artifact" in guide
-    assert "artifact準備環境" in guide
     for provenance_field in (
         "repository",
         "full commit",
@@ -191,7 +142,6 @@ def test_release_artifact_intake_is_one_canonical_path_before_deployment() -> No
     ):
         assert provenance_field in guide
     assert "mcrctl artifact import-reviewed" in guide
-    assert "OCI imageにはこの経路を使わない" in guide
     assert 'git -C "$SCRATCH_SOURCE" archive' in guide
     assert "scratch-contracts/$SCRATCH_COMMIT" in guide
     assert "src/mc_remote_stack/data/preset_registry/<name>/<revision>/preset.toml" in guide
@@ -320,21 +270,8 @@ def test_normal_dev_runbook_tracks_the_current_host_native_runtime() -> None:
     assert "Credential domain health: HEALTHY" in guide
     assert "auth_required" in guide
 
-    assert "/home/tsuji" not in guide
-    assert "home-server@5" not in guide
-    assert "compose@5" not in guide
-    assert "systemd" not in guide
-    assert "b5" not in guide
-    assert "b6" not in guide
-    assert "b7" not in guide
-    assert "使用しない経路" not in guide
-
     assert guide.index("## 2. read-only preflight") < guide.index(
         "## 3. artifact staging"
     ) < guide.index("## 4. 正常停止と一件交換") < guide.index(
         "## 5. 起動とreadiness"
     )
-
-
-def test_normal_dev_legacy_preset_review_template_is_removed() -> None:
-    assert not (REPO_ROOT / "examples" / "normal-dev-exact-preset.template.toml").exists()

@@ -36,10 +36,10 @@ uv run mcrctl doctor school-a
 ```
 
 Scratch runtime schema、fixture、container mount path、Scratch image digestはpresetが固定するScratch contract
-handoffから読む。component担当がbuild／publishしたrelease assetとOCI imageを正式入力とし、Stackはtag、
-manifest、digestをread-only照合する。通常`apply`はcomponent担当がpublishしたexact artifactだけを取得する。
-handoffが明示するgit-build artifactは、artifact準備工程でcomponent所有のprovenanceと期待digestへ一致させた
-reviewed bytesをCASへ収容する。Scratch fieldの正本はcontract directory、product情報の正本はimage-owned product configである。
+handoffから読む。handoffが採用するartifact identityと取得／生成方式を示し、Stackは実際のtag、manifest、bytes、
+digestを照合してexact identityをpreset／lockへ固定する。git-build artifactはhandoffのprovenanceと期待digestへ
+一致したreviewed bytesをCASへ収容する。通常`apply`はlockが指すartifactを使用する。Scratch fieldの正本は
+contract directory、product情報の正本はimage-owned product configである。
 
 このプロジェクトは、次のものとは意図的に分離している。
 

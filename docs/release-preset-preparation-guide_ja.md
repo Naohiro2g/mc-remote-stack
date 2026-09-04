@@ -1,9 +1,8 @@
 # Release artifact／preset準備runbook
 
 このrunbookは、指定されたMcRemote release nameを、Stackが取得可能な一組のimmutable presetへ
-変換する正準手順である。component担当がbuild／publishしたartifact、またはcomponent handoffが明示する
-git-build artifactのreviewed bytesを、Stack担当がexact identityへ照合してpresetへ固定する。
-完成したexact preset refをdeployment runbookへ渡す。
+変換する正準手順である。handoffが採用するartifact identityと取得／生成方式を示し、Stack担当が実物のidentityを
+照合してpresetへ固定する。完成したexact preset refをdeployment runbookへ渡す。
 
 ## 1. release handoffを一組にする
 
@@ -126,8 +125,8 @@ docker buildx imagetools inspect "$BRIDGE_IMAGE@$BRIDGE_EXPECTED_DIGEST"
 ## 4. git-build artifactをreviewed bytesへ固定する
 
 component handoffがdistribution modeとして`git-build`を指定した場合は、repository、full commit、recipe、toolchain、
-build input、output SHA-256を一組で受け取る。component担当が渡したreviewed output、またはhandoffが再現を委任した
-場合にartifact準備環境でexact recipeから作ったoutputを、期待SHA-256へ一致させる。
+build input、output SHA-256を一組で受け取る。handoffが示すreviewed output、またはexact recipeから得たoutputを、
+期待SHA-256へ一致させる。
 
 resolved lockが指すartifact idと同じ一件をCASへ収容する。
 
@@ -144,8 +143,7 @@ uv run mcrctl artifact import-reviewed "$REVIEWED_OUTPUT" \
   --expected-sha256 "$REVIEWED_OUTPUT_SHA256"
 ```
 
-OCI imageにはこの経路を使わない。OCIはcomponent ownerのCIがpublishしたtag／digestを§3で照合する。
-artifact準備環境とdeployment hostを分け、通常`apply`はCASのreviewed bytesを使用する。
+artifact kindと取得／生成方式はhandoff／presetに従い、各kindに対応する実物のidentity検証を完了させる。
 
 ## 5. foundation artifactを公式配布元で照合する
 
@@ -210,6 +208,5 @@ tests: <実行commandとPASS>
 stack commit: <push済みcommit>
 ```
 
-deployment担当はこのexact preset refを`mc-remote.toml`へ設定する。通常operator経路の`apply`は
-component担当がpublishしたexact artifactだけを取得し、OCI pull、lock、render、create／update判定、起動までを
-行う。`doctor`がlive identityを確認する。
+deployment担当はこのexact preset refを`mc-remote.toml`へ設定する。通常operator経路の`apply`はlockが指す
+artifactを使用し、OCI pull、render、create／update判定、起動までを行う。`doctor`がlive identityを確認する。
