@@ -102,13 +102,6 @@ def _prepared_project(tmp_path: Path) -> tuple[Path, Path, Path, dict]:
     return project, data_root, output, load_lock(project, data_root=data_root)
 
 
-def _prepared_legacy_beta_project(tmp_path: Path) -> tuple[Path, Path, Path, dict]:
-    project, data_root, _ = _render_fixture(tmp_path, profile_revision="2")
-    output = project / "generated"
-    render_toml_project(project, output, data_root=data_root)
-    return project, data_root, output, load_lock(project, data_root=data_root)
-
-
 def _prepared_alpha_project(tmp_path: Path) -> tuple[Path, Path, Path, dict]:
     project, data_root, _ = _render_fixture(
         tmp_path,
@@ -198,146 +191,9 @@ def _prepared_public_project(tmp_path: Path) -> tuple[Path, Path, Path, dict]:
     return project, data_root, output, load_lock(project, data_root=data_root)
 
 
-def test_legacy_public_vps_bootstrap_contract_is_rejected(tmp_path: Path) -> None:
-    project, data_root, output, lock = _prepared_public_project(tmp_path)
-    runner = FakeDocker({})
-
-    with pytest.raises(ApplyContractError) as exc_info:
-        apply_toml_project(
-            project,
-            output,
-            expected_lock_identity=lock["lock_identity"],
-            docker_context="default",
-            data_root=data_root,
-            bootstrap=True,
-            confirmed=True,
-            allow_unverified=True,
-            runner=runner,
-        )
-
-    assert exc_info.value.reason == "bootstrap_contract_unsupported"
-    assert runner.calls == []
-
-
-def test_legacy_home_beta_bootstrap_contract_is_rejected(tmp_path: Path) -> None:
-    project, data_root, output, lock = _prepared_legacy_beta_project(tmp_path)
-    runner = FakeDocker({})
-
-    with pytest.raises(ApplyContractError) as exc_info:
-        apply_toml_project(
-            project,
-            output,
-            expected_lock_identity=lock["lock_identity"],
-            docker_context="default",
-            data_root=data_root,
-            bootstrap=True,
-            confirmed=True,
-            allow_unverified=True,
-            runner=runner,
-        )
-
-    assert exc_info.value.reason == "bootstrap_contract_unsupported"
-    assert runner.calls == []
-
-
-def test_current_public_vps_bootstrap_contract_is_supported(tmp_path: Path) -> None:
+def test_bootstrap_still_requires_explicit_eula_acceptance(tmp_path: Path) -> None:
     _project, _data_root, _output, lock = _prepared_public_project(tmp_path)
-    lock["input"]["profile"]["ref"] = "vps-server@7"
-    lock["input"]["preset"]["ref"] = "public-web-paper@2"
-
-    _validate_bootstrap_contract(
-        lock,
-        allow_unverified=True,
-        allow_eol=False,
-    )
-
-
-def test_public_wirescope_vps_bootstrap_contract_is_supported(tmp_path: Path) -> None:
-    _project, _data_root, _output, lock = _prepared_public_project(tmp_path)
-    lock["input"]["profile"]["ref"] = "vps-server@9"
-    lock["input"]["preset"]["ref"] = "public-web-paper@4"
-
-    _validate_bootstrap_contract(
-        lock,
-        allow_unverified=True,
-        allow_eol=False,
-    )
-
-
-def test_canonical_public_vps_bootstrap_contract_is_supported(tmp_path: Path) -> None:
-    _project, _data_root, _output, lock = _prepared_public_project(tmp_path)
-    lock["input"]["profile"]["ref"] = "vps-server@10"
-    lock["input"]["preset"]["ref"] = "public-web-paper@4"
-
-    _validate_bootstrap_contract(
-        lock,
-        allow_unverified=True,
-        allow_eol=False,
-    )
-
-
-def test_typed_notice_public_vps_bootstrap_contract_is_supported(tmp_path: Path) -> None:
-    _project, _data_root, _output, lock = _prepared_public_project(tmp_path)
-    lock["input"]["profile"]["ref"] = "vps-server@11"
-    lock["input"]["preset"]["ref"] = "public-web-paper@4"
-
-    _validate_bootstrap_contract(
-        lock,
-        allow_unverified=True,
-        allow_eol=False,
-    )
-
-
-def test_notice_feed_public_vps_bootstrap_contract_is_supported(tmp_path: Path) -> None:
-    _project, _data_root, _output, lock = _prepared_public_project(tmp_path)
-    lock["input"]["profile"]["ref"] = "vps-server@12"
-    lock["input"]["preset"]["ref"] = "public-web-paper@5"
-
-    _validate_bootstrap_contract(
-        lock,
-        allow_unverified=True,
-        allow_eol=False,
-    )
-
-
-def test_b5_normal_dev_bootstrap_contract_is_supported(tmp_path: Path) -> None:
-    _project, _data_root, _output, lock = _prepared_current_alpha_project(tmp_path)
-    lock["input"]["profile"]["ref"] = "home-server@5"
-    lock["input"]["preset"]["ref"] = "mcremote-paper@7"
-    lock["environment"].update(
-        channel="dev",
-        exposure="lan-only",
-        purpose="integration",
-    )
-
-    _validate_bootstrap_contract(
-        lock,
-        allow_unverified=True,
-        allow_eol=False,
-    )
-
-
-def test_home_alpha_full_bootstrap_contract_is_supported(tmp_path: Path) -> None:
-    _project, _data_root, _output, lock = _prepared_current_alpha_project(tmp_path)
-    lock["input"]["profile"]["ref"] = "home-server@6"
-    lock["input"]["preset"]["ref"] = "home-alpha-full@1"
-    lock["environment"].update(
-        channel="alpha",
-        exposure="isolated",
-        purpose="integration",
-    )
-
-    _validate_bootstrap_contract(
-        lock,
-        allow_unverified=True,
-        allow_eol=False,
-    )
-
-
-def test_previous_public_vps_contract_is_rejected(tmp_path: Path) -> None:
-    _project, _data_root, _output, lock = _prepared_public_project(tmp_path)
-    lock["input"]["profile"]["ref"] = "vps-server@4"
-    lock["input"]["preset"]["ref"] = "public-web-paper@1"
+    lock["agreements"]["minecraft_eula"] = False
 
     with pytest.raises(ApplyContractError) as exc_info:
         _validate_bootstrap_contract(
@@ -346,30 +202,22 @@ def test_previous_public_vps_contract_is_rejected(tmp_path: Path) -> None:
             allow_eol=False,
         )
 
-    assert exc_info.value.reason == "bootstrap_contract_unsupported"
+    assert exc_info.value.reason == "minecraft_eula_not_accepted"
 
 
-def test_credential_profile_rejects_old_plugin_preset_before_docker(
-    tmp_path: Path,
-) -> None:
-    project, data_root, output, lock = _prepared_credential_project(tmp_path)
-    runner = FakeDocker({})
+def test_bootstrap_still_requires_unverified_acknowledgement(tmp_path: Path) -> None:
+    _project, _data_root, _output, lock = _prepared_public_project(tmp_path)
+    lock["compatibility"]["status"] = "unverified"
+    lock["acknowledgements"]["allow_unverified"] = False
 
     with pytest.raises(ApplyContractError) as exc_info:
-        apply_toml_project(
-            project,
-            output,
-            expected_lock_identity=lock["lock_identity"],
-            docker_context="default",
-            data_root=data_root,
-            bootstrap=True,
-            confirmed=True,
+        _validate_bootstrap_contract(
+            lock,
             allow_unverified=True,
-            runner=runner,
+            allow_eol=False,
         )
 
-    assert exc_info.value.reason == "bootstrap_contract_unsupported"
-    assert runner.calls == []
+    assert exc_info.value.reason == "unverified_not_acknowledged"
 
 
 def test_b3_credential_alpha_bootstrap_contract_reaches_docker_preflight(
@@ -1108,29 +956,6 @@ def test_apply_rejects_remote_docker_context_before_daemon_contact(
 
     assert exc_info.value.reason == "docker_context_not_local"
     assert runner.calls == [(context_command, 30)]
-
-
-def test_legacy_alpha_bootstrap_contract_is_rejected_before_docker(
-    tmp_path: Path,
-) -> None:
-    project, data_root, output, lock = _prepared_alpha_project(tmp_path)
-    runner = FakeDocker({})
-
-    with pytest.raises(ApplyContractError) as exc_info:
-        apply_toml_project(
-            project,
-            output,
-            expected_lock_identity=lock["lock_identity"],
-            docker_context="default",
-            data_root=data_root,
-            bootstrap=True,
-            confirmed=True,
-            allow_unverified=True,
-            runner=runner,
-        )
-
-    assert exc_info.value.reason == "bootstrap_contract_unsupported"
-    assert runner.calls == []
 
 
 def test_current_alpha_bootstrap_contract_reaches_docker_preflight(
