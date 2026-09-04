@@ -1,34 +1,42 @@
-# Public VPS release deployment runbook
+# 既存Public VPS same-volume更新runbook
 
-このrunbookは、review済みのMcRemote release setを、既存のcanonical TOML deploymentへ
-same-volume更新する正準手順である。作業者は上から順に実行し、`deployment update plan`、
-`deployment update apply`、`doctor`の三段階で完了する。
+このrunbookは、review済みのMcRemote release setで、同一world volumeを継承する既存deploymentを更新する
+現行手順である。current canonical TOML stateを入力に、`deployment update plan`、
+`deployment update apply`、`doctor`の三段階で完了する。対応済みpresetを使うcompact state adoption済みdeploymentは、
+READMEのcompact `apply`／`doctor`を使う。public VPS向けcompact profileと既存VPSのcompact state adoptionは、
+別の実装作業として扱う。
 
 新しいUbuntu hostのoperator環境は、先に
-[`fresh host bootstrap`](fresh-host-bootstrap-guide_ja.md)で準備する。このrunbookは、対象hostへの
-SSH接続、Stack checkout、既存deployment projectがhandoff済みの地点から始める。
+[`fresh host bootstrap`](fresh-host-bootstrap-guide_ja.md)で準備する。このrunbookは、Stack担当がbackstage inventoryを読み、
+対象host、Stack checkout、既存deployment projectを一組にした地点から始める。読み取りaccessが無い場合は、
+Stack担当がhuman operatorへ申請する。
 
 ## 1. deployment handoffを受け取る
+
+exact presetがまだ無いreleaseは、先に
+[`release artifact／preset準備runbook`](release-preset-preparation-guide_ja.md)で公式配布物を照合し、
+push済みのimmutable preset refを作る。preset準備後は、以下のdeployment handoffから上から順に実行する。
 
 handoffには次の値が一組で入る。
 
 | 値 | 内容 | 所有元 |
 | --- | --- | --- |
-| `MC_REMOTE_TARGET` | 対象hostのSSH接続先 | backstage |
-| `MC_REMOTE_KNOWLEDGE_COMMIT` | 今回参照するknowledge commit | gate coordinator |
+| `MC_REMOTE_TARGET` | 対象hostのSSH接続先 | backstage inventoryをStackが取得 |
+| `MC_REMOTE_KNOWLEDGE_COMMIT` | 今回参照するknowledge commit | Knowledge SSOT |
 | `MC_REMOTE_STACK` | 対象host上のreview済みStack checkout | Stack |
 | `MC_REMOTE_STACK_COMMIT` | checkoutのexact commit | Stack |
 | `MC_REMOTE_PROJECT` | 対象host上のdeployment project | Stack／backstage |
-| `MC_REMOTE_PROFILE` | 更新先のexact profile revision | gate coordinator |
-| `MC_REMOTE_PRESET` | 更新先のexact preset revision | gate coordinator |
-| `authorized next action` | 今回実行するpublic VPS update | gate coordinator／release owner |
+| `MC_REMOTE_PROFILE` | 更新先のexact profile revision | Stackが依頼と現行stateから確定 |
+| `MC_REMOTE_PRESET` | 更新先のexact preset revision | Stackがrelease handoffから確定 |
+| `authorized next action` | 今回実行するpublic VPS update | human operator |
 
-handoffの根拠は、指定された`MC_REMOTE_KNOWLEDGE_COMMIT`で次の二文書へ接続する。
+release済みsetではgate coordinatorを通常handoffの必須者にしない。candidate setをshared環境へ配置する場合だけ、
+gate coordinatorがexact setとauthorized next actionを渡す。指定された`MC_REMOTE_KNOWLEDGE_COMMIT`では次を読む。
 
-- [release gate notes](https://github.com/Naohiro2g/mc-remote-knowledge/blob/main/00-hub/release-gate-notes_ja.md):
-  exact setとauthorized next action
 - [release operations responsibility](https://github.com/Naohiro2g/mc-remote-knowledge/blob/main/00-hub/release-operations-responsibility-design_ja.md):
   host写像、private情報、deploy／doctorの実行担当
+- [release gate notes](https://github.com/Naohiro2g/mc-remote-knowledge/blob/main/00-hub/release-gate-notes_ja.md):
+  candidate setを扱う場合のexact setとauthorized next action
 
 operator向けの実行手順は、このrunbookを正本とする。
 

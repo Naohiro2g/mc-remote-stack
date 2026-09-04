@@ -1,8 +1,14 @@
+import os
 import re
-import tomllib
+import subprocess
+import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+def _shell_blocks(source: str) -> list[str]:
+    return re.findall(r"(?ms)^```sh\n(.*?)^```$", source)
 
 
 def test_ssh_hardening_dropin_precedes_cloud_init() -> None:
@@ -34,16 +40,11 @@ def test_public_vps_runbook_is_one_positive_canonical_path() -> None:
     ) < guide.index("mcrctl doctor")
     assert "00-hub/release-operations-responsibility-design_ja.md" in guide
     assert "00-hub/release-gate-notes_ja.md" in guide
-    for discarded_record_marker in (
-        "適用記録",
-        "history-only",
-        "migration public-",
-        "現行b2",
-        "2026-08-21",
-        "2026-08-29",
-        "2026-09-03",
-    ):
-        assert discarded_record_marker not in guide
+    assert "同一world volumeを継承する既存deployment" in guide
+    assert "Stack担当がbackstage inventoryを読み" in guide
+    assert "release済みset" in guide
+    assert "gate coordinatorを通常handoffの必須者にしない" in guide
+    assert "compact state adoption" in guide
 
 
 def test_operator_uv_has_one_canonical_install_path() -> None:
@@ -67,52 +68,13 @@ def test_operator_runbooks_use_bare_uv_after_bootstrap() -> None:
     ):
         guide = (REPO_ROOT / relative_path).read_text(encoding="utf-8")
 
-        assert 'export PATH="$HOME/.local/bin:$PATH"' not in guide
-        assert "MC_REMOTE_UV" not in guide
-        assert "$HOME/.local/bin/uv run" not in guide
         assert re.search(r"(?m)^uv (?:run|sync|--version)(?: |$)", guide)
 
 
-def test_human_facing_uv_commands_do_not_use_the_install_path_as_a_command() -> None:
-    paths = (
-        "README.md",
-        "README_ja.md",
-        "docs/agent-assisted-bootstrap-guide_ja.md",
-        "docs/b3-credential-isolated-alpha-validation-guide_ja.md",
-        "docs/fresh-host-bootstrap-guide_ja.md",
-        "docs/home-alpha-full-stack-profile-design_ja.md",
-        "docs/home-alpha-validation-guide_ja.md",
-        "docs/normal-dev-environment-guide_ja.md",
-        "docs/public-vps-bootstrap-guide_ja.md",
-    )
-
-    for relative_path in paths:
-        text = (REPO_ROOT / relative_path).read_text(encoding="utf-8")
-        assert 'export PATH="$HOME/.local/bin:$PATH"' not in text
-        assert "$HOME/.local/bin/uv run" not in text
-        assert "$HOME/.local/bin/uv sync" not in text
-        assert '"$MC_REMOTE_UV"' not in text
-
-
-def test_human_runbooks_do_not_execute_mcrctl_by_venv_path_or_command_variable() -> None:
-    for relative_path in (
-        "docs/agent-assisted-bootstrap-guide_ja.md",
-        "docs/normal-dev-environment-guide_ja.md",
-    ):
-        guide = (REPO_ROOT / relative_path).read_text(encoding="utf-8")
-
-        assert ".venv/bin/mcrctl" not in guide
-        assert "MCRCTL=" not in guide
-        assert "uv run --project" in guide
-
-
-def test_readmes_point_to_current_vps_procedure_instead_of_dated_records() -> None:
+def test_readmes_point_to_current_vps_procedure() -> None:
     for name in ("README.md", "README_ja.md"):
         readme = (REPO_ROOT / name).read_text(encoding="utf-8")
         assert "public-vps-bootstrap-guide_ja.md" in readme
-        assert "most recent dated apply record" not in readme
-        assert "直近の適用記録" not in readme
-        assert "server-runbook-migration-notes_ja.md" not in readme
 
     assert "## Operational runbooks" in (REPO_ROOT / "README.md").read_text(
         encoding="utf-8"
@@ -120,6 +82,115 @@ def test_readmes_point_to_current_vps_procedure_instead_of_dated_records() -> No
     assert "## 正準 runbook" in (REPO_ROOT / "README_ja.md").read_text(
         encoding="utf-8"
     )
+
+
+def test_readmes_start_from_a_short_request_and_lock_handed_off_artifact_identity() -> None:
+    readme_ja = (REPO_ROOT / "README_ja.md").read_text(encoding="utf-8")
+    readme_en = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+
+    assert "短い依頼" in readme_ja
+    assert "Stack担当が" in readme_ja
+    assert "直接作成・編集" in readme_ja
+    assert "handoffが採用するartifact identity" in readme_ja
+    assert "exact identity" in readme_ja
+    assert "git-build artifact" in readme_ja
+    assert "short request" in readme_en
+    assert "handoff selects" in readme_en
+
+
+def test_release_artifact_intake_is_one_canonical_path_before_deployment() -> None:
+    guide_path = "docs/release-preset-preparation-guide_ja.md"
+    guide = (REPO_ROOT / guide_path).read_text(encoding="utf-8")
+    public_vps = (REPO_ROOT / "docs/public-vps-bootstrap-guide_ja.md").read_text(
+        encoding="utf-8"
+    )
+    normal_dev = (REPO_ROOT / "docs/normal-dev-environment-guide_ja.md").read_text(
+        encoding="utf-8"
+    )
+
+    for readme_name in ("README.md", "README_ja.md"):
+        assert guide_path in (REPO_ROOT / readme_name).read_text(encoding="utf-8")
+    assert guide_path.split("/", 1)[1] in public_vps
+    assert guide_path.split("/", 1)[1] in normal_dev
+
+    assert len(guide.splitlines()) <= 220
+    for required_input in (
+        "release name",
+        "component release handoff",
+        "Scratch contract handoff",
+        "GitHub Releases",
+        "GHCR",
+        "Paper",
+        "OCI registry",
+    ):
+        assert required_input in guide
+
+    assert 'gh api "repos/Naohiro2g/McRemote/releases/tags/$MC_REMOTE_TAG"' in guide
+    assert 'gh release download "$MC_REMOTE_TAG"' in guide
+    assert "sha256sum" in guide
+    assert "docker buildx imagetools inspect" in guide
+    assert "handoffが採用するartifact identity" in guide
+    assert "実物のidentity" in guide
+    assert "git-build artifact" in guide
+    for provenance_field in (
+        "repository",
+        "full commit",
+        "recipe",
+        "toolchain",
+        "build input",
+        "output SHA-256",
+    ):
+        assert provenance_field in guide
+    assert "mcrctl artifact import-reviewed" in guide
+    assert 'git -C "$SCRATCH_SOURCE" archive' in guide
+    assert "scratch-contracts/$SCRATCH_COMMIT" in guide
+    assert "src/mc_remote_stack/data/preset_registry/<name>/<revision>/preset.toml" in guide
+    assert "uv run tools/rebuild-preset-catalog.py" in guide
+    assert "uv run mcrctl preset show" in guide
+    assert "uv run pytest" in guide
+    assert "uv run ruff check ." in guide
+
+    assert guide.index("component release handoff") < guide.index("GitHub Releases")
+    assert guide.index("GitHub Releases") < guide.index("preset_registry/<name>/<revision>")
+    assert guide.index("preset_registry/<name>/<revision>") < guide.index("uv run pytest")
+
+
+def test_current_deployment_runbook_shell_blocks_parse() -> None:
+    for relative_path in (
+        "docs/release-preset-preparation-guide_ja.md",
+        "docs/public-vps-bootstrap-guide_ja.md",
+        "docs/normal-dev-environment-guide_ja.md",
+    ):
+        source = (REPO_ROOT / relative_path).read_text(encoding="utf-8")
+        for index, block in enumerate(_shell_blocks(source), start=1):
+            result = subprocess.run(
+                ["bash", "-n"],
+                input=block,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            assert result.returncode == 0, (
+                f"{relative_path} shell block {index}: {result.stderr}"
+            )
+
+
+def test_preset_catalog_has_a_supported_rebuild_command() -> None:
+    tool_path = REPO_ROOT / "tools" / "rebuild-preset-catalog.py"
+    tool = tool_path.read_text(encoding="utf-8")
+    result = subprocess.run(
+        [sys.executable, str(tool_path), "--check"],
+        cwd=REPO_ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+        env={**os.environ, "PYTHONPATH": str(REPO_ROOT / "src")},
+    )
+
+    assert "build_preset_catalog" in tool
+    assert "preset_catalog.toml" in tool
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "status=unchanged" in result.stdout
 
 
 def test_readmes_report_the_current_b4_credential_alpha_boundary() -> None:
@@ -170,100 +241,37 @@ def test_fresh_host_guide_returns_to_the_single_deployment_runbook() -> None:
     assert "mcrctl apply" not in guide
 
 
-def test_normal_dev_runbook_is_server_only_and_gate_coordinator_driven() -> None:
+def test_normal_dev_runbook_tracks_the_current_host_native_runtime() -> None:
     guide = (REPO_ROOT / "docs" / "normal-dev-environment-guide_ja.md").read_text(
         encoding="utf-8"
     )
     readme = (REPO_ROOT / "README_ja.md").read_text(encoding="utf-8")
 
     assert "normal-dev-environment-guide_ja.md" in readme
-    assert "home-server@5" in guide
+    assert len(guide.splitlines()) <= 180
     assert "dev-integration" in guide
+    assert "host-native" in guide
+    assert "run.sh" in guide
+    assert "Screen" in guide
+    assert "通常dev topologyをhost-native方式" in guide
+    assert "ケータリング型で構築する通常dev" in guide
+    assert "compact `apply`／`doctor`" in guide
     assert "channel: `dev`" in guide
     assert "exposure: `lan-only`" in guide
-    assert "25565" in guide
-    assert "25575" in guide
-    assert "25566" not in guide
-    assert "25576" not in guide
-    assert "Minecraft client" in guide
-    assert "開発者workstation" in guide
-    assert "GUI、browser、Minecraft Launcherをserver hostへ導入しない" in guide
-    assert "EXACT_PRESET_REF" in guide
-    assert "exact set未凍結中は設定しない" in guide
-    assert "BOOTSTRAP_CONTRACTS" in guide
-    assert "profile追加だけでは初回applyを許可しない" in guide
-    assert "mcrctl operator check" in guide
-    assert "exact set未凍結中は`--install`を実行しない" in guide
-    assert "coordinatorがhost installを明示許可" in guide
-    assert "別portを選ぶ" not in guide
-    assert "backstage inventoryで所有者、用途、期待状態を確定" in guide
-    assert "未知のlistenerを許容しない" in guide
-    assert "mcrctl resolve" in guide
-    assert "mcrctl plan" in guide
-    assert "mcrctl artifact fetch" in guide
-    assert "mcrctl artifact import-reviewed" in guide
-    assert (
-        "McRemoteのpush済みsource commit、artifact名、version、bytes、SHA-256、"
-        "credential-free HTTPS取得元"
-        not in guide
-    )
-    assert "git-build provenance" in guide
-    assert "review済みbytes import" in guide
-    assert "normal-dev-exact-preset.template.toml" in guide
-    assert "mcrctl render" in guide
-    assert "mcrctl apply" in guide
-    assert "mcrctl doctor" in guide
-    assert "mcrctl deployment update plan" in guide
-    assert "mcrctl deployment update apply" in guide
-    assert "candidate deployは未許可" in guide
-    assert "sudo mcrctl" not in guide
-    assert "ケータリング" not in guide
+    assert "release-preset-preparation-guide_ja.md" in guide
+    assert "backstage inventory" in guide
+    assert "authorized next action" in guide
+    assert "human operator（release済みset）" in guide
+    assert 'SERVER_ROOT="<backstage handoff>"' in guide
+    assert 'SCREEN_SESSION="<backstage handoff>"' in guide
+    assert "sha256sum" in guide
+    assert "stop" in guide
+    assert "operator-backup" in guide
+    assert "Credential domain health: HEALTHY" in guide
+    assert "auth_required" in guide
 
-
-def test_normal_dev_runbook_documents_reasoned_unverified_acknowledgement() -> None:
-    guide = (REPO_ROOT / "docs" / "normal-dev-environment-guide_ja.md").read_text(
-        encoding="utf-8"
+    assert guide.index("## 2. read-only preflight") < guide.index(
+        "## 3. artifact staging"
+    ) < guide.index("## 4. 正常停止と一件交換") < guide.index(
+        "## 5. 起動とreadiness"
     )
-
-    assert "[acknowledgements]" in guide
-    assert "allow_unverified = true" in guide
-    assert (
-        'unverified_reason = "b5 exact compatibility set integration evidence is being established"'
-        in guide
-    )
-    assert "acknowledgement_reason_required" in guide
-    assert "unverified_not_acknowledged" in guide
-    assert "orderとlockを手編集しない" in guide
-    assert "gate coordinatorへ戻す" in guide
-    validate_command = (
-        'uv run --project "$MC_REMOTE_STACK" mcrctl validate '
-        '--project "$MC_REMOTE_PROJECT"'
-    )
-    resolve_command = (
-        'uv run --project "$MC_REMOTE_STACK" mcrctl resolve '
-        '--project "$MC_REMOTE_PROJECT" --allow-unverified'
-    )
-    assert validate_command in guide
-    assert resolve_command in guide
-    assert guide.index('MC_REMOTE_STACK="$HOME/mc-remote-stack"') < guide.index(
-        validate_command
-    )
-
-
-def test_normal_dev_exact_preset_template_has_review_slots_without_candidate_values() -> None:
-    template = (
-        REPO_ROOT / "examples" / "normal-dev-exact-preset.template.toml"
-    ).read_text(encoding="utf-8")
-
-    assert 'allowed_channels = ["dev"]' in template
-    assert 'kind = "git-build"' in template
-    assert 'id = "mcremote-jar"' in template
-    assert 'repository = "<REVIEWED_HTTPS_REPOSITORY>"' in template
-    assert 'commit = "<REVIEWED_FULL_COMMIT_SHA>"' in template
-    assert 'output_sha256 = "<REVIEWED_OUTPUT_SHA256>"' in template
-    assert 'BOOTSTRAP_CONTRACT = ["home-server@5"' in template
-    parsed = tomllib.loads(template)
-    assert parsed["requirements"]["allowed_channels"] == ["dev"]
-    assert parsed["artifacts"][-1]["kind"] == "git-build"
-    assert "6214a6a5efe5180c1cd0f374089736908b07ee34" not in template
-    assert "f293e63a77f178bc8d3cba8276e95124f2ee6b3eca77c15867a6fc5e5f166531" not in template

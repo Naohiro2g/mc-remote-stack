@@ -1,274 +1,180 @@
-# 通常dev環境 runbook
+# 通常dev topology — host-native方式 runbook
 
-このrunbookは、開発者workstationから別のserver host上にある一つのMcRemote dev runtimeを利用する
-ための最短正準経路を示す。物理host名、SSH alias、private address、secret実値はこの文書へ固定しない。
-対象hostとの対応はprivate inventory、論理deploymentはStackのorder／lockで管理する。
+このrunbookは、通常dev topologyをhost-native方式で構築したenvironmentに適用する。Paper／McRemoteはserver hostで直接実行する。
+Minecraft client、Scratch、Bridge、Python、WireScopeは開発者workstationで動かし、Scratch／Bridgeはloopbackを使う。
+ケータリング型で構築する通常devは、対応profileのcompact `apply`／`doctor`を使う。
 
-knowledge contractは`2026-08-21-03`／`2026-08-21-04`。b5 gateのexact setが未凍結である間、
-**candidate deployは未許可**である。この状態ではhostのread-only preflightとorder入力の準備までで停止する。
-
-## 1. topologyとidentity
-
-通常dev環境の論理identityは次とする。
-
-- deployment／environment: `dev-integration`
+- logical deployment／environment: `dev-integration`
 - channel: `dev`
 - purpose: `integration`
 - exposure: `lan-only`
-- profile: `home-server@5`
-- server側標準port: Minecraft Java `25565`、McRemote `25575`
+- launcher: `run.sh`
+- console: 名前付きScreen session
 
-`home-server@5`は`home-server@3`のserver側topologyを再利用するappend-only revisionである。
-Compose serviceはMinecraft／Paper／McRemoteだけとし、world、credential store、revocation authorityを
-別volumeにする。rendererは同じ`compose@5`を使用する。一方、通常devとして`dev` channelだけを許可し、
-認証強制とsession-only policyをprofile capabilityへ明示する。
+物理host、SSH接続先、server root、session名、portはbackstage inventoryを正本とする。Stack担当はinventoryを
+読み、同じ値を実機のread-only preflightで確認してから、authorized next actionの範囲を実行する。
 
-既存profileをそのまま使わない理由は名前やchannelの印象ではない。immutableな`home-server@3`は
-`dev`を許可せず、認証強制／session-onlyをcapabilityとして宣言していないためである。public web edgeを
-持つ`vps-server`系は、Caddy、Scratch、Bridge、public route、TLSをserver側へ要求し、このtopologyと一致しない。
+## 1. handoffを受け取る
+
+handoffには次を一組で入れる。
+
+| 値 | 所有元 |
+| --- | --- |
+| `MC_REMOTE_TARGET`、`SERVER_ROOT`、`SCREEN_SESSION` | backstage inventory |
+| `JAVA_PORT`、`MCREMOTE_PORT`、`PAPER_JAR`、`CURRENT_MCREMOTE_JAR` | backstage inventory＋実機preflight |
+| `MCREMOTE_TAG`、`MCREMOTE_ASSET`、`MCREMOTE_URL`、`MCREMOTE_SHA256` | component release handoff＋Stack artifact照合 |
+| `EXPECTED_PAPER_SHA256`、`EXPECTED_JAVA_MAJOR`、`EXPECTED_PROTOCOL` | exact release set |
+| `authorized next action` | human operator（release済みset）／gate coordinator（candidate） |
+
+公開artifactの取得元とdigestは
+[`release artifact／preset準備runbook`](release-preset-preparation-guide_ja.md)で照合する。このhost-native
+runbookは、そのartifact handoffをserverへ適用する。private実値を公開repoや作業結果へ転記しない。
+
+管理端末から対象hostへ入り、handoff値を設定する。
+
+```sh
+MC_REMOTE_TARGET="<backstage handoff>"
+ssh "$MC_REMOTE_TARGET"
+
+SERVER_ROOT="<backstage handoff>"
+SCREEN_SESSION="<backstage handoff>"
+JAVA_PORT="<backstage handoff>"
+MCREMOTE_PORT="<backstage handoff>"
+PAPER_JAR="<backstage handoff>"
+CURRENT_MCREMOTE_JAR="<backstage handoff>"
+```
+
+## 2. read-only preflight
+
+server hostで現行runtimeと入力を確認する。この段階では稼働中serverを継続する。
+
+```sh
+test -d "$SERVER_ROOT"
+test -x "$SERVER_ROOT/run.sh"
+test -f "$PAPER_JAR"
+test -f "$CURRENT_MCREMOTE_JAR"
+test -w "$SERVER_ROOT/plugins"
+command -v curl
+command -v java
+command -v screen
+command -v sha256sum
+command -v ss
+java -version
+sha256sum "$PAPER_JAR" "$CURRENT_MCREMOTE_JAR"
+screen -ls || true
+ss -ltn | grep -E ":($JAVA_PORT|$MCREMOTE_PORT)[[:space:]]" || true
+find "$SERVER_ROOT/plugins" -maxdepth 1 -type f \
+  \( -iname '*mcremote*.jar' -o -iname 'mc-remote*.jar' \) -print
+```
+
+Paperは`EXPECTED_PAPER_SHA256`、現在のMcRemoteはinventoryのcurrent identityへ一致させる。Screen session、
+Java process、両listenerを同じruntimeへ対応付ける。inventoryと実機が異なる場合は、観測結果をbackstageの
+更新対象として返し、対応関係を確定してから同じpreflightを行う。
+
+## 3. artifact staging
+
+target artifactはserver停止前に取得して検証する。
+
+```sh
+MCREMOTE_TAG="<artifact handoff>"
+MCREMOTE_ASSET="<artifact handoff>"
+MCREMOTE_URL="<artifact handoffのGitHub Release asset URL>"
+MCREMOTE_SHA256="<artifact handoff>"
+EXPECTED_PAPER_SHA256="<exact release set>"
+EXPECTED_JAVA_MAJOR="<exact release set>"
+EXPECTED_PROTOCOL="<exact release set>"
+STAGING_ROOT="$HOME/.local/share/mc-remote/host-native-staging/$MCREMOTE_SHA256"
+
+install -d -m 0750 "$STAGING_ROOT"
+curl --fail --location --output "$STAGING_ROOT/$MCREMOTE_ASSET" "$MCREMOTE_URL"
+test "$(sha256sum "$STAGING_ROOT/$MCREMOTE_ASSET" | awk '{print $1}')" = \
+  "$MCREMOTE_SHA256"
+test "$(sha256sum "$PAPER_JAR" | awk '{print $1}')" = \
+  "$EXPECTED_PAPER_SHA256"
+```
+
+preflightのcurrent identity、target tag／asset／SHA-256、維持するPaper／world／config／credential、停止予定の
+Screen sessionとportを確認し、authorized next actionと一致させる。
+現在のMcRemote JARが既に`MCREMOTE_SHA256`と一致する場合はJAR交換を行わず、§5のreadinessを確認して
+`result: unchanged`で完了する。
+
+## 4. 正常停止と一件交換
+
+consoleへ`stop`を送り、world保存とplugin shutdownを完了させる。
+
+```sh
+if screen -ls | grep -Fq ".$SCREEN_SESSION"; then
+  screen -S "$SCREEN_SESSION" -p 0 -X stuff $'stop\r'
+fi
+for attempt in $(seq 1 120); do
+  if ! screen -ls | grep -Fq ".$SCREEN_SESSION" && \
+     ! ss -ltn | grep -Eq ":($JAVA_PORT|$MCREMOTE_PORT)[[:space:]]"; then
+    break
+  fi
+  sleep 1
+done
+! screen -ls | grep -Fq ".$SCREEN_SESSION"
+! ss -ltn | grep -Eq ":($JAVA_PORT|$MCREMOTE_PORT)[[:space:]]"
+```
+
+停止確認後、現在のJARをoperator backupへ移し、検証済みJARを一件だけ配置する。
+
+```sh
+BACKUP_ROOT="$SERVER_ROOT/operator-backup/$(date +%Y%m%dT%H%M%S)"
+BACKED_UP_MCREMOTE_JAR="$BACKUP_ROOT/$(basename "$CURRENT_MCREMOTE_JAR")"
+TARGET_MCREMOTE_JAR="$SERVER_ROOT/plugins/$MCREMOTE_ASSET"
+
+install -d -m 0750 "$BACKUP_ROOT"
+mv "$CURRENT_MCREMOTE_JAR" "$BACKED_UP_MCREMOTE_JAR"
+install -m 0644 "$STAGING_ROOT/$MCREMOTE_ASSET" "$TARGET_MCREMOTE_JAR"
+test "$(sha256sum "$TARGET_MCREMOTE_JAR" | awk '{print $1}')" = "$MCREMOTE_SHA256"
+test "$(find "$SERVER_ROOT/plugins" -maxdepth 1 -type f \
+  \( -iname '*mcremote*.jar' -o -iname 'mc-remote*.jar' \) | wc -l)" -eq 1
+```
+
+このwrite setはMcRemote JARとoperator backupだけである。Paper、world、server properties、McRemote config、
+credential store、revocation authorityを同じ操作で変更しない。
+
+## 5. 起動とreadiness
+
+server rootの正準launcherを実行する。
+
+```sh
+cd "$SERVER_ROOT"
+./run.sh
+```
+
+`run.sh`が開いたconsoleを維持する。consoleから離れる場合はScreenのdetach操作`Ctrl-A`、`D`を使う。
+起動後、次を確認する。
+
+```sh
+screen -ls | grep -F ".$SCREEN_SESSION"
+test "$(sha256sum "$TARGET_MCREMOTE_JAR" | awk '{print $1}')" = "$MCREMOTE_SHA256"
+grep -E 'Starting minecraft server version|This server is running Paper|Done \(' \
+  "$SERVER_ROOT/logs/latest.log" | tail -n 3
+grep -Ei 'McRemote|Credential domain' "$SERVER_ROOT/logs/latest.log" | tail -n 20
+ss -ltn | grep -E ":($JAVA_PORT|$MCREMOTE_PORT)[[:space:]]"
+```
+
+完了条件は、期待するPaper／McRemote version、`Credential domain health: HEALTHY`、両listener、workstationからの
+到達、tokenなし`hello`の`auth_required`、必要なpairing／認証済み代表callである。release gateの追加試験は
+指定されたexact setと実施票で続ける。
+
+起動またはreadinessが失敗した場合はconsoleを正常停止し、target JARを同じbackup directoryへ移して
+`BACKED_UP_MCREMOTE_JAR`を元のpathへ戻す。`run.sh`で再起動し、この節のreadinessで旧runtimeの復帰を確認する。
+
+## 6. handoffを完了する
 
 ```text
-開発者workstation                         server host
-Minecraft client ─── LAN/TCP 25565 ───> Minecraft/Paper
-Scratch browser ──> local Bridge ──────> McRemote TCP 25575
-Python process ─────────────────────────> McRemote TCP 25575
-WireScope browser <── workstation内のMessageChannel／loopback station
+target: <backstage上の参照>
+runtime: host-native run.sh / Screen
+release: <MCREMOTE_TAG>
+paper sha256: <EXPECTED_PAPER_SHA256との一致>
+mcremote sha256: <MCREMOTE_SHA256との一致>
+credential health: HEALTHY
+listeners: expected
+protocol auth: auth_required
+result: updated / unchanged / restored
 ```
 
-GUI、browser、Minecraft Launcherをserver hostへ導入しない。Scratch、Bridge、Python、WireScopeは
-開発者workstation側で実行する。server hostへ配備するartifactはOCI runtime、Paper JAR、McRemote JARだけである。
-
-## 2. host preflight
-
-対象hostでは、信頼された非root operatorとしてStackをcheckoutした後、次の一入口を使う。
-
-```sh
-cd "$HOME/mc-remote-stack"
-tools/bootstrap-ubuntu-operator.sh --check
-```
-
-exact set未凍結中は`--install`を実行しない。不足toolchainはpreflight結果として返し、hostを変更せず停止する。
-exact set凍結後、coordinatorがhost installを明示許可した場合だけ、人間operatorが同じscriptのinstall modeを実行する。
-
-```sh
-tools/bootstrap-ubuntu-operator.sh --install
-```
-
-installはGit、固定uv、Python、Docker Engine、Docker Compose、repo virtual environmentを準備する。
-group変更を報告した場合は再ログインし、`--check`を再実行する。project作成後は次でもowner、mode、
-artifact store、local Docker contextをまとめて検査する。
-
-```sh
-uv run --project "$HOME/mc-remote-stack" mcrctl operator check \
-  --project "$MC_REMOTE_PROJECT" \
-  --docker-context default \
-  --bootstrap-ports
-```
-
-server側の標準portにlistenerがあればpreflightを停止し、別portを選んで回避しない。backstage管理下のhostでは、
-全service／listenerについてbackstage inventoryで所有者、用途、期待状態を確定する。未知のlistenerを許容しない。
-予期しないlistenerがあればenvironment readinessを取り下げ、人間の明示承認後に停止するかreview済みmanaged stateへ
-写像してから同じ標準portを再検査する。LAN bindの実値、host／network firewall、開発者workstationからの到達性は
-人間checkpointである。addressをhost名から推測しない。
-
-## 3. exact set受領前の停止点
-
-次の値はgate coordinatorがexact setを凍結するまで設定しない。
-
-```sh
-EXACT_PRESET_REF=""  # exact set未凍結中は設定しない
-```
-
-必要な入力は次のとおり。
-
-- knowledge contract commitとauthorized next action
-- exact preset refとpreset semantic digest
-- protocol、Minecraft、Paper、Java floor
-- McRemoteのpush済みsource commit、artifact名、version、bytes、SHA-256、および次のいずれかの取得契約
-  - credential-free HTTPS origin
-  - repository／full commit／recipe／toolchain／build input／output SHA-256を含む`git-build provenance`と、
-    coordinatorが指名する`review済みbytes import`のhandoff
-- Scratch／Bridgeのpush済みcommit、CI run／artifact ID／digest、展開後inventory
-- Python wheel／sdistのversion、bytes、SHA-256、Python floor
-- WireScope ZIP／detached manifestのbytes、SHA-256、schema／handoff version
-- queue、ring、poll、handle、particle、work、timeoutの確定runtime policy値とfixture identity
-
-exact presetとbootstrap tupleのreview入力枠は
-[`examples/normal-dev-exact-preset.template.toml`](../examples/normal-dev-exact-preset.template.toml)
-に置く。これはresolverが読むbundled presetではなく、placeholderを残したまま使用できないreview checklistである。
-exact set受領後の別PRで、全placeholderをreview済み値へ置換したappend-only presetをregistryへ追加し、catalogを
-再生成する。同じPRで、template冒頭に示すexact 5-tupleだけを`BOOTSTRAP_CONTRACTS`へappendする。
-
-`artifact fetch`はlockにあるcredential-free HTTPS fileを取得する。GitHub Releaseを先行作成せずに固定する
-McRemote JARは`kind = "git-build"`としてsource／build provenanceとoutput SHA-256をpreset／lockへ固定し、
-coordinatorがreviewした同一bytesだけを`mcrctl artifact import-reviewed`でCASへ入れる。取得時の一時URLや認証は
-lock identityにせず、import後の`<artifact_store>/sha256/<output_sha256>`をdeploy入力とする。期限付きCI artifactを
-恒久originとして参照しない。未push commit、担当worktreeの`build/libs`、`/tmp`、movingな「latest」は入力にしない。
-
-Scratch／Bridge、Python、WireScopeのexact identityは横断compatibility setに必要だが、このserver-only profileで
-hostへ配備するartifactではない。b5のために未使用artifactやworkstation runtimeをserver presetへ混入せず、
-coordinatorの統一実施票と各componentのdistribution metadataで照合する。
-
-profile追加だけでは初回applyを許可しない。exact presetを登録する変更で、`BOOTSTRAP_CONTRACTS`へ
-`home-server@5`、そのexact preset、`dev`、選択したexposure、`integration`の組をappendする。
-それまではresolve後のlockが存在してもapplyを`bootstrap_contract_unsupported`でfail closedにする。
-
-## 4. order／lockの骨格
-
-exact setとLAN bindが批准された後、手書きTOMLではなく`init`で一environment一projectを作る。
-
-```sh
-MC_REMOTE_STACK="$HOME/mc-remote-stack"
-MC_REMOTE_PROJECT="$HOME/mc-remote-deployments/dev-integration"
-MC_REMOTE_ARTIFACT_STORE="$HOME/.local/share/mc-remote/artifacts"
-EXACT_PRESET_REF="<coordinatorが凍結したpreset@revision>"
-REVIEWED_DEV_BIND_ADDRESS="<private inventoryで確認したLAN bind address>"
-
-uv run --project "$MC_REMOTE_STACK" mcrctl init "$MC_REMOTE_PROJECT" \
-  --format toml \
-  --deployment-name dev-integration \
-  --profile home-server@5 \
-  --environment-identity dev-integration \
-  --channel dev \
-  --exposure lan-only \
-  --purpose integration \
-  --preset "$EXACT_PRESET_REF" \
-  --artifact-store "$MC_REMOTE_ARTIFACT_STORE" \
-  --volume minecraft-data=dev-integration-minecraft-data \
-  --volume credential-store=dev-integration-credential-store \
-  --volume credential-revocations=dev-integration-credential-revocations \
-  --world-identity dev-integration-world \
-  --bind-address "$REVIEWED_DEV_BIND_ADDRESS" \
-  --java-port 25565 \
-  --mcremote-port 25575
-```
-
-orderは論理identity、profile／preset ref、三volume、world、bind、port、EULA acknowledgementを持つ。
-lockは`resolve`だけが生成し、profile／preset semantic digest、component／artifact identity、render plan、
-instance値、compatibility statusを固定する。lockを手編集しない。
-
-## 5. 初回applyの正準入口
-
-この節はcoordinatorがexact setとcandidate deployを許可した後だけ実行する。
-正準操作入口は`mcrctl operator check` → `mcrctl validate` → `mcrctl accept-eula` →
-理由付きunverified acknowledgementの設定 → `mcrctl validate` → `mcrctl resolve` → `mcrctl plan` →
-`mcrctl artifact fetch` → `mcrctl artifact import-reviewed` → `mcrctl render` → `mcrctl apply` →
-`mcrctl doctor`の順である。
-
-```sh
-uv run --project "$MC_REMOTE_STACK" mcrctl operator check \
-  --project "$MC_REMOTE_PROJECT" \
-  --docker-context default \
-  --bootstrap-ports
-uv run --project "$MC_REMOTE_STACK" mcrctl validate --project "$MC_REMOTE_PROJECT"
-uv run --project "$MC_REMOTE_STACK" mcrctl accept-eula --project "$MC_REMOTE_PROJECT" --yes
-```
-
-### 5.1 理由付きunverified acknowledgement
-
-exact presetのcompatibility evidenceがまだ`unverified`であり、gate coordinatorがそのexact setの使用を
-明示許可した場合だけ設定する。これはMinecraft EULAの承認、compatibility検証の完了、恒久的な既定値の
-いずれでもない。
-
-`init`が作った`mc-remote.toml`をtext editorで開き、既存の`[acknowledgements]`にある次の2 scalarだけを
-更新する。tableやkeyを重複追加せず、理由には現在のgateと実施目的を具体的に記す。次はb5 gateで使用する
-理由の例であり、後続gateへそのまま転用しない。
-
-```toml
-[acknowledgements]
-allow_unverified = true
-unverified_reason = "b5 exact compatibility set integration evidence is being established"
-allow_eol = false
-eol_reason = ""
-```
-
-設定後は`validate`を再実行し、`OK validate format=toml order=valid`を確認する。続いて、実行ごとの
-one-shot確認である`--allow-unverified`を付けて`resolve`する。orderの永続設定だけ、またはone-shot flag
-だけでは成功しない。
-
-```sh
-uv run --project "$MC_REMOTE_STACK" mcrctl validate --project "$MC_REMOTE_PROJECT"
-uv run --project "$MC_REMOTE_STACK" mcrctl resolve --project "$MC_REMOTE_PROJECT" --allow-unverified
-uv run --project "$MC_REMOTE_STACK" mcrctl plan --project "$MC_REMOTE_PROJECT"
-```
-
-成功条件は次のすべてである。
-
-- `validate`がorderをvalidと判定する。
-- `resolve`が`OK resolve status=created`または`status=unchanged`を返す。
-- `plan`がcoordinator指定のprofile／preset／artifact／volume／bind／portとreview対象のlock identityを示す。
-- `PLAN selection=preset compatibility=unverified`とcompatibility warningだけが、今回許容した未検証境界として残る。
-- lockを手編集せず、`resolve`が生成したlock identityを`plan`でreviewできる。
-
-`acknowledgement_reason_required`なら、`allow_unverified = true`に対応する理由が非空かつ具体的かをorderで
-直し、`validate`から再開する。`unverified_not_acknowledged`なら、order側の2 scalarと、当該`resolve`／`apply`
-に付けるone-shot `--allow-unverified`の両方を確認する。それ以外のfailure、またはplanに予期しないidentity差分が
-あれば停止し、order／lock／generated treeとreasonを保持してgate coordinatorへ戻す。失敗を回避するために
-profile／preset、acknowledgement以外のorderとlockを手編集しない。
-
-上のacknowledgement設定と再`validate`／`resolve`／`plan`を完了してから、artifact処理へ進む。
-
-```sh
-uv run --project "$MC_REMOTE_STACK" mcrctl artifact fetch --project "$MC_REMOTE_PROJECT"
-uv run --project "$MC_REMOTE_STACK" mcrctl artifact import-reviewed "$REVIEWED_MCREMOTE_JAR" \
-  --project "$MC_REMOTE_PROJECT" \
-  --artifact-id mcremote-jar \
-  --expected-sha256 "$REVIEWED_MCREMOTE_SHA256"
-uv run --project "$MC_REMOTE_STACK" mcrctl render \
-  --project "$MC_REMOTE_PROJECT" \
-  --output "$MC_REMOTE_PROJECT/generated"
-```
-
-`REVIEWED_MCREMOTE_JAR`と`REVIEWED_MCREMOTE_SHA256`は、coordinatorがexact setで指名したfileとdigestだけを
-設定する。importはcurrentかつself-verifyingなlockの`git-build` artifact一件に限定し、filenameとdigestを再検査する。
-既存CAS entryが同digestなら再hashして`present`、不一致なら上書きせず停止する。source fileはsymlinkを拒否し、
-同一filesystem内のtemporary fileからcreate-if-absentでpublishする。この操作はbuild、download、render、applyを行わない。
-
-`plan`で表示したlock identity、artifact、三volume、world、LAN bind／portを人間が確認する。HTTPS artifact取得、
-review済みgit-build outputのimport、renderが成功するまでruntimeを変更しない。承認したlockだけを初回bootstrapする。
-
-```sh
-REVIEWED_LOCK_IDENTITY="sha256:<planで確認した64-hex>"
-
-uv run --project "$MC_REMOTE_STACK" mcrctl apply \
-  --project "$MC_REMOTE_PROJECT" \
-  --output "$MC_REMOTE_PROJECT/generated" \
-  --expected-lock-identity "$REVIEWED_LOCK_IDENTITY" \
-  --docker-context default \
-  --bootstrap \
-  --yes \
-  --allow-unverified
-
-uv run --project "$MC_REMOTE_STACK" mcrctl doctor --project "$MC_REMOTE_PROJECT" --docker-context default
-```
-
-成功条件はcurrent lock／render、managed service／volume、exact artifact mount、LAN bind／port、healthy、
-token無しhelloの`auth_required`である。doctorがFAILした場合、その場でgenerated fileやcontainerを手修正せず、
-reasonを保持してStackまたはcomponent担当へ戻す。
-
-## 6. candidate更新と再適用
-
-稼働後のcandidate更新は、同じprofile／preset familyのreview済みexact targetに対して二commandを使う。
-入口は`mcrctl deployment update plan`と`mcrctl deployment update apply`であり、release固有migrationを
-追加しない。
-
-```sh
-uv run --project "$MC_REMOTE_STACK" mcrctl deployment update plan \
-  --project "$MC_REMOTE_PROJECT" \
-  --to-profile home-server@5 \
-  --to-preset "$NEXT_EXACT_PRESET_REF" \
-  --docker-context default
-
-uv run --project "$MC_REMOTE_STACK" mcrctl deployment update apply \
-  --project "$MC_REMOTE_PROJECT" \
-  --plan-id "$REVIEWED_UPDATE_PLAN_ID" \
-  --yes
-```
-
-planはtarget artifactを停止前に取得・再hashし、source／target order、lock、render、volume、portを一票にする。
-applyはreview済みplan IDだけを使い、失敗時は旧order／lock／renderとcontainerを再起動できる範囲で戻す。
-world、pairing、session、接続状態の完全復元は主張しない。Scratch／Pythonの保存済み建築コードを保護対象とする。
-
-同じplanが途中で停止した場合は、ad hoc commandを挟まず同じplan IDで`apply`を再実行する。別candidateへ
-変更する場合はcoordinatorが旧exact setを失効させた後、新しいtargetでplanを作り直す。汎用destroyや
-完全rollbackをこのrunbookの前提にしない。
+private host値、token、credential内容、raw logはbackstageまたはGit外の所定位置へ返す。
