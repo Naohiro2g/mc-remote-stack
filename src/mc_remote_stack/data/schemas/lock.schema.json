@@ -548,7 +548,7 @@
     "scratchNotice": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["heading", "body", "link"],
+      "required": ["heading", "body"],
       "properties": {
         "heading": {
           "type": "string",

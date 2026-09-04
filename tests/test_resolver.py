@@ -779,3 +779,157 @@ white_list = false
         "mcremote-jar",
     ]
     assert lock["compatibility"]["status"] == "unverified"
+
+
+def test_public_web_profile_accepts_link_less_operator_notice(tmp_path: Path) -> None:
+    data_root = files("mc_remote_stack").joinpath("data")
+    project = init_toml_project(
+        tmp_path / "official-public-beta",
+        deployment_name="official-public-beta",
+        profile="vps-server@12",
+        environment_identity="official-public-beta",
+        channel="beta",
+        exposure="public",
+        purpose="integration",
+        preset="public-web-paper@9",
+        artifact_store=str(tmp_path / "artifacts"),
+        runtime_volumes={
+            "minecraft-data": "official-public-beta-minecraft-data",
+            "caddy-data": "official-public-beta-caddy-data",
+            "caddy-config": "official-public-beta-caddy-config",
+        },
+        world_identity="official-public-beta-world",
+        bind_address="0.0.0.0",
+        java_port=25565,
+        mcremote_port=25575,
+        minecraft_eula=True,
+    )
+    project.order.write_text(
+        project.order.read_text(encoding="utf-8")
+        + """
+[[operator_inputs]]
+role = "public-routes"
+adapter = "public-routes@2"
+path = "operator/public-routes/routes.toml"
+
+[[operator_inputs]]
+role = "minecraft-server"
+adapter = "minecraft-server@1"
+path = "operator/minecraft-server/server.toml"
+
+[[operator_inputs]]
+role = "connection-targets"
+adapter = "connection-targets@3"
+path = "operator/connection-targets/targets.toml"
+
+[[operator_inputs]]
+role = "minecraft-plugins"
+adapter = "minecraft-plugins@1"
+path = "operator/minecraft-plugins/plugins.toml"
+
+[[operator_inputs]]
+role = "homepage-static"
+adapter = "homepage-static@1"
+path = "operator/homepage-static/homepage.toml"
+
+[[operator_inputs]]
+role = "minecraft-backup"
+adapter = "minecraft-backup@1"
+path = "operator/minecraft-backup/backup.toml"
+""",
+        encoding="utf-8",
+    )
+    routes = project.root / "operator" / "public-routes" / "routes.toml"
+    routes.parent.mkdir(parents=True)
+    routes.write_text(
+        """
+homepage = "mc-remote.example"
+homepage_aliases = ["www.mc-remote.example"]
+scratch = "scratch.mc-remote.example"
+bridge = "bridge.mc-remote.example"
+minecraft = "sb.mc-remote.example"
+wirescope = "wirescope.mc-remote.example"
+""".lstrip(),
+        encoding="utf-8",
+    )
+    server = project.root / "operator" / "minecraft-server" / "server.toml"
+    server.parent.mkdir(parents=True)
+    server.write_text(
+        """
+allow_flight = false
+difficulty = "hard"
+enable_query = false
+enable_status = true
+force_gamemode = true
+gamemode = "creative"
+hardcore = true
+log_ips = true
+management_server_enabled = false
+max_players = 18
+max_tick_time = -1
+max_world_size = 9984
+motd = "McRemote Sandbox Server"
+network_compression_threshold = -1
+simulation_distance = 6
+spawn_protection = 150
+view_distance = 10
+white_list = false
+""".lstrip(),
+        encoding="utf-8",
+    )
+    targets = project.root / "operator" / "connection-targets" / "targets.toml"
+    targets.parent.mkdir(parents=True)
+    targets.write_text(
+        """
+[[targets]]
+id = "beta"
+label = "公開ベータ"
+sandbox = "sb-beta.mc-remote.example"
+
+[[notices]]
+heading = "リンクの無いお知らせ"
+body = "hrefもlabelも指定していません。"
+""".lstrip(),
+        encoding="utf-8",
+    )
+    plugins = project.root / "operator" / "minecraft-plugins" / "plugins.toml"
+    plugins.parent.mkdir(parents=True)
+    plugins.write_text(
+        '[[plugins]]\nfilename = "Example-1.0.0.jar"\nsha256 = "'
+        + "0" * 64
+        + '"\n',
+        encoding="utf-8",
+    )
+    homepage = project.root / "operator" / "homepage-static" / "homepage.toml"
+    homepage.parent.mkdir(parents=True)
+    homepage.write_text(
+        'tree_sha256 = "'
+        + "0" * 64
+        + '"\nfile_count = 1\ntotal_bytes = 1\n',
+        encoding="utf-8",
+    )
+    backup = project.root / "operator" / "minecraft-backup" / "backup.toml"
+    backup.parent.mkdir(parents=True)
+    backup.write_text('host_path = "/var/lib/mc-remote/backup-example"\n', encoding="utf-8")
+    _acknowledge(project.root, "unverified")
+
+    result = resolve_project(
+        project.root,
+        data_root=data_root,
+        allow_unverified=True,
+        resolved_at=FIRST_RESOLVED_AT,
+    )
+    lock = load_lock(project.root, data_root=data_root)
+
+    assert result.status == "created"
+    connection_targets_input = next(
+        item
+        for item in lock["operator_inputs"]
+        if item["role"] == "connection-targets"
+    )
+    assert connection_targets_input["semantic"]["notices"] == [
+        {
+            "heading": "リンクの無いお知らせ",
+            "body": "hrefもlabelも指定していません。",
+        }
+    ]

@@ -477,6 +477,46 @@ label = "WireScopeを見る"
     }
 
 
+def test_connection_targets_v3_allows_notice_without_link(tmp_path: Path) -> None:
+    source = '''[[targets]]
+id = "beta"
+label = "公開ベータ"
+sandbox = "sb-beta.mc-remote.com"
+
+[[notices]]
+heading = "本日のお知らせ"
+body = "リンクの無いテキストのみのお知らせです。"
+'''.encode()
+
+    semantic = _parse_connection_targets_v3(tmp_path / "targets.toml", source)
+
+    assert semantic["notices"] == [
+        {
+            "heading": "本日のお知らせ",
+            "body": "リンクの無いテキストのみのお知らせです。",
+        }
+    ]
+    assert "link" not in semantic["notices"][0]
+
+
+def test_connection_targets_v3_rejects_notice_with_only_href(tmp_path: Path) -> None:
+    source = '''[[targets]]
+id = "beta"
+label = "公開ベータ"
+sandbox = "sb-beta.mc-remote.com"
+
+[[notices]]
+heading = "本日のお知らせ"
+body = "hrefだけを指定した不正な例です。"
+href = "https://mc-remote.com"
+'''.encode()
+
+    with pytest.raises(OperatorInputError) as exc_info:
+        _parse_connection_targets_v3(tmp_path / "targets.toml", source)
+
+    assert exc_info.value.reason == "operator_input_parse_failed"
+
+
 def test_connection_targets_v3_rejects_empty_notice_feed(tmp_path: Path) -> None:
     source = b'''[[targets]]
 id = "beta"
