@@ -11,6 +11,9 @@ lock済みScratch schemaへ通し、exact image、container稼働／Minecraft he
 allowlist／default target、Bridge containerからMcRemoteへの到達、tokenなし`hello`への`auth_required`を確認する。
 targetの`sandbox`は同じtarget集合からMinecraft serviceの内部network aliasにも生成し、Bridgeが同じdeploymentの
 McRemoteへ接続する経路を固定する。
+McRemoteの非秘密runtime policyは初回seed用configとして生成し、b7 JARのfresh-install既定に依存せず
+`auth.enforcement: true`を設定する。実際のenforcementはconfig内容の推測でなくdoctorのtokenなし`hello`で確認する。
+credential実値は生成せず、session-only store／authorityはMinecraft data volume内のruntime stateとして扱う。
 
 `apply`はcurrent exact lock、永続world volume、管理containerの三者から状態を判定する。lockとvolumeが揃う
 既存deploymentはcontainerが停止／削除済みでもupdateであり、新規扱いにしない。既存world volumeを再利用する
