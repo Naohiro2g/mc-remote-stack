@@ -1,0 +1,167 @@
+schema_version = 1
+
+[preset]
+name = "public-web-paper"
+revision = "10"
+description = "Same b7 deployment set as revision 9, without the preset-owned Scratch release notice (DEC 2026-09-05-02: Scratch product-config's {version}-substituted notice is now the sole developer-notice source)"
+
+[requirements]
+profile_capabilities = [
+  "compose",
+  "paper",
+  "persistent-world",
+  "public-web",
+  "scratch-runtime",
+  "websocket-bridge",
+  "wirescope-browser",
+  "mcremote-auth-enforced",
+  "mcremote-session-only",
+]
+allowed_channels = ["beta"]
+required_claims = [
+  "profile-render",
+  "protocol-hello",
+  "https-runtime",
+  "websocket-bridge",
+  "wirescope-public-handoff",
+]
+
+[scratch_runtime_contract]
+source_commit = "4c893bd532002d9216665c5c9b9825e09ede1e7c"
+source_directory = "packages/scratch-gui/contracts/runtime-config"
+directory_tree_sha = "ecb669a02ac6c8e502b44850e6dd28260c5adad4"
+schema_sha256 = "4e1f8489dc6ea03800f5cf0fefd2f078fd6d71c8efda581f1711f68e384f99e4"
+container_mount_path = "/usr/share/nginx/html/mc-remote-runtime-config.json"
+image_digest = "sha256:c2693fd5078ba547ced1cfe6b1732d5e9c283ffc44aaf8356bce6967e5aa7f2c"
+accepted_fixtures = ["fixtures/disabled.json", "fixtures/valid.json"]
+rejected_fixtures = [
+  "fixtures/invalid/enabled-missing-targets.json",
+  "fixtures/invalid/nested-unknown-field.json",
+  "fixtures/invalid/schema-version.json",
+  "fixtures/invalid/unknown-field.json",
+]
+
+[scratch_runtime_contract.fixture_sha256]
+"fixtures/disabled.json" = "bec0cf2c31fbca7d3bd603e29c1d145d82b6ecf7b4661b9adafde31dfa2eec2d"
+"fixtures/valid.json" = "cc2282144e1e87b42d2e31229461f9aeead26eeb446ae817571eb96935360e20"
+"fixtures/invalid/enabled-missing-targets.json" = "f5392059e42431b45fb8f7f03aa09e734fb8b9e79f8fb92913082ff05842736c"
+"fixtures/invalid/nested-unknown-field.json" = "ed0923793b8713ec67615b6f14bc9f8fb342041b0cdeed5d7b9b10110a3c62b7"
+"fixtures/invalid/schema-version.json" = "9e0d32fc83501a2b73095ae59675e27ace5d11fb31e19443b78e49341ba3e766"
+"fixtures/invalid/unknown-field.json" = "35f1f21562e237cce722f5a1f93723f00d927d07769f8b12174d3ff9f73d5e3d"
+
+[[components]]
+id = "caddy"
+role = "caddy-edge"
+artifact = "caddy-image"
+
+[[components]]
+id = "scratch"
+role = "scratch-runtime"
+artifact = "scratch-image"
+
+[[components]]
+id = "bridge"
+role = "websocket-bridge"
+artifact = "bridge-image"
+protocol = "23.1.0"
+
+[[components]]
+id = "wirescope"
+role = "wirescope-app"
+artifact = "wirescope-zip"
+
+[[components]]
+id = "wirescope-manifest"
+role = "wirescope-manifest"
+artifact = "wirescope-manifest"
+
+[[components]]
+id = "minecraft-runtime"
+role = "minecraft-runtime"
+artifact = "minecraft-image"
+
+[[components]]
+id = "paper-server"
+role = "paper-server"
+artifact = "paper-jar"
+minecraft_version = "1.21.11"
+
+[[components]]
+id = "mcremote-paper"
+role = "mcremote-plugin"
+artifact = "mcremote-jar"
+protocol = "23.1.0"
+
+[[artifacts]]
+id = "caddy-image"
+kind = "oci"
+version = "2.11.4-alpine"
+locator = "docker.io/library/caddy"
+digest = "sha256:98eb57d882ccd5213d1688764db10c1ca2c58a1ca3a6717a3411ad798f7a423a"
+
+[[artifacts]]
+id = "scratch-image"
+kind = "oci"
+version = "sha-4c893bd532002d9216665c5c9b9825e09ede1e7c"
+locator = "ghcr.io/naohiro2g/mc-remote-scratch"
+digest = "sha256:c2693fd5078ba547ced1cfe6b1732d5e9c283ffc44aaf8356bce6967e5aa7f2c"
+
+[[artifacts]]
+id = "bridge-image"
+kind = "oci"
+version = "sha-4c893bd532002d9216665c5c9b9825e09ede1e7c"
+locator = "ghcr.io/naohiro2g/mc-remote-bridge"
+digest = "sha256:42e9a25cdf6af922219544dbefd74a251eafb1dd78d88d4819c5a7418142b66c"
+
+[[artifacts]]
+id = "wirescope-zip"
+kind = "git-build"
+version = "2301.0.0b7"
+repository = "https://github.com/Naohiro2g/scratch-editor"
+commit = "0be46fcfaca409a5ede10f592520d93e7c59ba15"
+source_subdirectory = "mc-remote/live"
+recipe = "npm ci && npm run build:artifact --workspace=@mc-remote/live -- --source-commit 0be46fcfaca409a5ede10f592520d93e7c59ba15"
+recipe_sha256 = "07143ccecc253ca72198812b14a2153d016ec8b786fe09069eb2638d8c8805d3"
+toolchain = "node=24.19.0;rolldown-vite=7.3.1;typescript=5.9.3;jszip=3.10.1"
+toolchain_sha256 = "6fca56d5a4f2b33310285a3b01ad1ae5f7618e7a9c8acf179492aec679c1156d"
+build_input_sha256 = "4954836dffcde2deb8ecf3fc6815d7ef608864c818390f853fcee107a09f37aa"
+output_filename = "wirescope-app.zip"
+output_sha256 = "98d684dc15f369f6568d249357d8fd3af11893859d3c07c2554295df19a263b8"
+
+[[artifacts]]
+id = "wirescope-manifest"
+kind = "git-build"
+version = "2301.0.0b7"
+repository = "https://github.com/Naohiro2g/scratch-editor"
+commit = "0be46fcfaca409a5ede10f592520d93e7c59ba15"
+source_subdirectory = "mc-remote/live"
+recipe = "npm ci && npm run build:artifact --workspace=@mc-remote/live -- --source-commit 0be46fcfaca409a5ede10f592520d93e7c59ba15"
+recipe_sha256 = "07143ccecc253ca72198812b14a2153d016ec8b786fe09069eb2638d8c8805d3"
+toolchain = "node=24.19.0;rolldown-vite=7.3.1;typescript=5.9.3;jszip=3.10.1"
+toolchain_sha256 = "6fca56d5a4f2b33310285a3b01ad1ae5f7618e7a9c8acf179492aec679c1156d"
+build_input_sha256 = "4954836dffcde2deb8ecf3fc6815d7ef608864c818390f853fcee107a09f37aa"
+output_filename = "wirescope-app.manifest.json"
+output_sha256 = "7498e32150884aec8c3d562b454d8b042032aa21893ae7fe886c06df2baf028f"
+
+[[artifacts]]
+id = "minecraft-image"
+kind = "oci"
+version = "2026.7.2-java21"
+locator = "docker.io/itzg/minecraft-server"
+digest = "sha256:7f69fd6688e03495c8a8f5a46e8a8e82001b4465f4b55bdcd024c02c3624d8c8"
+
+[[artifacts]]
+id = "paper-jar"
+kind = "https-file"
+version = "1.21.11-132"
+filename = "paper-1.21.11-132.jar"
+sha256 = "5ffef465eeeb5f2a3c23a24419d97c51afd7dbb4923ff42df9a3f58bba1ccfba"
+origin = "https://fill-data.papermc.io/v1/objects/5ffef465eeeb5f2a3c23a24419d97c51afd7dbb4923ff42df9a3f58bba1ccfba/paper-1.21.11-132.jar"
+
+[[artifacts]]
+id = "mcremote-jar"
+kind = "https-file"
+version = "2301.0.0b7"
+filename = "mc-remote-1.21.11-2301.0.0b7.jar"
+sha256 = "f08388cf393e02db1eb605e707dfaec890792e7a475de5a51caacbc940028ee9"
+origin = "https://github.com/Naohiro2g/McRemote/releases/download/v1.21.11-2301.0.0b7/mc-remote-1.21.11-2301.0.0b7.jar"
