@@ -29,7 +29,7 @@ def test_public_vps_runbook_is_one_positive_canonical_path() -> None:
         encoding="utf-8"
     )
 
-    assert len(guide.splitlines()) <= 180
+    assert len(guide.splitlines()) <= 185
     assert "uv run" in guide
     assert '"$MC_REMOTE_PROJECT/mc-remote.toml"' in guide
     assert "mcrctl deployment update plan" in guide
@@ -45,6 +45,17 @@ def test_public_vps_runbook_is_one_positive_canonical_path() -> None:
     assert "release済みset" in guide
     assert "gate coordinatorを通常handoffの必須者にしない" in guide
     assert "compact state adoption" in guide
+
+    # A run-through found notices silently carried over across a preset bump
+    # (an existing operator notice duplicated the target release's own
+    # product notice). The fix is a procedural checkpoint, not a doctor
+    # check: ask the human for an explicit preset/notice request right after
+    # collection, instead of inheriting whatever the prior project had.
+    assert "収集直後のrequest確認" in guide
+    assert "継承／編集／追加／削除" in guide
+    assert guide.index("release artifact／preset準備runbook") < guide.index(
+        "収集直後のrequest確認"
+    )
 
 
 def test_operator_uv_has_one_canonical_install_path() -> None:
