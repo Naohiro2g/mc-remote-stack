@@ -27,30 +27,26 @@ update時の占有から除外する。
 
 ## Scratch contract handoffの取込
 
-Stackへ返す正式入力は次の五点である。
+Stackへの正式入力は、Scratch GitHub Releaseへ添付された`manifest.json`と`contracts.tar.gz`である。manifestが
+role別に確定するsource commit、Scratch／Bridge image digestを個別のテキスト票として会話やhandoffから聞き出す
+運用はしない（`00-hub/deployment-interface-design_ja.md`§4）。
 
-- Scratch contract commit
-- `packages/scratch-gui/contracts/runtime-config` directory
-- container mount path
-- Scratch image digest
-- Scratch側で実行したtestと結果
-
-Stack担当は受領済みのruntime-config contract directoryを
+Stack担当は取得したruntime-config contract directoryを
 `src/mc_remote_stack/data/scratch-contracts/<commit>/`へそのまま収容する。immutable presetはcommit、Git tree
 SHA、schema SHA-256、全fixtureのSHA-256とaccept／reject期待値、source directory、mount path、Scratch image
 digestを固定する。resolveとdoctorは収容したdirectoryのGit tree identityを再計算し、schema／fixture digestと
 全fixtureの判定を再実行する。presetのScratch artifact digestとhandoff image digestが異なる場合も停止する。
 
-正式handoff 2はScratch commit `4c893bd532002d9216665c5c9b9825e09ede1e7c`、runtime-config tree
-`ecb669a02ac6c8e502b44850e6dd28260c5adad4`である。Scratch自身のCIがbuild・publishしたScratch／Bridge OCI
-index digestをbundled `classroom@1`へ固定した。Stackはtagとregistry manifestをread-only照合し、imageをbuild
-しない。前回Stackが起動したworkflowのimage digestはpresetやlockから参照しない。
+実際のcommit／tree／digestはpreset revisionごとに`src/mc_remote_stack/data/preset_registry/`配下のexact
+preset.tomlが持つ。この文書はそれらの値を転記しない。Scratch GitHub Releaseに`manifest.json`が添付されている
+場合、Stackはそのmanifestのrole別artifact identity（source commit、Scratch／Bridge image digest）だけを正式入力
+とし、tagとregistry manifestをread-only照合する。imageはbuildしない。前回Stackが起動したworkflowのimage
+digestはpresetやlockから参照しない。
 
 Scratch digestはScratch artifactと`deployment_interface.scratch_contract.image_digest`の双方へ同じ値を固定し、
 Bridge digestもexact artifactとして固定する。resolve時にScratch artifactとhandoff digestが異なれば停止する。
 
-product-config contract（handoff 2 tree `5980d6245da82a26325d415398dafd23e59d8c29`）とcontract directory外のScratch
-sourceは収容・参照しない。
+contract directory外のScratch sourceは収容・参照しない。
 
 ## 旧経路との境界
 

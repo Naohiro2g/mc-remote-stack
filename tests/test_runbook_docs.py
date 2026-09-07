@@ -116,8 +116,8 @@ def test_release_artifact_intake_is_one_canonical_path_before_deployment() -> No
     assert len(guide.splitlines()) <= 220
     for required_input in (
         "release name",
-        "component release handoff",
-        "Scratch contract handoff",
+        "release tag",
+        "manifest.json",
         "GitHub Releases",
         "GHCR",
         "Paper",
@@ -125,12 +125,13 @@ def test_release_artifact_intake_is_one_canonical_path_before_deployment() -> No
     ):
         assert required_input in guide
 
+    assert "mcrctl release-manifest verify" in guide
     assert 'gh api "repos/Naohiro2g/McRemote/releases/tags/$MC_REMOTE_TAG"' in guide
     assert 'gh release download "$MC_REMOTE_TAG"' in guide
     assert "sha256sum" in guide
     assert "docker buildx imagetools inspect" in guide
-    assert "handoffが採用するartifact identity" in guide
     assert "実物のidentity" in guide
+    assert "manifestが示すidentity" in guide
     assert "git-build artifact" in guide
     for provenance_field in (
         "repository",
@@ -142,17 +143,31 @@ def test_release_artifact_intake_is_one_canonical_path_before_deployment() -> No
     ):
         assert provenance_field in guide
     assert "mcrctl artifact import-reviewed" in guide
-    assert 'git -C "$SCRATCH_SOURCE" archive' in guide
-    assert "scratch-contracts/$SCRATCH_COMMIT" in guide
+    assert "scratch-contracts/$SCRATCH_SOURCE_COMMIT" in guide
     assert "src/mc_remote_stack/data/preset_registry/<name>/<revision>/preset.toml" in guide
     assert "uv run tools/rebuild-preset-catalog.py" in guide
     assert "uv run mcrctl preset show" in guide
     assert "uv run pytest" in guide
     assert "uv run ruff check ." in guide
 
-    assert guide.index("component release handoff") < guide.index("GitHub Releases")
+    # This exact commit is the well-documented root cause of the 4c893bd/0be46fc
+    # artifact-mismatch incident (DECISIONS_ja.md 2026-09-06-02); it must never
+    # reappear in this guide as a trustworthy worked example.
+    assert "4c893bd" not in guide
+    assert 'git -C "$SCRATCH_SOURCE" archive' not in guide
+
+    assert guide.index("release tag") < guide.index("GitHub Releases")
     assert guide.index("GitHub Releases") < guide.index("preset_registry/<name>/<revision>")
     assert guide.index("preset_registry/<name>/<revision>") < guide.index("uv run pytest")
+
+
+def test_deployment_interface_implementation_has_no_incident_commit_example() -> None:
+    doc = (
+        REPO_ROOT / "docs" / "deployment-interface-implementation_ja.md"
+    ).read_text(encoding="utf-8")
+
+    assert "4c893bd" not in doc
+    assert "manifest.json" in doc
 
 
 def test_current_deployment_runbook_shell_blocks_parse() -> None:
