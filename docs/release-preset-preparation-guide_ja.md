@@ -32,6 +32,11 @@ test "$(git rev-parse --show-toplevel)" = "$MC_REMOTE_STACK"
 推論・転記しない。Scratch／BridgeのOCI imageはGHCR（`ghcr.io/naohiro2g/mc-remote-scratch`等）にあり、
 manifestが直接`locator`と`digest`を示す。
 
+下のtagはmanifest.json導入時の最初のpost-release例であり、ハイフン区切り（`-post1`）のまま公開済みのため
+差し替えない。post2以降のpost-release接尾辞はPEP 440の正準形に合わせ`.postN`（ドット区切り、例
+`v2301.0.0b7.post2`）を使う。この例のハイフンをそのまま次のpost releaseへ転用しない
+（`2026-09-07-03`、`10-protocol/versioning-design_ja.md`§10.5）。
+
 ```sh
 SCRATCH_TAG="v2301.0.0b7-post1"
 SCRATCH_REVIEW_DIR="$(mktemp -d)"
