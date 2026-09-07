@@ -1266,6 +1266,55 @@ def test_public_web_paper_10_has_no_preset_owned_release_notice() -> None:
     assert "presentation" not in preset.data
 
 
+def test_public_web_paper_11_pins_manifest_published_post2_artifacts() -> None:
+    preset = load_preset("public-web-paper@11")
+
+    assert "presentation" not in preset.data
+    artifacts = {item["id"]: item for item in preset.data["artifacts"]}
+    assert artifacts["scratch-image"]["digest"] == (
+        "sha256:738dae72706df0e6d781c7413a50054586ec824db0a7c73b938c47d990d2fc56"
+    )
+    assert artifacts["bridge-image"]["digest"] == (
+        "sha256:099d24d5887d92729eec4e47e2dd971100ff5a7769d776fb0914b2a365dfc88e"
+    )
+    assert artifacts["wirescope-zip"] == {
+        "id": "wirescope-zip",
+        "kind": "https-file",
+        "version": "2301.0.0b7.post2",
+        "filename": "wirescope-app.zip",
+        "sha256": "98d684dc15f369f6568d249357d8fd3af11893859d3c07c2554295df19a263b8",
+        "origin": (
+            "https://github.com/Naohiro2g/scratch-editor/releases/download/"
+            "v2301.0.0b7.post2/wirescope-app.zip"
+        ),
+    }
+    assert artifacts["wirescope-manifest"]["sha256"] == (
+        "8aec62fe73bceaa01ff097567a3b308012b3df2ef31d010478d4862fd34d7198"
+    )
+    assert artifacts["mcremote-jar"]["sha256"] == (
+        "e3c20fad663cd8854e9e89dfccd4b4b80937f7120d7260f686e1902dc6d990b9"
+    )
+
+    contract = preset.data["scratch_runtime_contract"]
+    assert contract["source_commit"] == "f133fc95ed7b23109cc1908dc4f0dae066510258"
+    assert contract["directory_tree_sha"] == (
+        "ecb669a02ac6c8e502b44850e6dd28260c5adad4"
+    )
+    assert contract["image_digest"] == artifacts["scratch-image"]["digest"]
+
+    policy = load_catalog_policy()
+    policy_entry = next(
+        item for item in policy["presets"] if item["ref"] == "public-web-paper@11"
+    )
+    assert policy_entry == {
+        "ref": "public-web-paper@11",
+        "status": "active",
+        "available_since": "2026-09-07",
+    }
+
+    verify_preset_catalog()
+
+
 def test_bundled_public_b5_preset_pins_dimension_key_exact_set() -> None:
     profile = load_profile("vps-server@12")
     preset = load_preset("public-web-paper@6")

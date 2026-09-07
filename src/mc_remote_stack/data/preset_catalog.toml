@@ -3,7 +3,7 @@ schema_version = 1
 [preset_catalog]
 generator = "mcrctl-preset-catalog-v1"
 canonicalization = "jcs-rfc8785-v1"
-source_sha256 = "72295c3320f04e74bbb32a7ef8175111ef8acc674a556b29c23d1599013f0ce3"
+source_sha256 = "16dc9bdf1063bfd40bb0b6c9e0a5b90f95d2eeac168d9792197ebc30e531b5d0"
 
 [[preset_catalog.presets]]
 ref = "classroom@1"
@@ -218,6 +218,17 @@ compatibility_records = []
 ref = "public-web-paper@10"
 content_sha256 = "21bcaf93521992a89e876f4cdf00f79b453f1a48b2d1a0f15f669f0c4eba5aa0"
 description = "Same b7 deployment set as revision 9, without the preset-owned Scratch release notice (DEC 2026-09-05-02: Scratch product-config's {version}-substituted notice is now the sole developer-notice source)"
+status = "active"
+available_since = "2026-09-07"
+required_profile_capabilities = ["compose", "mcremote-auth-enforced", "mcremote-session-only", "paper", "persistent-world", "public-web", "scratch-runtime", "websocket-bridge", "wirescope-browser"]
+allowed_channels = ["beta"]
+compatibility_status = "unverified"
+compatibility_records = []
+
+[[preset_catalog.presets]]
+ref = "public-web-paper@11"
+content_sha256 = "423de88c8d1bfe7a88d23fa237d31fccc31d662128d2654da051decb7d7780e1"
+description = "Exact b7.post2 run-through deployment set collected from component-owned release manifests"
 status = "active"
 available_since = "2026-09-07"
 required_profile_capabilities = ["compose", "mcremote-auth-enforced", "mcremote-session-only", "paper", "persistent-world", "public-web", "scratch-runtime", "websocket-bridge", "wirescope-browser"]

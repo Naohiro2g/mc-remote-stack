@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "connection_enabled": true,
+  "bridge_url": "wss://bridge.example.org/",
+  "default_sandbox": "minecraft.example.org",
+  "connection_targets": [
+    {
+      "id": "classroom",
+      "label": "Classroom",
+      "sandbox": "minecraft.example.org",
+      "upstream_port": 25575
+    }
+  ]
+}
