@@ -530,7 +530,7 @@ sandbox = "sb-beta.mc-remote.com"
     assert exc_info.value.reason == "operator_input_parse_failed"
 
 
-def test_bundled_public_beta_notice_feed_is_valid_and_ordered() -> None:
+def test_bundled_public_beta_notice_feed_does_not_duplicate_product_notices() -> None:
     source = (
         Path(__file__).resolve().parents[1]
         / "examples/operator-inputs/public-beta-connection-targets-b4.toml"
@@ -539,9 +539,14 @@ def test_bundled_public_beta_notice_feed_is_valid_and_ordered() -> None:
     semantic = _parse_connection_targets_v3(source, source.read_bytes())
 
     assert semantic["targets"][0]["sandbox"] == "sb-beta.mc-remote.com"
-    assert [notice["heading"] for notice in semantic["notices"]] == [
-        "今後のリリース予定",
-        "WireScope（ワイヤースコープ）ライブ画面",
+    assert semantic["notices"] == [
+        {
+            "heading": "デプロイの仕組みを検証中",
+            "body": (
+                "b8実装の前に、デプロイを見直しています。"
+                "リンクテキスト、URL共に無い場合のテスト。"
+            ),
+        }
     ]
 
 
