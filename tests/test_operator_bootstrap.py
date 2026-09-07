@@ -27,6 +27,12 @@ def test_ubuntu_operator_bootstrap_is_auditable_and_prepares_real_tools() -> Non
     for shell_profile in (".profile", ".bash_profile", ".bash_login", ".bashrc"):
         assert shell_profile in script
     assert "command -v uv" in script
+    # Non-interactive, non-login SSH commands (`ssh host 'uv ...'`, the shape
+    # runbook automation actually uses) source none of the profiles above, so
+    # PATH edits alone leave uv invisible there. /usr/local/bin is on PATH
+    # for every shell sshd starts, interactive or not.
+    assert "/usr/local/bin/uv" in script
+    assert "readlink -f" in script
     assert '"$UV_BIN" sync --extra dev' in script
     assert "sudo mcrctl" not in script
     assert "curl -LsSf" not in script or "| sh" not in script
