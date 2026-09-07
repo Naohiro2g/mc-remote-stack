@@ -49,6 +49,49 @@ def _catalog_fixture(tmp_path: Path, *, status: str = "active") -> Path:
     return data_root
 
 
+def test_cli_release_manifest_verify_prints_artifacts(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text(
+        """{
+  "schema": "mc-remote.release-manifest",
+  "schema_version": 1,
+  "release_tag": "v1.21.11-2301.0.0b7",
+  "source_commit": "3d5f710db97f4b14613f7e0abaafd535701d1906",
+  "artifacts": [
+    {
+      "role": "jar",
+      "kind": "https-file",
+      "file": "mc-remote-1.21.11-2301.0.0b7.jar",
+      "sha256": "f08388cf393e02db1eb605e707dfaec890792e7a475de5a51caacbc940028ee9"
+    }
+  ]
+}""",
+        encoding="utf-8",
+    )
+
+    assert main(["release-manifest", "verify", str(manifest_path)]) == 0
+
+    output = capsys.readouterr().out
+    assert "RELEASE-MANIFEST release_tag=v1.21.11-2301.0.0b7" in output
+    assert "ARTIFACT role=jar kind=https-file file=mc-remote-1.21.11-2301.0.0b7.jar" in output
+
+
+def test_cli_release_manifest_verify_fails_closed_on_invalid_schema(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text('{"schema": "mc-remote.release-manifest"}', encoding="utf-8")
+
+    assert main(["release-manifest", "verify", str(manifest_path)]) == 2
+
+    output = capsys.readouterr().out
+    assert "FAIL release-manifest verify reason=release_manifest_schema_invalid" in output
+
+
 def test_cli_preset_list_and_show_use_qualified_catalog_and_exact_registry(
     tmp_path: Path,
     monkeypatch,
