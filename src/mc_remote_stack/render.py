@@ -320,9 +320,11 @@ def _locked_connection_notices(lock: dict[str, Any]) -> list[dict[str, Any]]:
     return [] if value is None else value.get("notices", [])
 
 
-def _locked_scratch_release_notice(lock: dict[str, Any]) -> dict[str, Any]:
+def _locked_scratch_release_notice(lock: dict[str, Any]) -> dict[str, Any] | None:
     presentation = lock.get("presentation")
     render_presentation = lock.get("render_plan", {}).get("presentation")
+    if presentation is None and render_presentation is None:
+        return None
     if presentation != render_presentation or not isinstance(presentation, dict):
         _render_fail(
             "render_plan_invalid",
@@ -334,7 +336,7 @@ def _locked_scratch_release_notice(lock: dict[str, Any]) -> dict[str, Any]:
         _render_fail(
             "render_plan_invalid",
             "presentation.scratch_release_notice",
-            "compose@13 requires one preset-owned Scratch release notice",
+            "a declared preset presentation must include a Scratch release notice",
         )
     return notice
 
@@ -1502,7 +1504,7 @@ def _compose_v13(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str]]:
         _render_fail(
             "scratch_runtime_config_invalid",
             runtime_path,
-            f"compose@13 requires Scratch runtime JSON and one preset release notice: {exc}",
+            f"compose@13 requires Scratch runtime JSON: {exc}",
         )
     notices = runtime_config.get("notices") if isinstance(runtime_config, dict) else None
     if not isinstance(notices, list) or not notices:
@@ -1511,7 +1513,9 @@ def _compose_v13(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str]]:
             f"{runtime_path}.notices",
             "compose@13 requires a non-empty operator notice feed",
         )
-    runtime_config["notices"] = [*notices, release_notice]
+    runtime_config["notices"] = (
+        [*notices, release_notice] if release_notice is not None else notices
+    )
     contract = _locked_scratch_runtime_contract(lock)
     if contract is not None:
         runtime_config["schema_version"] = 1

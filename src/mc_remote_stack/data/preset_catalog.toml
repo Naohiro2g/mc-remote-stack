@@ -3,7 +3,7 @@ schema_version = 1
 [preset_catalog]
 generator = "mcrctl-preset-catalog-v1"
 canonicalization = "jcs-rfc8785-v1"
-source_sha256 = "82dadbfaa607419311492ab064e11715d8f364f2b375b1edc7763567609344ce"
+source_sha256 = "72295c3320f04e74bbb32a7ef8175111ef8acc674a556b29c23d1599013f0ce3"
 
 [[preset_catalog.presets]]
 ref = "classroom@1"
@@ -209,6 +209,17 @@ content_sha256 = "9a16ac95ccb48dc3bbcfba5e3227916fdbcf7ceefacb2369386d546fdaf371
 description = "Exact public b7 deployment set using owner-published Scratch and Bridge images, owner-built WireScope bytes, and the McRemote b7 release JAR"
 status = "active"
 available_since = "2026-09-03"
+required_profile_capabilities = ["compose", "mcremote-auth-enforced", "mcremote-session-only", "paper", "persistent-world", "public-web", "scratch-runtime", "websocket-bridge", "wirescope-browser"]
+allowed_channels = ["beta"]
+compatibility_status = "unverified"
+compatibility_records = []
+
+[[preset_catalog.presets]]
+ref = "public-web-paper@10"
+content_sha256 = "21bcaf93521992a89e876f4cdf00f79b453f1a48b2d1a0f15f669f0c4eba5aa0"
+description = "Same b7 deployment set as revision 9, without the preset-owned Scratch release notice (DEC 2026-09-05-02: Scratch product-config's {version}-substituted notice is now the sole developer-notice source)"
+status = "active"
+available_since = "2026-09-07"
 required_profile_capabilities = ["compose", "mcremote-auth-enforced", "mcremote-session-only", "paper", "persistent-world", "public-web", "scratch-runtime", "websocket-bridge", "wirescope-browser"]
 allowed_channels = ["beta"]
 compatibility_status = "unverified"

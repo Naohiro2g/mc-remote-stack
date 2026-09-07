@@ -1414,6 +1414,51 @@ def test_compose_v13_appends_preset_release_notice_after_operator_feed(
     ]
 
 
+def test_compose_v13_skips_release_notice_when_preset_has_no_presentation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """DEC 2026-09-05-02: product-config's {version} notice is now the sole
+    developer-notice source, so a preset may omit `[presentation]` entirely."""
+
+    operator_notices = [
+        {
+            "heading": "今後のリリース予定",
+            "body": "10月RC版、年内に安定版リリース予定です。",
+            "link": {"href": "https://mc-remote.com", "label": "公式サイトを見る"},
+        },
+    ]
+    monkeypatch.setattr(
+        render_module,
+        "_compose_v12",
+        lambda _lock: (
+            {
+                "services": {
+                    "scratch": {
+                        "volumes": [
+                            {
+                                "type": "bind",
+                                "source": "./runtime/scratch.json",
+                                "target": "/usr/share/nginx/html/mc-remote-runtime-config.json",
+                                "read_only": True,
+                            }
+                        ]
+                    }
+                }
+            },
+            {
+                "runtime/scratch.json": json.dumps(
+                    {"notices": operator_notices}, ensure_ascii=False
+                )
+                + "\n"
+            },
+        ),
+    )
+
+    _compose, rendered = render_module._compose_v13({"render_plan": {}})
+
+    assert json.loads(rendered["runtime/scratch.json"])["notices"] == operator_notices
+
+
 def test_compose_v13_projects_locked_b7_runtime_contract_without_release_identity(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

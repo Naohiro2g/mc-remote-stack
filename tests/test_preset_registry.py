@@ -1257,6 +1257,15 @@ def test_public_notice_feed_has_preset_owned_release_notice() -> None:
     assert release_notice["link"]["href"].endswith("#release-v2100.0.0b4")
 
 
+def test_public_web_paper_10_has_no_preset_owned_release_notice() -> None:
+    """DEC 2026-09-05-02: Scratch product-config's {version}-substituted notice
+    is now the sole developer-notice source; the preset no longer owns one."""
+
+    preset = load_preset("public-web-paper@10")
+
+    assert "presentation" not in preset.data
+
+
 def test_bundled_public_b5_preset_pins_dimension_key_exact_set() -> None:
     profile = load_profile("vps-server@12")
     preset = load_preset("public-web-paper@6")
