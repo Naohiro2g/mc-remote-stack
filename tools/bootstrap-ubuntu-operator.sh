@@ -134,6 +134,12 @@ ensure_uv_on_login_path() {
       printf '\n%s\n' "$path_line" >> "$profile"
     fi
   done
+
+  # Non-interactive, non-login SSH commands (`ssh host 'uv ...'`, the shape
+  # runbook automation actually uses) source none of the profiles above, so
+  # the PATH edit alone leaves uv invisible there. /usr/local/bin is on PATH
+  # for every shell sshd starts, interactive or not.
+  sudo ln -sf "$UV_BIN" /usr/local/bin/uv
 }
 
 install_docker_engine() {
@@ -195,7 +201,11 @@ missing=()
 for command_name in curl git; do
   command -v "$command_name" >/dev/null 2>&1 || missing+=("$command_name")
 done
-[[ "$(command -v uv 2>/dev/null || true)" == "$UV_BIN" ]] || missing+=(uv)
+uv_on_path="$(command -v uv 2>/dev/null || true)"
+if [[ -z "$uv_on_path" ]] || \
+   [[ "$(readlink -f -- "$uv_on_path")" != "$(readlink -f -- "$UV_BIN")" ]]; then
+  missing+=(uv)
+fi
 command -v docker >/dev/null 2>&1 || missing+=(docker)
 
 if [[ "$mode" == check && ${#missing[@]} -gt 0 ]]; then
