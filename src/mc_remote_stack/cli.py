@@ -66,6 +66,7 @@ from .preset_registry import (
     load_profile,
 )
 from .project import accept_eula, init_project
+from .release_manifest import ReleaseManifestError, parse_release_manifest
 from .render import RenderContractError, RenderError, render_project, render_toml_project
 from .repo_check import check_repository
 from .resolver import ResolutionError, inspect_lock, load_lock, resolve_project
@@ -114,6 +115,7 @@ def _print_structured_failure(
         | OperatorInputError
         | PresetDataError
         | ProjectOrderError
+        | ReleaseManifestError
         | RenderContractError
         | ResolutionError
         | RuntimeContentError
@@ -144,6 +146,41 @@ def _print_preset_summary(entry: dict) -> None:
         f"compatibility={entry['compatibility_status']} "
         f"content-sha256={entry['content_sha256']}"
     )
+
+
+def _cmd_release_manifest_verify(args: argparse.Namespace) -> int:
+    path = Path(args.path)
+    try:
+        source = path.read_bytes()
+    except OSError as exc:
+        return _print_reason_failure(
+            "release-manifest verify", "release_manifest_read_failed", path, str(exc)
+        )
+    try:
+        manifest = parse_release_manifest(source, path=path)
+    except ReleaseManifestError as exc:
+        return _print_structured_failure("release-manifest verify", exc)
+    print(
+        f"RELEASE-MANIFEST release_tag={manifest['release_tag']} "
+        f"source_commit={manifest['source_commit']}"
+    )
+    if "bundled_wirescope_source_commit" in manifest:
+        print(
+            "RELEASE-MANIFEST bundled_wirescope_source_commit="
+            + manifest["bundled_wirescope_source_commit"]
+        )
+    for artifact in manifest["artifacts"]:
+        if artifact["kind"] == "oci":
+            print(
+                f"ARTIFACT role={artifact['role']} kind=oci "
+                f"locator={artifact['locator']} digest={artifact['digest']}"
+            )
+        else:
+            print(
+                f"ARTIFACT role={artifact['role']} kind=https-file "
+                f"file={artifact['file']} sha256={artifact['sha256']}"
+            )
+    return 0
 
 
 def _cmd_preset_list(args: argparse.Namespace) -> int:
@@ -1932,6 +1969,18 @@ def build_parser() -> argparse.ArgumentParser:
     preset_show_parser = preset_subparsers.add_parser("show", help="show one exact preset revision")
     preset_show_parser.add_argument("ref")
     preset_show_parser.set_defaults(handler=_cmd_preset_show)
+
+    release_manifest_parser = subparsers.add_parser(
+        "release-manifest", help="cross-repo release manifest (DEC 2026-09-06-04)"
+    )
+    release_manifest_subparsers = release_manifest_parser.add_subparsers(
+        dest="release_manifest_command", required=True
+    )
+    release_manifest_verify_parser = release_manifest_subparsers.add_parser(
+        "verify", help="schema-validate one downloaded manifest.json"
+    )
+    release_manifest_verify_parser.add_argument("path")
+    release_manifest_verify_parser.set_defaults(handler=_cmd_release_manifest_verify)
 
     resolve_parser = subparsers.add_parser("resolve", help="resolve one TOML deployment project")
     resolve_parser.add_argument("--project", required=True)
