@@ -40,14 +40,16 @@ gate coordinatorがexact setとauthorized next actionを渡す。指定された
 
 operator向けの実行手順は、このrunbookを正本とする。
 
-## 2. 更新前の人間checkpoint
+## 2. 収集直後のrequest確認
 
-typed operator input（Notice、接続先、plugin一覧等）を変更する更新では、作業前に人間が次を決める。
-Stack担当はこれらを会話で確認せずに、既存project内の値や他projectの値をそのまま複製・推測して
-進めない。
+preset収集（`release artifact／preset準備runbook`）が終わった直後、typed operator inputへ進む前に、
+人間へ次を提示しrequestを聞く。Stack担当はこれらを会話で確認せずに、既存project内の値や他projectの
+値をそのまま複製・推測して進めない。
 
-- Notice文言・リンク先が現在も正しいか（過去のreview用ファイルや他environmentのnoticeをそのまま
-  採用しない）
+- preset: 収集で確定したexact preset refをそのまま採用するか、追加のrequestがあるか
+- notice: 対象releaseの製品側notice（あれば）と、既存projectの運用者notice（文言・リンク先を含む）を
+  提示し、継承／編集／追加／削除のいずれかを選ばせる（過去のreview用ファイルや他environmentのnoticeを
+  そのまま採用しない）
 - 引き継ぐworld内のplugin設定／DB（LuckPermsの権限設定等）を変更する必要が無いか
 - maintenance開始、停止許容時間
 
