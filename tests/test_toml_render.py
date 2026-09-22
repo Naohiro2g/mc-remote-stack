@@ -2068,12 +2068,6 @@ def test_compose_v12_projects_exact_plugins_and_homepage_without_overlays(
         lambda _lock: (copy.deepcopy(base_compose), dict(base_files)),
     )
 
-    homepage.path.chmod(0o700)
-    with pytest.raises(RenderContractError) as exc_info:
-        render_module._compose_v12(lock)
-    assert exc_info.value.reason == "runtime_content_permissions_invalid"
-    homepage.path.chmod(0o755)
-
     compose, rendered = render_module._compose_v12(lock)
 
     assert {
@@ -2084,7 +2078,7 @@ def test_compose_v12_projects_exact_plugins_and_homepage_without_overlays(
     } in compose["services"]["minecraft"]["volumes"]
     assert {
         "type": "bind",
-        "source": str(homepage.path),
+        "source": str(store.parent / "homepage"),
         "target": "/srv/homepage",
         "read_only": True,
     } in compose["services"]["caddy"]["volumes"]

@@ -54,6 +54,7 @@ from .deployment_update import (
     plan_deployment_update,
 )
 from .doctor import DoctorContractError, doctor_toml_project
+from .homepage_sync import HomepageSyncError, sync_homepage
 from .operator_environment import (
     OperatorEnvironmentError,
     check_operator_environment,
@@ -119,6 +120,7 @@ def _print_structured_failure(
         | RenderContractError
         | ResolutionError
         | RuntimeContentError
+        | HomepageSyncError
     ),
 ) -> int:
     print(f"FAIL {operation} reason={exc.reason} path={exc.path}")
@@ -933,6 +935,23 @@ def _cmd_deployment_update_apply(args: argparse.Namespace) -> int:
         f"source-lock={result.source_lock_identity} "
         f"target-lock={result.target_lock_identity} phase={result.phase}"
     )
+    return 0
+
+
+def _cmd_homepage_sync(args: argparse.Namespace) -> int:
+    project = Path(args.project)
+    try:
+        result = sync_homepage(
+            project,
+            project / "generated",
+            data_root=_preset_data_root(),
+        )
+    except (HomepageSyncError, ProjectOrderError, RenderContractError, ResolutionError) as exc:
+        return _print_structured_failure("homepage sync", exc)
+    except OSError as exc:
+        print(f"FAIL homepage sync: {exc}")
+        return 2
+    print(f"OK homepage sync path={result.public_directory}")
     return 0
 
 
@@ -2103,6 +2122,18 @@ def build_parser() -> argparse.ArgumentParser:
     deployment_update_apply_parser.add_argument("--wait-timeout", type=int, default=300)
     deployment_update_apply_parser.add_argument("--yes", action="store_true")
     deployment_update_apply_parser.set_defaults(handler=_cmd_deployment_update_apply)
+
+    homepage_parser = subparsers.add_parser(
+        "homepage", help="official homepage operations"
+    )
+    homepage_subparsers = homepage_parser.add_subparsers(
+        dest="homepage_command", required=True
+    )
+    homepage_sync_parser = homepage_subparsers.add_parser(
+        "sync", help="synchronize knowledge main to the public directory"
+    )
+    homepage_sync_parser.add_argument("--project", required=True)
+    homepage_sync_parser.set_defaults(handler=_cmd_homepage_sync)
 
     deployment_composition_parser = deployment_subparsers.add_parser(
         "composition",

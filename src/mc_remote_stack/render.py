@@ -19,7 +19,6 @@ import yaml
 
 from .preset_registry import semantic_sha256
 from .resolver import inspect_lock, load_lock
-from .runtime_content import verify_homepage_tree
 from .runtime_contract import MINECRAFT_RUNTIME_GID, MINECRAFT_RUNTIME_UID
 from .scratch_contract import (
     ScratchContractError,
@@ -1383,7 +1382,7 @@ def _compose_v12(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str]]:
         adapter="minecraft-plugins@1",
         path="operator/minecraft-plugins/plugins.toml",
     )
-    homepage_input = _locked_composition_input(
+    _locked_composition_input(
         lock,
         role="homepage-static",
         adapter="homepage-static@1",
@@ -1426,29 +1425,7 @@ def _compose_v12(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str]]:
             }
         )
 
-    homepage = homepage_input["semantic"]
-    homepage_root = artifact_store / "trees" / "sha256" / homepage["tree_sha256"]
-    try:
-        verified = verify_homepage_tree(homepage_root, homepage["tree_sha256"])
-    except ValueError as exc:
-        _render_fail("runtime_content_missing", homepage_root, str(exc))
-    for candidate in [homepage_root, *homepage_root.rglob("*")]:
-        expected_mode = 0o755 if candidate.is_dir() else 0o644
-        if stat.S_IMODE(candidate.stat().st_mode) != expected_mode:
-            _render_fail(
-                "runtime_content_permissions_invalid",
-                candidate,
-                f"canonical homepage entry must have mode {expected_mode:o}",
-            )
-    if (
-        verified.file_count != homepage["file_count"]
-        or verified.total_bytes != homepage["total_bytes"]
-    ):
-        _render_fail(
-            "runtime_content_invalid",
-            homepage_root,
-            "homepage tree count or byte total differs from the locked input",
-        )
+    homepage_root = artifact_store.parent / "homepage"
     routes = _locked_public_routes(lock)
     homepage_domains = ", ".join([routes["homepage"], *routes["homepage_aliases"]])
     old_block = f'''{homepage_domains} {{
@@ -1500,9 +1477,6 @@ def _compose_v12(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str]]:
     compose["services"]["minecraft"]["labels"][
         "io.mc-remote.peripheral-plugins"
     ] = plugin_input["semantic_sha256"]
-    compose["services"]["caddy"]["labels"][
-        "io.mc-remote.homepage-tree"
-    ] = homepage["tree_sha256"]
     rendered_files = {
         relative: content.replace("compose@11", "compose@12")
         for relative, content in rendered_files.items()
@@ -2713,7 +2687,6 @@ def _compose(project: LoadedProject) -> dict[str, Any]:
     host_paths = config["host"]["paths"]
     images = lock["images"]
     beta = config["beta"]
-    homepage = lock["homepage"]
     artifact_root = host_paths["artifacts"].rstrip("/")
 
     services: dict[str, Any] = {
@@ -2727,7 +2700,7 @@ def _compose(project: LoadedProject) -> dict[str, Any]:
                 "./Caddyfile:/etc/caddy/Caddyfile:ro",
                 f"{host_paths['caddy']}/data:/data",
                 f"{host_paths['caddy']}/config:/config",
-                f"{host_paths['homepage'].rstrip('/')}/sha256/{homepage['sha256']}:/srv/homepage:ro",
+                f"{host_paths['homepage'].rstrip('/')}:/srv/homepage:ro",
             ],
             "networks": ["edge", "app"],
         },
