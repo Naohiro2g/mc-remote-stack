@@ -743,7 +743,7 @@ white_list = false
     assert "ports" not in compose["services"]["bridge"]
     assert compose["services"]["minecraft"]["ports"] == [
         "0.0.0.0:25565:25565/tcp",
-        "0.0.0.0:25565:19132/udp",
+        "0.0.0.0:25565:25565/udp",
         "0.0.0.0:25575:25575/tcp",
     ]
     assert compose["services"]["minecraft"]["environment"][
@@ -1028,7 +1028,7 @@ bridge_port = 8444
     ]
     assert compose["services"]["minecraft"]["ports"] == [
         "127.0.0.1:25566:25565/tcp",
-        "127.0.0.1:25566:19132/udp",
+        "127.0.0.1:25566:25565/udp",
         "127.0.0.1:25576:25575/tcp",
     ]
     assert compose["services"]["minecraft"]["networks"] == {

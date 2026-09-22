@@ -679,6 +679,21 @@ def _compose_v6(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str]]:
     }
 
 
+def _minecraft_port_publications(
+    *,
+    bind_address: str | None,
+    java_port: int,
+    bedrock_port: int,
+    mcremote_port: int,
+) -> list[str]:
+    prefix = f"{bind_address}:" if bind_address is not None else ""
+    return [
+        f"{prefix}{java_port}:25565/tcp",
+        f"{prefix}{bedrock_port}:25565/udp",
+        f"{prefix}{mcremote_port}:25575/tcp",
+    ]
+
+
 def _compose_v2(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str]]:
     expected_services = [
         {"id": "caddy", "role": "caddy-edge"},
@@ -878,11 +893,12 @@ def _compose_v2(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str]]:
                     "REPLACE_ENV_DURING_SYNC": "false",
                     "LEVEL": world_identity,
                 },
-                "ports": [
-                    f"0.0.0.0:{network['java_port']}:25565/tcp",
-                    f"0.0.0.0:{network['java_port']}:19132/udp",
-                    f"0.0.0.0:{network['mcremote_port']}:25575/tcp",
-                ],
+                "ports": _minecraft_port_publications(
+                    bind_address="0.0.0.0",
+                    java_port=network["java_port"],
+                    bedrock_port=network["java_port"],
+                    mcremote_port=network["mcremote_port"],
+                ),
                 "volumes": [
                     {"type": "volume", "source": "minecraft-data", "target": "/data"},
                     {"type": "bind", "source": "./minecraft", "target": "/config", "read_only": True},
@@ -1764,11 +1780,12 @@ def _compose_v14(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str]]:
                     "REPLACE_ENV_DURING_SYNC": "false",
                     "LEVEL": world_identity,
                 },
-                "ports": [
-                    f"{network['bind_address']}:{network['java_port']}:25565/tcp",
-                    f"{network['bind_address']}:{network['java_port']}:19132/udp",
-                    f"{network['bind_address']}:{network['mcremote_port']}:25575/tcp",
-                ],
+                "ports": _minecraft_port_publications(
+                    bind_address=network["bind_address"],
+                    java_port=network["java_port"],
+                    bedrock_port=network["java_port"],
+                    mcremote_port=network["mcremote_port"],
+                ),
                 "volumes": [
                     {"type": "volume", "source": "minecraft-data", "target": "/data"},
                     {"type": "bind", "source": "./minecraft", "target": "/config", "read_only": True},
@@ -2660,11 +2677,12 @@ def _minecraft_service(
             "SYNC_SKIP_NEWER_IN_DESTINATION": "false",
             "REPLACE_ENV_DURING_SYNC": "false",
         },
-        "ports": [
-            f"{minecraft['java_port']}:25565/tcp",
-            f"{minecraft['bedrock_port']}:19132/udp",
-            f"{minecraft['mcremote_port']}:25575/tcp",
-        ],
+        "ports": _minecraft_port_publications(
+            bind_address=None,
+            java_port=minecraft["java_port"],
+            bedrock_port=minecraft["bedrock_port"],
+            mcremote_port=minecraft["mcremote_port"],
+        ),
         "volumes": [
             f"{data_path}:/data",
             f"{backup_path}:/backup",

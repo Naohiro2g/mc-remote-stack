@@ -142,7 +142,7 @@ def test_render_beta_is_dormant_and_has_separate_state_ports_and_artifacts(tmp_p
     compose = yaml.safe_load((output / "compose.yaml").read_text(encoding="utf-8"))
     beta = compose["services"]["minecraft-beta"]
     assert beta["profiles"] == ["beta"]
-    assert beta["ports"] == ["25565:25565/tcp", "25565:19132/udp", "25575:25575/tcp"]
+    assert beta["ports"] == ["25565:25565/tcp", "25565:25565/udp", "25575:25575/tcp"]
     assert "/var/lib/mc-remote/minecraft-beta:/data" in beta["volumes"]
     assert "/var/lib/mc-remote/backup-beta:/backup" in beta["volumes"]
     assert beta["image"].endswith(f"@sha256:{40:064x}")
