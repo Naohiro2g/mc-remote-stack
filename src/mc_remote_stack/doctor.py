@@ -773,7 +773,8 @@ def _validate_container(
                 }
             ],
         }
-        if lock["render_plan"]["adapter_revision"] in {
+        renderer_revision = lock["render_plan"]["adapter_revision"]
+        if renderer_revision in {
             "2",
             "3",
             "4",
@@ -786,7 +787,7 @@ def _validate_container(
             "13",
             "14",
         }:
-            expected_ports["19132/udp"] = [
+            expected_ports["25565/udp"] = [
                 {
                     "HostIp": address,
                     "HostPort": str(lock["network"]["java_port"]),

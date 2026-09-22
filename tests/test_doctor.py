@@ -953,7 +953,7 @@ def test_doctor_accepts_public_minecraft_ports_from_public_compose_renderers(
         "NetworkSettings": {
             "Ports": {
                 "25565/tcp": [{"HostIp": "0.0.0.0", "HostPort": "25565"}],
-                "19132/udp": [{"HostIp": "0.0.0.0", "HostPort": "25565"}],
+                "25565/udp": [{"HostIp": "0.0.0.0", "HostPort": "25565"}],
                 "25575/tcp": [{"HostIp": "0.0.0.0", "HostPort": "25575"}],
             }
         },

@@ -71,8 +71,8 @@ def test_render_sets_jst_and_uses_exclusive_standard_ports_for_both_channels(tmp
 
     assert stable["environment"]["TZ"] == "Asia/Tokyo"
     assert beta["environment"]["TZ"] == "Asia/Tokyo"
-    assert stable["ports"] == ["25565:25565/tcp", "25565:19132/udp", "25575:25575/tcp"]
-    assert beta["ports"] == ["25565:25565/tcp", "25565:19132/udp", "25575:25575/tcp"]
+    assert stable["ports"] == ["25565:25565/tcp", "25565:25565/udp", "25575:25575/tcp"]
+    assert beta["ports"] == ["25565:25565/tcp", "25565:25565/udp", "25575:25575/tcp"]
     assert stable["profiles"] == ["stable"]
     assert beta["profiles"] == ["beta"]
 
