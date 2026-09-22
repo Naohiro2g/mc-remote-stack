@@ -120,7 +120,7 @@ def test_doctor_validates_all_canonical_composition_mounts(tmp_path: Path) -> No
         "Mounts": [
             {
                 "Type": "bind",
-                "Source": str(store / "trees" / "sha256" / homepage_sha),
+                "Source": str(store.parent / "homepage"),
                 "Destination": "/srv/homepage",
                 "RW": False,
             }

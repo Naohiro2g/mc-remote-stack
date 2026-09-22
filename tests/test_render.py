@@ -97,7 +97,7 @@ def test_render_caddy_serves_locked_homepage_without_another_public_port(tmp_pat
 
     compose = yaml.safe_load((output / "compose.yaml").read_text(encoding="utf-8"))
     caddy = compose["services"]["caddy"]
-    assert f"/var/lib/mc-remote/homepage/sha256/{11:064x}:/srv/homepage:ro" in caddy["volumes"]
+    assert "/var/lib/mc-remote/homepage:/srv/homepage:ro" in caddy["volumes"]
     assert caddy["ports"] == ["80:80/tcp", "443:443/tcp"]
     assert caddy["cap_drop"] == ["ALL"]
     assert caddy["cap_add"] == ["NET_BIND_SERVICE"]

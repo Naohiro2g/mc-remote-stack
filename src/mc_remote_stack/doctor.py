@@ -677,8 +677,7 @@ def _validate_canonical_composition_mounts(
                 "live backup bind differs from the locked operator path",
             )
     elif service == "caddy":
-        homepage = _composition_input(lock, "homepage-static")
-        expected = artifact_store / "trees" / "sha256" / homepage["tree_sha256"]
+        expected = artifact_store.parent / "homepage"
         matching = [
             mount for mount in mounts if mount.get("Destination") == "/srv/homepage"
         ]
@@ -692,7 +691,7 @@ def _validate_canonical_composition_mounts(
             _fail(
                 "doctor_composition_mount_mismatch",
                 "/srv/homepage",
-                "live homepage tree differs from the locked content-addressed tree",
+                "live homepage directory differs from the canonical public directory",
             )
 
 
@@ -1159,23 +1158,9 @@ def doctor_toml_project(
             )
         routes = _locked_public_routes(lock)
         if lock["render_plan"]["adapter_revision"] in {"12", "13"}:
-            homepage_inputs = [
-                item
-                for item in lock["operator_inputs"]
-                if item.get("role") == "homepage-static"
-            ]
-            if len(homepage_inputs) != 1:
-                _fail(
-                    "doctor_homepage_invalid",
-                    "operator_inputs.homepage-static",
-                    "canonical public runtime requires one locked homepage tree",
-                )
-            tree_sha256 = homepage_inputs[0]["semantic"].get("tree_sha256")
             index_path = (
-                Path(lock["runtime"]["artifact_store"])
-                / "trees"
-                / "sha256"
-                / tree_sha256
+                Path(lock["runtime"]["artifact_store"]).parent
+                / "homepage"
                 / "index.html"
             )
             try:
