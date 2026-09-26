@@ -18,7 +18,6 @@
     "source_precedence",
     "selection",
     "preset_lifecycle",
-    "compatibility",
     "acknowledgements",
     "operator_inputs",
     "components",
@@ -230,6 +229,7 @@
       }
     },
     "compatibility": {
+      "$comment": "Read-only legacy field; new locks omit it.",
       "type": "object",
       "additionalProperties": false,
       "required": [

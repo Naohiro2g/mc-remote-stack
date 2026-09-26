@@ -488,7 +488,7 @@ default = true
         for item in load_preset_catalog()["preset_catalog"]["presets"]
         if item["ref"] == "classroom@1"
     )
-    assert catalog_entry["compatibility_status"] == "unverified"
+    assert "compatibility_status" not in catalog_entry
 
     contract_root = Path(
         str(

@@ -205,19 +205,11 @@ def test_bootstrap_still_requires_explicit_eula_acceptance(tmp_path: Path) -> No
     assert exc_info.value.reason == "minecraft_eula_not_accepted"
 
 
-def test_bootstrap_still_requires_unverified_acknowledgement(tmp_path: Path) -> None:
+def test_bootstrap_does_not_require_retired_compatibility_acknowledgement(tmp_path: Path) -> None:
     _project, _data_root, _output, lock = _prepared_public_project(tmp_path)
-    lock["compatibility"]["status"] = "unverified"
     lock["acknowledgements"]["allow_unverified"] = False
 
-    with pytest.raises(ApplyContractError) as exc_info:
-        _validate_bootstrap_contract(
-            lock,
-            allow_unverified=True,
-            allow_eol=False,
-        )
-
-    assert exc_info.value.reason == "unverified_not_acknowledged"
+    _validate_bootstrap_contract(lock, allow_unverified=False, allow_eol=False)
 
 
 def test_b3_credential_alpha_bootstrap_contract_reaches_docker_preflight(
@@ -262,13 +254,13 @@ def test_b4_persistent_credential_bootstrap_contract_reaches_docker_preflight(
         )
 
 
-def test_b3_credential_alpha_requires_one_shot_unverified_allowance(
+def test_b3_credential_alpha_reaches_docker_without_compatibility_allowance(
     tmp_path: Path,
 ) -> None:
     project, data_root, output, lock = _prepared_b3_credential_project(tmp_path)
     runner = FakeDocker({})
 
-    with pytest.raises(ApplyContractError) as exc_info:
+    with pytest.raises(AssertionError, match="docker.*context.*inspect"):
         apply_toml_project(
             project,
             output,
@@ -281,8 +273,7 @@ def test_b3_credential_alpha_requires_one_shot_unverified_allowance(
             runner=runner,
         )
 
-    assert exc_info.value.reason == "unverified_not_acknowledged"
-    assert runner.calls == []
+    assert runner.calls
 
 
 def test_fresh_credential_volumes_are_initialized_for_pinned_runtime_user() -> None:
@@ -770,7 +761,6 @@ def test_b3_apply_initializes_fresh_credential_volumes_before_compose_up(
     [
         ({"bootstrap": False, "confirmed": True, "allow_unverified": True}, "bootstrap_confirmation_required"),
         ({"bootstrap": True, "confirmed": False, "allow_unverified": True}, "apply_confirmation_required"),
-        ({"bootstrap": True, "confirmed": True, "allow_unverified": False}, "unverified_not_acknowledged"),
     ],
 )
 def test_apply_gates_fail_before_contacting_docker(
@@ -1243,7 +1233,7 @@ def test_cli_apply_passes_explicit_bootstrap_and_lock_acknowledgements(
         "PROGRESS apply step=start-services-and-wait timeout=300" in output_text
     )
     assert "OK apply status=created bootstrap=true" in output_text
-    assert "WARN live bootstrap used the one-shot unverified acknowledgement" in output_text
+    assert "unverified" not in output_text
 
 
 def test_cli_apply_reports_stable_failure_reason(

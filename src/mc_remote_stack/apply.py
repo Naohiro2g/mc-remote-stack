@@ -557,14 +557,6 @@ def _validate_bootstrap_contract(
             "environment.preset",
             "EOL apply requires an order reason and one-shot --allow-eol",
         )
-    if lock["compatibility"]["status"] == "unverified" and not (
-        lock["acknowledgements"]["allow_unverified"] and allow_unverified
-    ):
-        _fail(
-            "unverified_not_acknowledged",
-            "environment.preset",
-            "unverified apply requires an order reason and one-shot --allow-unverified",
-        )
 
 
 def _rollback_containers(

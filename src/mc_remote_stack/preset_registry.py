@@ -18,7 +18,6 @@ from jsonschema import Draft202012Validator, FormatChecker
 from jsonschema.exceptions import SchemaError
 
 EXACT_REF = re.compile(r"^(?P<name>[a-z0-9][a-z0-9-]{0,62})@(?P<revision>[1-9][0-9]*)$")
-RECORD_ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,126}$")
 MAX_IDENTITY_INTEGER = 2**53 - 1
 CATALOG_GENERATOR = "mcrctl-preset-catalog-v1"
 CANONICALIZATION = "jcs-rfc8785-v1"
@@ -273,80 +272,6 @@ def load_preset(ref: str, *, data_root: Traversable | None = None) -> ImmutableR
     )
 
 
-def load_compatibility_record(
-    record_id: str,
-    *,
-    data_root: Traversable | None = None,
-) -> ImmutableRecord:
-    """Load one immutable PASS compatibility record and verify its exact subjects."""
-
-    if RECORD_ID.fullmatch(record_id) is None:
-        _fail("invalid_compatibility_record_id", record_id, "record ID must be a canonical lowercase token")
-    root = _data_root(data_root)
-    resource = root.joinpath("compatibility", "records", f"{record_id}.toml")
-    data = _read_toml(resource, missing_reason="unknown_compatibility_record")
-    _validate_schema(
-        data,
-        root,
-        "compatibility-record.schema.json",
-        resource,
-    )
-    if data["record"]["id"] != record_id:
-        _fail(
-            "registry_record_tampered",
-            resource,
-            f"record identity {data['record']['id']} does not match path {record_id}",
-        )
-
-    _ensure_unique_ids(data["claims"], "claims", resource)
-    subject = data["subject"]
-    preset = load_preset(subject["preset_ref"], data_root=root)
-    profile = load_profile(subject["profile_ref"], data_root=root)
-    if preset.content_sha256 != subject["preset_sha256"]:
-        _fail(
-            "compatibility_subject_mismatch",
-            resource,
-            f"preset digest does not match {preset.ref}",
-        )
-    if profile.content_sha256 != subject["profile_sha256"]:
-        _fail(
-            "compatibility_subject_mismatch",
-            resource,
-            f"profile digest does not match {profile.ref}",
-        )
-    if component_set_sha256(preset.data) != subject["component_set_sha256"]:
-        _fail(
-            "compatibility_subject_mismatch",
-            resource,
-            f"component set digest does not match {preset.ref}",
-        )
-    return ImmutableRecord(
-        ref=record_id,
-        content_sha256=semantic_sha256(data),
-        data=data,
-        path=str(resource),
-    )
-
-
-def load_compatibility_records(
-    *,
-    data_root: Traversable | None = None,
-) -> list[ImmutableRecord]:
-    """Load all bundled compatibility records in stable record-ID order."""
-
-    root = _data_root(data_root)
-    records_root = root.joinpath("compatibility", "records")
-    if not records_root.is_dir():
-        return []
-    records: list[ImmutableRecord] = []
-    for resource in sorted(records_root.iterdir(), key=lambda item: item.name):
-        if not resource.is_file() or not resource.name.endswith(".toml"):
-            continue
-        record_id = resource.name.removesuffix(".toml")
-        records.append(load_compatibility_record(record_id, data_root=root))
-    return records
-
-
 def load_catalog_policy(*, data_root: Traversable | None = None) -> dict[str, Any]:
     """Load human-owned preset lifecycle facts."""
 
@@ -399,30 +324,8 @@ def _ref_sort_key(ref: str) -> tuple[str, int]:
 def _catalog_entry(
     policy_entry: dict[str, Any],
     preset: ImmutableRecord,
-    compatibility_records: list[ImmutableRecord],
 ) -> dict[str, Any]:
     requirements = preset.data["requirements"]
-    required_claims = set(requirements["required_claims"])
-    covered_claims: set[str] = set()
-    matching_record_ids: list[str] = []
-    component_digest = component_set_sha256(preset.data)
-    for record in compatibility_records:
-        subject = record.data["subject"]
-        if (
-            subject["preset_ref"] != preset.ref
-            or subject["preset_sha256"] != preset.content_sha256
-            or subject["component_set_sha256"] != component_digest
-        ):
-            continue
-        claims = {
-            claim["id"]
-            for claim in record.data["claims"]
-            if claim["constraint"] == "all" and claim["id"] in required_claims
-        }
-        if not claims:
-            continue
-        covered_claims.update(claims)
-        matching_record_ids.append(record.ref)
     entry: dict[str, Any] = {
         "ref": preset.ref,
         "content_sha256": preset.content_sha256,
@@ -431,8 +334,6 @@ def _catalog_entry(
         "available_since": policy_entry["available_since"],
         "required_profile_capabilities": sorted(requirements["profile_capabilities"]),
         "allowed_channels": sorted(requirements["allowed_channels"]),
-        "compatibility_status": "verified" if required_claims.issubset(covered_claims) else "unverified",
-        "compatibility_records": matching_record_ids,
     }
     for key in ("deprecated_since", "eol_since", "reason", "replacement"):
         if key in policy_entry:
@@ -466,8 +367,6 @@ def _catalog_document(catalog: dict[str, Any]) -> bytes:
                 "replacement",
                 "required_profile_capabilities",
                 "allowed_channels",
-                "compatibility_status",
-                "compatibility_records",
             ):
                 if key in entry:
                     table.add(key, entry[key])
@@ -486,7 +385,6 @@ def build_preset_catalog(*, data_root: Traversable | None = None) -> bytes:
     policy = load_catalog_policy(data_root=root)
     policy_entries = sorted(policy["presets"], key=lambda entry: _ref_sort_key(entry["ref"]))
     records = [(entry, load_preset(entry["ref"], data_root=root)) for entry in policy_entries]
-    compatibility_records = load_compatibility_records(data_root=root)
     replacement_refs = sorted(
         {entry["replacement"] for entry in policy_entries if "replacement" in entry},
         key=_ref_sort_key,
@@ -511,13 +409,6 @@ def build_preset_catalog(*, data_root: Traversable | None = None) -> bytes:
             }
             for record in replacement_records
         ],
-        "compatibility_records": [
-            {
-                "id": record.ref,
-                "content_sha256": record.content_sha256,
-            }
-            for record in compatibility_records
-        ],
     }
     catalog = {
         "schema_version": 1,
@@ -526,7 +417,7 @@ def build_preset_catalog(*, data_root: Traversable | None = None) -> bytes:
             "canonicalization": CANONICALIZATION,
             "source_sha256": semantic_sha256(source_payload),
             "presets": [
-                _catalog_entry(entry, record, compatibility_records)
+                _catalog_entry(entry, record)
                 for entry, record in records
             ],
         },

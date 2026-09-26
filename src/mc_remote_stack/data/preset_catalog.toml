@@ -3,7 +3,7 @@ schema_version = 1
 [preset_catalog]
 generator = "mcrctl-preset-catalog-v1"
 canonicalization = "jcs-rfc8785-v1"
-source_sha256 = "16dc9bdf1063bfd40bb0b6c9e0a5b90f95d2eeac168d9792197ebc30e531b5d0"
+source_sha256 = "f53d123bf24de9a9c099879506048076f684bf1b00842391494e9b45794d0ecd"
 
 [[preset_catalog.presets]]
 ref = "classroom@1"
@@ -13,8 +13,6 @@ status = "active"
 available_since = "2026-09-04"
 required_profile_capabilities = ["compose", "mcremote-auth-enforced", "paper", "persistent-world", "scratch-runtime", "websocket-bridge"]
 allowed_channels = ["alpha"]
-compatibility_status = "unverified"
-compatibility_records = []
 
 [[preset_catalog.presets]]
 ref = "home-alpha-full@1"
@@ -24,8 +22,6 @@ status = "active"
 available_since = "2026-08-29"
 required_profile_capabilities = ["compose", "mcremote-auth-enforced", "paper", "persistent-world", "scratch-runtime", "websocket-bridge"]
 allowed_channels = ["alpha"]
-compatibility_status = "unverified"
-compatibility_records = []
 
 [[preset_catalog.presets]]
 ref = "mcremote-paper@1"
@@ -35,8 +31,6 @@ status = "active"
 available_since = "2026-07-24"
 required_profile_capabilities = ["compose", "paper", "persistent-world"]
 allowed_channels = ["beta"]
-compatibility_status = "verified"
-compatibility_records = ["home-server-2-mcremote-paper-1-live-auto"]
 
 [[preset_catalog.presets]]
 ref = "mcremote-paper@2"
@@ -46,8 +40,6 @@ status = "active"
 available_since = "2026-07-25"
 required_profile_capabilities = ["compose", "paper", "persistent-world"]
 allowed_channels = ["alpha"]
-compatibility_status = "unverified"
-compatibility_records = []
 
 [[preset_catalog.presets]]
 ref = "mcremote-paper@3"
@@ -57,8 +49,6 @@ status = "active"
 available_since = "2026-08-07"
 required_profile_capabilities = ["compose", "credential-rollback-separated", "paper", "persistent-world"]
 allowed_channels = ["alpha"]
-compatibility_status = "unverified"
-compatibility_records = []
 
 [[preset_catalog.presets]]
 ref = "mcremote-paper@4"
@@ -68,8 +58,6 @@ status = "active"
 available_since = "2026-08-17"
 required_profile_capabilities = ["compose", "paper", "persistent-world"]
 allowed_channels = ["alpha"]
-compatibility_status = "unverified"
-compatibility_records = []
 
 [[preset_catalog.presets]]
 ref = "mcremote-paper@5"
@@ -79,8 +67,6 @@ status = "active"
 available_since = "2026-08-17"
 required_profile_capabilities = ["compose", "paper", "persistent-world"]
 allowed_channels = ["alpha"]
-compatibility_status = "unverified"
-compatibility_records = []
 
 [[preset_catalog.presets]]
 ref = "mcremote-paper@6"
@@ -90,8 +76,6 @@ status = "active"
 available_since = "2026-08-18"
 required_profile_capabilities = ["compose", "credential-rollback-separated", "paper", "persistent-world"]
 allowed_channels = ["alpha"]
-compatibility_status = "verified"
-compatibility_records = ["2026-08-18-b4-code-preservation-recovery-live-human", "2026-08-18-b4-session-persistence-home-alpha"]
 
 [[preset_catalog.presets]]
 ref = "mcremote-paper@7"
@@ -101,8 +85,6 @@ status = "active"
 available_since = "2026-08-22"
 required_profile_capabilities = ["compose", "credential-rollback-separated", "mcremote-auth-enforced", "mcremote-session-only", "paper", "persistent-world"]
 allowed_channels = ["dev"]
-compatibility_status = "unverified"
-compatibility_records = []
 
 [[preset_catalog.presets]]
 ref = "mcremote-paper-auth-b3@1"
@@ -112,8 +94,6 @@ status = "active"
 available_since = "2026-08-17"
 required_profile_capabilities = ["compose", "paper", "persistent-world"]
 allowed_channels = ["alpha"]
-compatibility_status = "unverified"
-compatibility_records = []
 
 [[preset_catalog.presets]]
 ref = "public-web-paper@1"
@@ -123,8 +103,6 @@ status = "active"
 available_since = "2026-07-26"
 required_profile_capabilities = ["compose", "paper", "persistent-world", "public-web", "scratch-runtime", "websocket-bridge"]
 allowed_channels = ["beta"]
-compatibility_status = "unverified"
-compatibility_records = []
 
 [[preset_catalog.presets]]
 ref = "public-web-paper@2"
@@ -134,8 +112,6 @@ status = "active"
 available_since = "2026-08-16"
 required_profile_capabilities = ["compose", "mcremote-auth-enforced", "mcremote-session-only", "paper", "persistent-world", "public-web", "scratch-runtime", "websocket-bridge"]
 allowed_channels = ["beta"]
-compatibility_status = "unverified"
-compatibility_records = []
 
 [[preset_catalog.presets]]
 ref = "public-web-paper@3"
@@ -145,8 +121,6 @@ status = "active"
 available_since = "2026-08-19"
 required_profile_capabilities = ["compose", "mcremote-auth-enforced", "mcremote-session-only", "paper", "persistent-world", "public-web", "scratch-runtime", "websocket-bridge"]
 allowed_channels = ["beta"]
-compatibility_status = "unverified"
-compatibility_records = []
 
 [[preset_catalog.presets]]
 ref = "public-web-paper@4"
@@ -156,8 +130,6 @@ status = "active"
 available_since = "2026-08-20"
 required_profile_capabilities = ["compose", "mcremote-auth-enforced", "mcremote-session-only", "paper", "persistent-world", "public-web", "scratch-runtime", "websocket-bridge", "wirescope-browser"]
 allowed_channels = ["beta"]
-compatibility_status = "unverified"
-compatibility_records = []
 
 [[preset_catalog.presets]]
 ref = "public-web-paper@5"
@@ -167,8 +139,6 @@ status = "active"
 available_since = "2026-08-21"
 required_profile_capabilities = ["compose", "mcremote-auth-enforced", "mcremote-session-only", "paper", "persistent-world", "public-web", "scratch-runtime", "websocket-bridge", "wirescope-browser"]
 allowed_channels = ["beta"]
-compatibility_status = "unverified"
-compatibility_records = []
 
 [[preset_catalog.presets]]
 ref = "public-web-paper@6"
@@ -178,8 +148,6 @@ status = "active"
 available_since = "2026-08-23"
 required_profile_capabilities = ["compose", "mcremote-auth-enforced", "mcremote-session-only", "paper", "persistent-world", "public-web", "scratch-runtime", "websocket-bridge", "wirescope-browser"]
 allowed_channels = ["beta"]
-compatibility_status = "unverified"
-compatibility_records = []
 
 [[preset_catalog.presets]]
 ref = "public-web-paper@7"
@@ -189,8 +157,6 @@ status = "active"
 available_since = "2026-08-23"
 required_profile_capabilities = ["compose", "mcremote-auth-enforced", "mcremote-session-only", "paper", "persistent-world", "public-web", "scratch-runtime", "websocket-bridge", "wirescope-browser"]
 allowed_channels = ["beta"]
-compatibility_status = "unverified"
-compatibility_records = []
 
 [[preset_catalog.presets]]
 ref = "public-web-paper@8"
@@ -200,8 +166,6 @@ status = "active"
 available_since = "2026-08-28"
 required_profile_capabilities = ["compose", "mcremote-auth-enforced", "mcremote-session-only", "paper", "persistent-world", "public-web", "scratch-runtime", "websocket-bridge", "wirescope-browser"]
 allowed_channels = ["beta"]
-compatibility_status = "unverified"
-compatibility_records = []
 
 [[preset_catalog.presets]]
 ref = "public-web-paper@9"
@@ -211,8 +175,6 @@ status = "active"
 available_since = "2026-09-03"
 required_profile_capabilities = ["compose", "mcremote-auth-enforced", "mcremote-session-only", "paper", "persistent-world", "public-web", "scratch-runtime", "websocket-bridge", "wirescope-browser"]
 allowed_channels = ["beta"]
-compatibility_status = "unverified"
-compatibility_records = []
 
 [[preset_catalog.presets]]
 ref = "public-web-paper@10"
@@ -222,8 +184,6 @@ status = "active"
 available_since = "2026-09-07"
 required_profile_capabilities = ["compose", "mcremote-auth-enforced", "mcremote-session-only", "paper", "persistent-world", "public-web", "scratch-runtime", "websocket-bridge", "wirescope-browser"]
 allowed_channels = ["beta"]
-compatibility_status = "unverified"
-compatibility_records = []
 
 [[preset_catalog.presets]]
 ref = "public-web-paper@11"
@@ -233,5 +193,3 @@ status = "active"
 available_since = "2026-09-07"
 required_profile_capabilities = ["compose", "mcremote-auth-enforced", "mcremote-session-only", "paper", "persistent-world", "public-web", "scratch-runtime", "websocket-bridge", "wirescope-browser"]
 allowed_channels = ["beta"]
-compatibility_status = "unverified"
-compatibility_records = []
