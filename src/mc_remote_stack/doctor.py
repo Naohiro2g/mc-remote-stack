@@ -16,6 +16,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from .apply import DOCKER_CONTEXT, compose_render_status
+from .preset_registry import load_preset
 from .render import (
     RenderContractError,
     _locked_public_routes,
@@ -89,6 +90,8 @@ class TomlDoctorResult:
     protocol: str | None
     minecraft_version: str | None
     compatibility_status: str
+    compatibility_required_claims: tuple[str, ...] = ()
+    compatibility_unrecorded_claims: tuple[str, ...] = ()
     homepage_status: str = "not-applicable"
     scratch_runtime_status: str = "not-applicable"
     wirescope_status: str = "not-applicable"
@@ -101,6 +104,13 @@ class DoctorContractError(ValueError):
         self.reason = reason
         self.path = str(path)
         super().__init__(f"{reason}: {path}: {message}")
+
+
+def _unrecorded_compatibility_claims(
+    required_claims: tuple[str, ...], records: list[dict[str, Any]]
+) -> tuple[str, ...]:
+    covered = {claim for record in records for claim in record["claims"]}
+    return tuple(claim for claim in required_claims if claim not in covered)
 
 
 def _fail(reason: str, path: object, message: str) -> None:
@@ -1008,6 +1018,11 @@ def doctor_toml_project(
         raise DoctorContractError(exc.reason, exc.path, str(exc)) from exc
     lock = verification.lock
     output = verification.output
+    preset = load_preset(lock["input"]["preset"]["ref"], data_root=data_root)
+    required_claims = tuple(preset.data["requirements"]["required_claims"])
+    unrecorded_claims = _unrecorded_compatibility_claims(
+        required_claims, lock["compatibility"]["records"]
+    )
     protocol = _component_value(lock, "mcremote-plugin", "protocol")
     minecraft_version = _component_value(lock, "paper-server", "minecraft_version")
     services = _service_ids(lock)
@@ -1271,6 +1286,8 @@ def doctor_toml_project(
         protocol=hello.protocol,
         minecraft_version=hello.minecraft_version,
         compatibility_status=lock["compatibility"]["status"],
+        compatibility_required_claims=required_claims,
+        compatibility_unrecorded_claims=unrecorded_claims,
         homepage_status=homepage_status,
         scratch_runtime_status=scratch_runtime_status,
         wirescope_status=wirescope_status,

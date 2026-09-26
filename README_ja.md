@@ -201,7 +201,9 @@ running / healthy、lockどおりのloopback port、token無しprotocol helloが
 canonicalなgenerated `compose.yaml`以外も実行時に使われていれば、runtime / protocol検査は
 継続するが`WARN render=additional-compose-files`と報告する。container logやsession /
 player / tokenを通常出力へ載せない。compatibilityがまだ`unverified`なら、runtimeがhealthyでも
-警告は残る。
+警告は残る。警告にはexact recordのないclaim数（例: `unrecorded=3/5`）を示し、
+次の行にrecordのないclaim名を列挙する。recordがないことは未試験だったという意味ではない。
+この表示のためにdoctorの実検査は追加しない。
 
 `home-alpha` は後から別projectとしてinitし、別volume identity・別world identityを与える。
 `home-beta` のdirectoryやlockをcopyして追加しない。
