@@ -927,6 +927,9 @@ selector解決、artifact取得、render置換、container再起動を行わな�
 
 doctor PASSはcurrent runtimeと最小helloの整合だけを示し、compatibility verified、pairing、
 実player操作、全command、backup / restore、upgrade、公開networkを主張しない。
+doctorはpresetのrequired claim数とlock内のexact compatibility recordによるcoverageを短く示し、
+不足するclaim名も表示する。これは記録の有無であり、試験の実施有無の判定ではない。
+再起動後の通常doctorでこの表示のための追加probeを実行しない。
 
 plan は少なくとも次を operator に見せる。
 

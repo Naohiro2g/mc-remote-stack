@@ -1532,7 +1532,20 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
         print("OK doctor scratch-runtime=current")
     if result.wirescope_status == "current":
         print("OK doctor wirescope=current handoff=cross-origin")
-    if result.compatibility_status == "unverified":
+    if result.compatibility_required_claims:
+        required_count = len(result.compatibility_required_claims)
+        unrecorded_count = len(result.compatibility_unrecorded_claims)
+        level = "WARN" if unrecorded_count else "OK"
+        print(
+            f"{level} doctor compatibility={result.compatibility_status} "
+            f"unrecorded={unrecorded_count}/{required_count}"
+        )
+        if unrecorded_count:
+            print(
+                "INFO doctor unrecorded-claims="
+                + ",".join(result.compatibility_unrecorded_claims)
+            )
+    elif result.compatibility_status == "unverified":
         print("WARN doctor compatibility=unverified")
     return 0
 
