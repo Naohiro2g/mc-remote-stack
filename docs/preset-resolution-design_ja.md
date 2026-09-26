@@ -1,11 +1,17 @@
 # preset registry / preset catalog / lock 解決仕様
 
+> 2026-09-26: §9のcompatibility record投影と§12のunverified二段gateは廃止した。
+> 以下の該当節は導入時の設計履歴であり、現行CLIの規範ではない。既存lockの
+> `compatibility`欄は旧形式を読むためだけに許容し、新規lockへは出力しない。
+> 配備時の機能確認はrelease gateと対象環境のsmokeで行う。`doctor`は現在の
+> runtimeと公開経路の診断を返し、記録の有無を警告にしない。
+
 ## 0. 文書の位置づけ
 
 この文書は、`mc-remote-stack` における次世代 deployment 構成のうち、H
 「preset registry / preset catalog / lock 解決仕様」の詳細設計 SSOT である。
-実装規範を定める文書である。bundled profile / preset registry / preset catalog /
-compatibility record の schema と loader、RFC 8785 content digest、catalog の安定生成・stale検出、
+実装規範を定める文書である。bundled profile / preset registry / preset catalog、
+RFC 8785 content digest、catalog の安定生成・stale検出、
 published revision の append-only 比較、preset 選択の resolver、TOML lock schema、
 semantic identity、no-op / stale / tamper 検出、atomic replace、`preset list/show` と
 TOML `init` / `resolve` / `validate` / `accept-eula` / `plan` / `artifact fetch` / `render`
@@ -16,8 +22,7 @@ upgrade applyとplugin固有operator input mappingはまだ未実装であり、
 `mc-remote.yml` / `mc-remote.lock.yml` 経路は回帰fixtureとして残る。
 
 - 状態: 実装済み（H。apply / plugin config ownership は対象外）
-- 対象: preset registry、preset catalog、profile / preset / order の解決、lock identity、
-  compatibility evidence、custom / unverified gate
+- 対象: preset registry、preset catalog、profile / preset / order の解決、lock identity
 - 関連する物理配置:
   [`mc-remote.toml` project layout / 物理ファイル粒度](toml-project-layout-design_ja.md)
 - 対象外: upgrade transaction、backup / restore、world lineage、plugin config ownership、
@@ -91,7 +96,6 @@ exact artifact identity を一組の YAML config / lock に保持している。
 bundled profile revision ─┐
                           ├─ resolver ──> environment lock ──> plan / render
 bundled preset revision ──┤       │
-                          │       └─ compatibility records
 human-owned order ────────┘
 
 preset registry ──> preset catalog generator ──> preset catalog
@@ -151,14 +155,11 @@ src/mc_remote_stack/data/
 │  └─ <profile-name>/<revision>/profile.toml
 ├─ preset_registry/
 │  └─ <preset-name>/<revision>/preset.toml
-├─ compatibility/
-│  └─ records/<record-id>.toml
 ├─ preset_catalog_policy.toml
 ├─ preset_catalog.toml                 # generated; hand edit禁止
 └─ schemas/
    ├─ profile.schema.json
    ├─ preset.schema.json
-   ├─ compatibility-record.schema.json
    └─ lock.schema.json
 ```
 
@@ -323,8 +324,7 @@ fork、または新規 world を要求する。汎用 `--force` でこの境界�
 `mcrctl preset list` / `mcrctl preset show` の discovery 面に使う。
 
 human-owned な `preset_catalog_policy.toml` は lifecycle 事実だけを持つ。
-profile capability、artifact、compatibility status を重複記述せず、generator が selected
-preset / profile / compatibility record から join する。
+profile capabilityやartifactを重複記述せず、generator が preset registry から投影する。
 
 ```toml
 schema_version = 1
@@ -353,7 +353,6 @@ preset catalog entry は少なくとも次を表示できる。
 - supported profile ref / capability
 - channel / exposure / purpose に関する明示 constraint
 - deployment requirement
-- effective compatibility status と record ref
 - deprecation / EOL の理由と移行先 exact ref（存在する場合）
 
 ### 8.2 lifecycle
@@ -380,7 +379,7 @@ order を自動更新しない。
 - preset catalog に載っていない過去 revision も exact ref で preset registry から検査できる。
 - preset catalog entry の追加・削除は既存 order / lock を自動変更しない。
 
-## 9. compatibility evidence
+## 9. compatibility evidence（廃止した設計の履歴）
 
 ### 9.1 claim と evidence の分離
 
@@ -564,7 +563,6 @@ resolver が読む正準入力は次だけとする。
 - order から exact path で明示参照された operator-owned input
 - bundled exact profile revision
 - bundled exact preset revision
-- bundled compatibility records
 - resolver / renderer 自身の schema と version
 
 preset catalog は discovery と lifecycle gate に使うが、preset 本文の代わりにしない。
@@ -584,7 +582,7 @@ secret store、runtime directory、稼働 server の観測値、network の `lat
 8. channel / exposure / purpose / network bind / volume role / security の cross-field validation を行う。
 9. 全 artifact が exact identity を持つことを検証する。
 10. required compatibility claim と coverage を計算する。
-11. EULA agreement と custom / unverified / EOL acknowledgement gate を評価する。
+11. EULA agreement と EOL acknowledgement gate を評価する。
 12. secret reference identity を列挙し、secret 値が混入していないことを検査する。
 13. renderer adapter を使い operator input の semantic digest と non-secret render plan を作る。
 14. candidate EnvironmentLock と semantic identity を生成する。
@@ -607,8 +605,6 @@ secret store、runtime directory、稼働 server の観測値、network の `lat
 - `unsupported_environment_combination`
 - `override_not_allowed`
 - `artifact_identity_incomplete`
-- `compatibility_evidence_missing`
-- `unverified_not_acknowledged`
 - `minecraft_eula_not_accepted`
 - `secret_value_forbidden`
 - `operator_input_profile_mismatch`
@@ -620,7 +616,7 @@ secret store、runtime directory、稼働 server の観測値、network の `lat
 人間向け message は reason、対象 logical path、修正方法を示し、値が secret の可能性がある path
 では実値を表示しない。
 
-## 12. unverified / EOL gate
+## 12. unverified gate（廃止した設計の履歴）/ EOL gate
 
 初期実装は二段 acknowledgement とする。
 
@@ -927,9 +923,8 @@ selector解決、artifact取得、render置換、container再起動を行わな�
 
 doctor PASSはcurrent runtimeと最小helloの整合だけを示し、compatibility verified、pairing、
 実player操作、全command、backup / restore、upgrade、公開networkを主張しない。
-doctorはpresetのrequired claim数とlock内のexact compatibility recordによるcoverageを短く示し、
-不足するclaim名も表示する。これは記録の有無であり、試験の実施有無の判定ではない。
-再起動後の通常doctorでこの表示のための追加probeを実行しない。
+doctorはcompatibility recordのcoverageを表示しない。再起動後の通常doctorで
+追加の互換性probeを実行しない。
 
 plan は少なくとも次を operator に見せる。
 

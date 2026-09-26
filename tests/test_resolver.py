@@ -4,6 +4,7 @@ from importlib.resources import files
 from pathlib import Path
 
 import pytest
+import tomlkit
 
 from mc_remote_stack.preset_registry import (
     build_preset_catalog,
@@ -13,6 +14,7 @@ from mc_remote_stack.preset_registry import (
 )
 from mc_remote_stack.resolver import (
     ResolutionError,
+    _calculate_lock_identity,
     inspect_lock,
     load_lock,
     resolve_project,
@@ -109,33 +111,35 @@ def _acknowledge(project: Path, kind: str) -> None:
     update_order_scalar(project, ("acknowledgements", f"allow_{kind}"), True)
 
 
-@pytest.mark.parametrize(
-    ("order_ack", "cli_ack"),
-    [
-        (False, False),
-        (True, False),
-        (False, True),
-    ],
-)
-def test_unverified_resolution_requires_order_and_cli_acknowledgement(
-    tmp_path: Path,
-    order_ack: bool,
-    cli_ack: bool,
-) -> None:
+def test_resolution_does_not_gate_or_lock_compatibility_records(tmp_path: Path) -> None:
     project, data_root = _fixture(tmp_path)
-    if order_ack:
-        _acknowledge(project, "unverified")
 
-    with pytest.raises(ResolutionError) as exc_info:
-        resolve_project(
-            project,
-            data_root=data_root,
-            allow_unverified=cli_ack,
-            resolved_at=FIRST_RESOLVED_AT,
-        )
+    result = resolve_project(project, data_root=data_root, resolved_at=FIRST_RESOLVED_AT)
+    lock = load_lock(project, data_root=data_root)
 
-    assert exc_info.value.reason == "unverified_not_acknowledged"
-    assert not (project / "mc-remote.lock.toml").exists()
+    assert result.status == "created"
+    assert "compatibility" not in lock
+    assert "compatibility evidence does not cover all required claims" not in result.warnings
+
+
+def test_legacy_compatibility_lock_remains_current_without_rewrite(tmp_path: Path) -> None:
+    project, data_root = _fixture(tmp_path)
+    resolve_project(project, data_root=data_root, resolved_at=FIRST_RESOLVED_AT)
+    lock = load_lock(project, data_root=data_root)
+    lock["compatibility"] = {
+        "status": "unverified",
+        "required_claims_sha256": "0" * 64,
+        "component_set_sha256": "0" * 64,
+        "records": [],
+    }
+    lock["lock_identity"] = _calculate_lock_identity(lock)
+    lock_path = project / "mc-remote.lock.toml"
+    lock_path.write_text(tomlkit.dumps(lock))
+    before = lock_path.read_bytes()
+
+    assert inspect_lock(project, data_root=data_root).status == "unchanged"
+    assert resolve_project(project, data_root=data_root).status == "unchanged"
+    assert lock_path.read_bytes() == before
 
 
 def test_successful_resolution_writes_one_exact_environment_lock(tmp_path: Path) -> None:
@@ -173,7 +177,7 @@ def test_successful_resolution_writes_one_exact_environment_lock(tmp_path: Path)
     }
     assert lock["agreements"] == {"minecraft_eula": True}
     assert lock["selection"]["kind"] == "preset"
-    assert lock["compatibility"]["status"] == "unverified"
+    assert "compatibility" not in lock
     assert lock["artifacts"][0]["digest"].startswith("sha256:")
     assert lock["scope"] == {
         "secret_values": "excluded",
@@ -474,7 +478,7 @@ def test_missing_and_copied_lock_states_are_distinct(tmp_path: Path) -> None:
     assert inspect_lock(sibling.root, data_root=data_root).status == "stale"
 
 
-def test_exact_compatibility_coverage_produces_verified_lock_without_unverified_ack(tmp_path: Path) -> None:
+def test_legacy_record_does_not_enter_new_lock(tmp_path: Path) -> None:
     project, data_root = _fixture(tmp_path, verified=True)
 
     result = resolve_project(
@@ -485,8 +489,7 @@ def test_exact_compatibility_coverage_produces_verified_lock_without_unverified_
     lock = load_lock(project, data_root=data_root)
 
     assert result.status == "created"
-    assert lock["compatibility"]["status"] == "verified"
-    assert lock["compatibility"]["records"][0]["id"] == "home-server-classroom-paper-3"
+    assert "compatibility" not in lock
     assert lock["acknowledgements"]["allow_unverified"] is False
 
 
@@ -544,10 +547,7 @@ def test_bundled_verified_home_preset_resolves_without_unverified_ack(tmp_path: 
     lock = load_lock(project.root, data_root=data_root)
 
     assert result.status == "created"
-    assert lock["compatibility"]["status"] == "verified"
-    assert [record["id"] for record in lock["compatibility"]["records"]] == [
-        "home-server-2-mcremote-paper-1-live-auto"
-    ]
+    assert "compatibility" not in lock
     assert lock["acknowledgements"]["allow_unverified"] is False
     assert [artifact["id"] for artifact in lock["artifacts"]] == [
         "minecraft-image",
@@ -591,7 +591,7 @@ def test_bundled_alpha_preset_resolves_only_through_unverified_gate(
     }
     assert lock["input"]["profile"]["ref"] == "home-server@2"
     assert lock["input"]["preset"]["ref"] == "mcremote-paper@2"
-    assert lock["compatibility"]["status"] == "unverified"
+    assert "compatibility" not in lock
     assert lock["runtime"]["volumes"] == [
         {"role": "minecraft-data", "identity": "home-alpha-minecraft-data"}
     ]
@@ -636,14 +636,7 @@ def test_bundled_b3_preset_resolves_only_with_credential_profile_and_unverified_
     assert result.status == "created"
     assert lock["input"]["profile"]["ref"] == "home-server@3"
     assert lock["input"]["preset"]["ref"] == "mcremote-paper@3"
-    assert lock["compatibility"]["status"] == "unverified"
-    assert lock["compatibility"]["required_claims_sha256"] == (
-        "1171c2d2b352ff7ef8a9b90aa78ded38e9f510ad5dbc4770c6865332771347cf"
-    )
-    assert lock["compatibility"]["component_set_sha256"] == (
-        "70ffa50328ff3a2d1fe0d7d97f2c724e10cbd32052e24725193525e789818c73"
-    )
-    assert lock["compatibility"]["records"] == []
+    assert "compatibility" not in lock
     assert {
         assignment["role"]: assignment["identity"]
         for assignment in lock["runtime"]["volumes"]
@@ -778,7 +771,7 @@ white_list = false
         "paper-jar",
         "mcremote-jar",
     ]
-    assert lock["compatibility"]["status"] == "unverified"
+    assert "compatibility" not in lock
 
 
 def test_public_web_profile_accepts_link_less_operator_notice(tmp_path: Path) -> None:

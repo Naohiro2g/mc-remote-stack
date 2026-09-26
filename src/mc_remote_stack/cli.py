@@ -145,7 +145,6 @@ def _catalog_entries(*, include_eol: bool) -> list[dict]:
 def _print_preset_summary(entry: dict) -> None:
     print(
         f"PRESET ref={entry['ref']} status={entry['status']} "
-        f"compatibility={entry['compatibility_status']} "
         f"content-sha256={entry['content_sha256']}"
     )
 
@@ -218,11 +217,9 @@ def _cmd_preset_show(args: argparse.Namespace) -> int:
         entry = {
             "ref": preset.ref,
             "status": "not-offered",
-            "compatibility_status": "unverified",
             "content_sha256": preset.content_sha256,
             "required_profile_capabilities": requirements["profile_capabilities"],
             "allowed_channels": requirements["allowed_channels"],
-            "compatibility_records": [],
         }
     _print_preset_summary(entry)
     print(f"PRESET description={preset.data['preset']['description']}")
@@ -231,8 +228,6 @@ def _cmd_preset_show(args: argparse.Namespace) -> int:
         + ",".join(entry["required_profile_capabilities"])
     )
     print("PRESET allowed-channels=" + ",".join(entry["allowed_channels"]))
-    records = ",".join(entry["compatibility_records"]) or "none"
-    print(f"PRESET compatibility-records={records}")
     for component in preset.data["components"]:
         print(
             f"COMPONENT id={component['id']} role={component['role']} "
@@ -608,7 +603,6 @@ def _cmd_toml_plan(project_path: Path) -> int:
     )
     print(
         f"PLAN selection={lock['selection']['kind']} "
-        f"compatibility={lock['compatibility']['status']} "
         f"lifecycle={lock['preset_lifecycle']['status']}"
     )
     print(f"PLAN artifact-store={lock['runtime']['artifact_store']}")
@@ -647,8 +641,6 @@ def _cmd_toml_plan(project_path: Path) -> int:
         warnings.append(
             f"preset {lock['preset_lifecycle']['status']}: {lifecycle_warning}"
         )
-    if lock["compatibility"]["status"] == "unverified":
-        warnings.append("compatibility evidence does not cover all required claims")
     for warning in warnings:
         print(f"WARN {warning}")
     return 1 if warnings else 0
@@ -790,8 +782,6 @@ def _cmd_apply(args: argparse.Namespace) -> int:
         f"lock={result.lock_identity} compose-project={result.compose_project} "
         f"service={result.service} volume={result.volume}"
     )
-    if args.allow_unverified:
-        print("WARN live bootstrap used the one-shot unverified acknowledgement")
     return 0
 
 
@@ -1201,8 +1191,6 @@ def _cmd_auth_migration_apply(args: argparse.Namespace) -> int:
         f"source-lock={result.source_lock_identity} "
         f"target-lock={result.target_lock_identity} phase={result.phase}"
     )
-    if args.allow_unverified:
-        print("WARN migration used the one-shot unverified acknowledgement")
     return 0
 
 
@@ -1316,8 +1304,6 @@ def _cmd_public_b3_apply(args: argparse.Namespace) -> int:
         f"source-lock={result.source_lock_identity} "
         f"target-lock={result.target_lock_identity} phase={result.phase}"
     )
-    if args.allow_unverified:
-        print("WARN migration used the one-shot unverified acknowledgement")
     return 0
 
 
@@ -1440,8 +1426,6 @@ def _cmd_public_b4_apply(args: argparse.Namespace) -> int:
         f"source-lock={result.source_lock_identity} "
         f"target-lock={result.target_lock_identity} phase={result.phase}"
     )
-    if args.allow_unverified:
-        print("WARN migration used the one-shot unverified acknowledgement")
     if args.acknowledge_credential_health:
         print("WARN migration used the one-shot credential health acknowledgement")
     return 0
@@ -1532,21 +1516,6 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
         print("OK doctor scratch-runtime=current")
     if result.wirescope_status == "current":
         print("OK doctor wirescope=current handoff=cross-origin")
-    if result.compatibility_required_claims:
-        required_count = len(result.compatibility_required_claims)
-        unrecorded_count = len(result.compatibility_unrecorded_claims)
-        level = "WARN" if unrecorded_count else "OK"
-        print(
-            f"{level} doctor compatibility={result.compatibility_status} "
-            f"unrecorded={unrecorded_count}/{required_count}"
-        )
-        if unrecorded_count:
-            print(
-                "INFO doctor unrecorded-claims="
-                + ",".join(result.compatibility_unrecorded_claims)
-            )
-    elif result.compatibility_status == "unverified":
-        print("WARN doctor compatibility=unverified")
     return 0
 
 
@@ -2016,7 +1985,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     resolve_parser = subparsers.add_parser("resolve", help="resolve one TOML deployment project")
     resolve_parser.add_argument("--project", required=True)
-    resolve_parser.add_argument("--allow-unverified", action="store_true")
+    resolve_parser.add_argument("--allow-unverified", action="store_true", help=argparse.SUPPRESS)
     resolve_parser.add_argument("--allow-eol", action="store_true")
     resolve_parser.set_defaults(handler=_cmd_resolve)
 
@@ -2123,7 +2092,7 @@ def build_parser() -> argparse.ArgumentParser:
     deployment_update_plan_parser.add_argument(
         "--replace-input", action="append", default=[]
     )
-    deployment_update_plan_parser.add_argument("--allow-unverified", action="store_true")
+    deployment_update_plan_parser.add_argument("--allow-unverified", action="store_true", help=argparse.SUPPRESS)
     deployment_update_plan_parser.add_argument("--allow-eol", action="store_true")
     deployment_update_plan_parser.set_defaults(handler=_cmd_deployment_update_plan)
     deployment_update_apply_parser = deployment_update_subparsers.add_parser(
@@ -2215,7 +2184,7 @@ def build_parser() -> argparse.ArgumentParser:
         action_parser.add_argument("--target-volume", action="append", required=True)
         action_parser.add_argument("--preserve-compose-file", action="append", default=[])
         action_parser.add_argument("--auth-config-root")
-        action_parser.add_argument("--allow-unverified", action="store_true")
+        action_parser.add_argument("--allow-unverified", action="store_true", help=argparse.SUPPRESS)
         action_parser.add_argument("--allow-eol", action="store_true")
         if action == "apply":
             action_parser.add_argument(
@@ -2254,7 +2223,7 @@ def build_parser() -> argparse.ArgumentParser:
         action_parser.add_argument("--target-volume", action="append", required=True)
         action_parser.add_argument("--preserve-compose-file", action="append", default=[])
         action_parser.add_argument("--auth-config-root")
-        action_parser.add_argument("--allow-unverified", action="store_true")
+        action_parser.add_argument("--allow-unverified", action="store_true", help=argparse.SUPPRESS)
         action_parser.add_argument("--allow-eol", action="store_true")
         if action == "apply":
             action_parser.add_argument("--expected-source-lock-identity", required=True)
@@ -2285,7 +2254,7 @@ def build_parser() -> argparse.ArgumentParser:
         action_parser.add_argument("--target-volume", action="append", required=True)
         action_parser.add_argument("--preserve-compose-file", action="append", default=[])
         action_parser.add_argument("--auth-config-root")
-        action_parser.add_argument("--allow-unverified", action="store_true")
+        action_parser.add_argument("--allow-unverified", action="store_true", help=argparse.SUPPRESS)
         action_parser.add_argument("--allow-eol", action="store_true")
         if action == "apply":
             action_parser.add_argument("--expected-source-lock-identity", required=True)

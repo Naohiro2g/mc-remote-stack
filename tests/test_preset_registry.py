@@ -11,7 +11,6 @@ from mc_remote_stack.preset_registry import (
     component_set_sha256,
     evaluate_lifecycle,
     load_catalog_policy,
-    load_compatibility_record,
     load_preset,
     load_preset_catalog,
     load_profile,
@@ -159,6 +158,16 @@ def _write_preset(
         encoding="utf-8",
     )
     return path
+
+
+def test_new_preset_does_not_need_retired_compatibility_claims(tmp_path: Path) -> None:
+    root = _data_root(tmp_path)
+    path = _write_preset(root)
+    path.write_text(path.read_text().replace('required_claims = ["profile-render"]\n', ''))
+
+    preset = load_preset("classroom-paper@3", data_root=root)
+
+    assert "required_claims" not in preset.data["requirements"]
 
 
 def _write_policy(root: Path, entries: list[dict[str, str]]) -> Path:
@@ -376,9 +385,9 @@ def test_generated_preset_catalog_projects_exact_compatibility_coverage(tmp_path
     (root / "preset_catalog.toml").write_bytes(with_evidence)
     entry = load_preset_catalog(data_root=root)["preset_catalog"]["presets"][0]
 
-    assert with_evidence != without_evidence
-    assert entry["compatibility_status"] == "verified"
-    assert entry["compatibility_records"] == ["home-server-classroom-paper-3"]
+    assert with_evidence == without_evidence
+    assert "compatibility_status" not in entry
+    assert "compatibility_records" not in entry
 
 
 def test_catalog_policy_rejects_duplicate_ref(tmp_path: Path) -> None:
@@ -469,77 +478,6 @@ def test_stale_generated_preset_catalog_is_rejected(tmp_path: Path) -> None:
     assert exc_info.value.reason == "stale_preset_catalog"
 
 
-def test_exact_compatibility_record_loads_with_evidence_identity(tmp_path: Path) -> None:
-    root = _data_root(tmp_path)
-    _write_profile(root)
-    _write_preset(root)
-    profile = load_profile("home-server@1", data_root=root)
-    preset = load_preset("classroom-paper@3", data_root=root)
-    _write_compatibility_record(
-        root,
-        record_id="home-server-classroom-paper-3",
-        preset_sha256=preset.content_sha256,
-        profile_sha256=profile.content_sha256,
-        component_set_digest=component_set_sha256(preset.data),
-    )
-
-    record = load_compatibility_record("home-server-classroom-paper-3", data_root=root)
-
-    assert record.ref == "home-server-classroom-paper-3"
-    assert record.data["record"]["result"] == "pass"
-    assert record.data["evidence"][0]["commit"] == f"{44:040x}"
-    assert len(record.content_sha256) == 64
-
-
-def test_compatibility_record_component_set_must_match_exact_preset(tmp_path: Path) -> None:
-    root = _data_root(tmp_path)
-    _write_profile(root)
-    _write_preset(root)
-    profile = load_profile("home-server@1", data_root=root)
-    preset = load_preset("classroom-paper@3", data_root=root)
-    _write_compatibility_record(
-        root,
-        record_id="home-server-classroom-paper-3",
-        preset_sha256=preset.content_sha256,
-        profile_sha256=profile.content_sha256,
-        component_set_digest=f"{99:064x}",
-    )
-
-    with pytest.raises(PresetDataError) as exc_info:
-        load_compatibility_record("home-server-classroom-paper-3", data_root=root)
-
-    assert exc_info.value.reason == "compatibility_subject_mismatch"
-
-
-@pytest.mark.parametrize(
-    ("body_id", "result", "reason"),
-    [
-        ("different-record-id", "pass", "registry_record_tampered"),
-        (None, "fail", "registry_schema_invalid"),
-    ],
-)
-def test_compatibility_record_fails_closed(
-    tmp_path: Path,
-    body_id: str | None,
-    result: str,
-    reason: str,
-) -> None:
-    root = _data_root(tmp_path)
-    _write_compatibility_record(
-        root,
-        record_id="home-server-classroom-paper-3",
-        body_id=body_id,
-        result=result,
-        preset_sha256=f"{55:064x}",
-        profile_sha256=f"{66:064x}",
-    )
-
-    with pytest.raises(PresetDataError) as exc_info:
-        load_compatibility_record("home-server-classroom-paper-3", data_root=root)
-
-    assert exc_info.value.reason == reason
-
-
 @pytest.mark.parametrize("mutation", ["edit", "delete"])
 def test_published_revision_is_append_only(tmp_path: Path, mutation: str) -> None:
     baseline = _data_root(tmp_path, "baseline")
@@ -576,9 +514,6 @@ def test_bundled_home_profile_and_preset_are_exact_and_catalogued() -> None:
     original_profile = load_profile("home-server@1")
     profile = load_profile("home-server@2")
     preset = load_preset("mcremote-paper@1")
-    compatibility = load_compatibility_record(
-        "home-server-2-mcremote-paper-1-live-auto"
-    )
 
     assert "operator_input_roles" not in original_profile.data
     assert profile.data["capabilities"]["required_component_roles"] == [
@@ -648,22 +583,8 @@ def test_bundled_home_profile_and_preset_are_exact_and_catalogued() -> None:
         if item["ref"] == "mcremote-paper@1"
     )
     assert catalog_entry["ref"] == "mcremote-paper@1"
-    assert catalog_entry["compatibility_status"] == "verified"
-    assert catalog_entry["compatibility_records"] == [
-        "home-server-2-mcremote-paper-1-live-auto"
-    ]
-    assert compatibility.data["record"]["test_class"] == "live-auto"
-    assert compatibility.data["subject"] == {
-        "preset_ref": "mcremote-paper@1",
-        "preset_sha256": preset.content_sha256,
-        "profile_ref": "home-server@2",
-        "profile_sha256": profile.content_sha256,
-        "component_set_sha256": component_set_sha256(preset.data),
-    }
-    assert compatibility.data["claims"] == [
-        {"id": "profile-render", "constraint": "all"},
-        {"id": "protocol-hello", "constraint": "all"},
-    ]
+    assert "compatibility_status" not in catalog_entry
+    assert "compatibility_records" not in catalog_entry
     verify_preset_catalog()
 
 
@@ -755,8 +676,8 @@ def test_bundled_alpha_preset_is_immutable_unverified_and_catalogued() -> None:
         if item["ref"] == "mcremote-paper@2"
     )
     assert catalog_entry["ref"] == "mcremote-paper@2"
-    assert catalog_entry["compatibility_status"] == "unverified"
-    assert catalog_entry["compatibility_records"] == []
+    assert "compatibility_status" not in catalog_entry
+    assert "compatibility_records" not in catalog_entry
     verify_preset_catalog()
 
 
@@ -801,8 +722,8 @@ def test_bundled_b3_preset_is_exact_unverified_and_credential_profile_only() -> 
         for entry in catalog["preset_catalog"]["presets"]
         if entry["ref"] == "mcremote-paper@3"
     )
-    assert catalog_entry["compatibility_status"] == "unverified"
-    assert catalog_entry["compatibility_records"] == []
+    assert "compatibility_status" not in catalog_entry
+    assert "compatibility_records" not in catalog_entry
     verify_preset_catalog()
 
 
@@ -842,8 +763,8 @@ def test_bundled_b4_home_alpha_preset_is_exact_unverified_candidate() -> None:
         for entry in catalog["preset_catalog"]["presets"]
         if entry["ref"] == "mcremote-paper@4"
     )
-    assert catalog_entry["compatibility_status"] == "unverified"
-    assert catalog_entry["compatibility_records"] == []
+    assert "compatibility_status" not in catalog_entry
+    assert "compatibility_records" not in catalog_entry
     verify_preset_catalog()
 
 
@@ -882,8 +803,8 @@ def test_bundled_b4_auth_close_fix_is_a_new_exact_unverified_candidate() -> None
         for entry in catalog["preset_catalog"]["presets"]
         if entry["ref"] == "mcremote-paper@5"
     )
-    assert catalog_entry["compatibility_status"] == "unverified"
-    assert catalog_entry["compatibility_records"] == []
+    assert "compatibility_status" not in catalog_entry
+    assert "compatibility_records" not in catalog_entry
     verify_preset_catalog()
 
 
@@ -928,11 +849,8 @@ def test_bundled_b4_session_persistence_fix_requires_credential_profile() -> Non
         for entry in catalog["preset_catalog"]["presets"]
         if entry["ref"] == "mcremote-paper@6"
     )
-    assert catalog_entry["compatibility_status"] == "verified"
-    assert catalog_entry["compatibility_records"] == [
-        "2026-08-18-b4-code-preservation-recovery-live-human",
-        "2026-08-18-b4-session-persistence-home-alpha",
-    ]
+    assert "compatibility_status" not in catalog_entry
+    assert "compatibility_records" not in catalog_entry
     verify_preset_catalog()
 
 
@@ -1041,8 +959,8 @@ def test_bundled_b5_normal_dev_preset_uses_frozen_git_build_provenance() -> None
         for entry in catalog["preset_catalog"]["presets"]
         if entry["ref"] == "mcremote-paper@7"
     )
-    assert catalog_entry["compatibility_status"] == "unverified"
-    assert catalog_entry["compatibility_records"] == []
+    assert "compatibility_status" not in catalog_entry
+    assert "compatibility_records" not in catalog_entry
     verify_preset_catalog()
 
 
@@ -1080,8 +998,8 @@ def test_bundled_home_auth_b3_preset_is_exact_jar_only_rollback_target() -> None
         for entry in catalog["preset_catalog"]["presets"]
         if entry["ref"] == "mcremote-paper-auth-b3@1"
     )
-    assert catalog_entry["compatibility_status"] == "unverified"
-    assert catalog_entry["compatibility_records"] == []
+    assert "compatibility_status" not in catalog_entry
+    assert "compatibility_records" not in catalog_entry
     verify_preset_catalog()
 
 
@@ -1124,8 +1042,8 @@ def test_bundled_public_b3_profile_and_preset_are_session_only() -> None:
     catalog_entry = next(
         item for item in catalog if item["ref"] == "public-web-paper@2"
     )
-    assert catalog_entry["compatibility_status"] == "unverified"
-    assert catalog_entry["compatibility_records"] == []
+    assert "compatibility_status" not in catalog_entry
+    assert "compatibility_records" not in catalog_entry
     verify_preset_catalog()
 
 
@@ -1374,8 +1292,8 @@ def test_bundled_public_b5_preset_pins_dimension_key_exact_set() -> None:
         for item in catalog["preset_catalog"]["presets"]
         if item["ref"] == "public-web-paper@6"
     )
-    assert catalog_entry["compatibility_status"] == "unverified"
-    assert catalog_entry["compatibility_records"] == []
+    assert "compatibility_status" not in catalog_entry
+    assert "compatibility_records" not in catalog_entry
 
     verify_preset_catalog()
 
@@ -1419,8 +1337,8 @@ def test_bundled_public_b5_1_preset_patches_mcremote_jar_only() -> None:
         for item in catalog["preset_catalog"]["presets"]
         if item["ref"] == "public-web-paper@7"
     )
-    assert catalog_entry["compatibility_status"] == "unverified"
-    assert catalog_entry["compatibility_records"] == []
+    assert "compatibility_status" not in catalog_entry
+    assert "compatibility_records" not in catalog_entry
 
     verify_preset_catalog()
 
@@ -1496,8 +1414,8 @@ def test_bundled_public_b6_preset_pins_protocol_23_exact_set() -> None:
         for item in catalog["preset_catalog"]["presets"]
         if item["ref"] == "public-web-paper@8"
     )
-    assert catalog_entry["compatibility_status"] == "unverified"
-    assert catalog_entry["compatibility_records"] == []
+    assert "compatibility_status" not in catalog_entry
+    assert "compatibility_records" not in catalog_entry
 
     verify_preset_catalog()
 
@@ -1557,8 +1475,8 @@ def test_bundled_public_b7_preset_pins_owner_artifacts_and_runtime_contract() ->
         for item in catalog["preset_catalog"]["presets"]
         if item["ref"] == "public-web-paper@9"
     )
-    assert catalog_entry["compatibility_status"] == "unverified"
-    assert catalog_entry["compatibility_records"] == []
+    assert "compatibility_status" not in catalog_entry
+    assert "compatibility_records" not in catalog_entry
 
     verify_preset_catalog()
 

@@ -104,11 +104,11 @@ def test_cli_preset_list_and_show_use_qualified_catalog_and_exact_registry(
     assert main(["preset", "show", "classroom-paper@3"]) == 0
 
     output = capsys.readouterr().out
-    assert "PRESET ref=classroom-paper@3 status=active compatibility=verified" in output
+    assert "PRESET ref=classroom-paper@3 status=active" in output
     assert "content-sha256=" in output
     assert "COMPONENT id=minecraft-server role=minecraft artifact=minecraft-image" in output
     assert "ARTIFACT id=minecraft-image kind=oci" in output
-    assert "compatibility-records=home-server-classroom-paper-3" in output
+    assert "compatibility" not in output
 
 
 def test_cli_preset_list_hides_eol_unless_all_is_explicit(
@@ -126,28 +126,23 @@ def test_cli_preset_list_hides_eol_unless_all_is_explicit(
 
     assert main(["preset", "list", "--all"]) == 0
     all_output = capsys.readouterr().out
-    assert "PRESET ref=classroom-paper@3 status=eol compatibility=verified" in all_output
+    assert "PRESET ref=classroom-paper@3 status=eol" in all_output
 
 
-def test_cli_resolve_requires_two_stage_ack_and_reports_noop(
+def test_cli_resolve_without_compatibility_ack_reports_noop(
     tmp_path: Path,
     monkeypatch,
     capsys,
 ) -> None:
     project, data_root = _fixture(tmp_path)
-    _acknowledge(project, "unverified")
     monkeypatch.setattr("mc_remote_stack.cli._preset_data_root", lambda: data_root)
 
-    assert main(["resolve", "--project", str(project)]) == 2
-    failure = capsys.readouterr().out
-    assert "reason=unverified_not_acknowledged" in failure
-
-    assert main(["resolve", "--project", str(project), "--allow-unverified"]) == 0
+    assert main(["resolve", "--project", str(project)]) == 0
     created = capsys.readouterr().out
     assert "OK resolve status=created lock=sha256:" in created
-    assert "WARN compatibility evidence does not cover all required claims" in created
+    assert "compatibility" not in created
 
-    assert main(["resolve", "--project", str(project), "--allow-unverified"]) == 0
+    assert main(["resolve", "--project", str(project)]) == 0
     unchanged = capsys.readouterr().out
     assert "OK resolve status=unchanged lock=sha256:" in unchanged
 
@@ -232,7 +227,7 @@ def test_cli_toml_validate_accepts_unresolved_order_but_plan_requires_lock(
     assert not (project / "mc-remote.lock.toml").exists()
 
 
-def test_cli_toml_plan_reports_resolved_home_intent_and_unverified_warning(
+def test_cli_toml_plan_reports_resolved_home_intent(
     tmp_path: Path,
     capsys,
 ) -> None:
@@ -243,14 +238,14 @@ def test_cli_toml_plan_reports_resolved_home_intent_and_unverified_warning(
     assert main(["resolve", "--project", str(project), "--allow-unverified"]) == 0
     capsys.readouterr()
 
-    assert main(["plan", "--project", str(project)]) == 1
+    assert main(["plan", "--project", str(project)]) == 0
 
     output = capsys.readouterr().out
     assert "PLAN deployment=home environment=home-beta" in output
     assert "PLAN channel=beta exposure=isolated purpose=integration" in output
     assert "PLAN profile=home-server@1 content-sha256=" in output
     assert "PLAN preset=mcremote-paper@1 content-sha256=" in output
-    assert "PLAN selection=preset compatibility=unverified lifecycle=active" in output
+    assert "PLAN selection=preset lifecycle=active" in output
     assert "PLAN artifact-store=/var/lib/mc-remote/artifacts" in output
     assert "PLAN runtime-volume=minecraft-data:home-beta-minecraft-data" in output
     assert "PLAN world=home-beta-world" in output
@@ -259,7 +254,7 @@ def test_cli_toml_plan_reports_resolved_home_intent_and_unverified_warning(
     assert "PLAN volume-roles=minecraft-data:world" in output
     assert "PLAN security-controls=online-mode,rcon-disabled" in output
     assert "PLAN lock=unchanged identity=sha256:" in output
-    assert "WARN compatibility evidence does not cover all required claims" in output
+    assert "compatibility" not in output
 
 
 def test_cli_toml_validate_and_plan_reject_stale_lock(

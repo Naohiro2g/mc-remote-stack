@@ -18,7 +18,7 @@
     "requirements": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["profile_capabilities", "allowed_channels", "required_claims"],
+      "required": ["profile_capabilities", "allowed_channels"],
       "properties": {
         "profile_capabilities": {"type": "array", "items": {"type": "string"}},
         "allowed_channels": {"type": "array", "items": {"type": "string"}},

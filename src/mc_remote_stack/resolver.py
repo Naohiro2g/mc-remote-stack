@@ -19,10 +19,8 @@ from .operator_inputs import OperatorInputError, resolve_operator_inputs
 from .preset_registry import (
     CANONICALIZATION,
     PresetDataError,
-    component_set_sha256,
     evaluate_lifecycle,
     load_catalog_policy,
-    load_compatibility_records,
     load_preset,
     load_preset_catalog,
     load_profile,
@@ -169,53 +167,13 @@ def _validate_profile_preset_environment(
         )
 
 
-def _compatibility_projection(
-    *,
-    data_root: Traversable,
-    profile_ref: str,
-    profile_sha256: str,
-    preset_ref: str,
-    preset_sha256: str,
-    preset: dict[str, Any],
-) -> dict[str, Any]:
-    required_claims = sorted(set(preset["requirements"]["required_claims"]))
-    component_digest = component_set_sha256(preset)
-    covered_claims: set[str] = set()
-    projected_records: list[dict[str, Any]] = []
-    for record in load_compatibility_records(data_root=data_root):
-        subject = record.data["subject"]
-        if (
-            subject["profile_ref"] != profile_ref
-            or subject["profile_sha256"] != profile_sha256
-            or subject["preset_ref"] != preset_ref
-            or subject["preset_sha256"] != preset_sha256
-            or subject["component_set_sha256"] != component_digest
-        ):
-            continue
-        claims = sorted(
-            {
-                claim["id"]
-                for claim in record.data["claims"]
-                if claim["constraint"] == "all" and claim["id"] in required_claims
-            }
-        )
-        if not claims:
-            continue
-        covered_claims.update(claims)
-        projected_records.append(
-            {
-                "id": record.ref,
-                "content_sha256": record.content_sha256,
-                "claims": claims,
-                "evidence": copy.deepcopy(record.data["evidence"]),
-            }
-        )
-    return {
-        "status": "verified" if set(required_claims).issubset(covered_claims) else "unverified",
-        "required_claims_sha256": semantic_sha256(required_claims),
-        "component_set_sha256": component_digest,
-        "records": projected_records,
-    }
+def _same_deployment_inputs(existing: dict[str, Any], candidate: dict[str, Any]) -> bool:
+    """Treat retired compatibility evidence as inert in a valid legacy lock."""
+
+    excluded = {"lock_identity", "resolved_at", "compatibility"}
+    return semantic_sha256({k: v for k, v in existing.items() if k not in excluded}) == semantic_sha256(
+        {k: v for k, v in candidate.items() if k not in excluded}
+    )
 
 
 def _identity_payload(lock: dict[str, Any]) -> dict[str, Any]:
@@ -251,15 +209,6 @@ def _build_candidate(
     policy = load_catalog_policy(data_root=data_root)
     lifecycle = evaluate_lifecycle(policy, preset_ref)
     _validate_profile_preset_environment(order, profile_record.data, preset_record.data)
-    compatibility = _compatibility_projection(
-        data_root=data_root,
-        profile_ref=profile_ref,
-        profile_sha256=profile_record.content_sha256,
-        preset_ref=preset_ref,
-        preset_sha256=preset_record.content_sha256,
-        preset=preset_record.data,
-    )
-
     acknowledgements = order["acknowledgements"]
     if enforce_one_shot_acknowledgements and lifecycle.requires_eol_ack:
         if not (acknowledgements["allow_eol"] and allow_eol):
@@ -268,14 +217,6 @@ def _build_candidate(
                 "environment.preset",
                 "EOL resolution requires an order reason and the one-shot --allow-eol acknowledgement",
             )
-    if enforce_one_shot_acknowledgements and compatibility["status"] == "unverified":
-        if not (acknowledgements["allow_unverified"] and allow_unverified):
-            _fail(
-                "unverified_not_acknowledged",
-                "environment.preset",
-                "unverified resolution requires an order reason and the one-shot --allow-unverified acknowledgement",
-            )
-
     environment = order["environment"]
     profile = profile_record.data
     preset = preset_record.data
@@ -357,7 +298,6 @@ def _build_candidate(
             "kind": "preset",
         },
         "preset_lifecycle": lifecycle_projection,
-        "compatibility": compatibility,
         "acknowledgements": copy.deepcopy(acknowledgements),
         "operator_inputs": copy.deepcopy(operator_inputs),
         "components": copy.deepcopy(preset["components"]),
@@ -392,8 +332,6 @@ def _build_candidate(
     warnings: list[str] = []
     if lifecycle.warning:
         warnings.append(f"preset {lifecycle.status}: {lifecycle.warning}")
-    if compatibility["status"] == "unverified":
-        warnings.append("compatibility evidence does not cover all required claims")
     return _Candidate(lock=lock, warnings=tuple(warnings))
 
 
@@ -500,7 +438,7 @@ def resolve_project(
     lock_path = project_root / LOCK_NAME
     if lock_path.exists():
         existing = _load_lock(project_root, data_root=data_root)
-        if existing["lock_identity"] == candidate.lock["lock_identity"]:
+        if _same_deployment_inputs(existing, candidate.lock):
             return ResolveResult(
                 status="unchanged",
                 lock_identity=existing["lock_identity"],
@@ -544,7 +482,7 @@ def inspect_lock(
         )
     except (OperatorInputError, PresetDataError, ProjectOrderError) as exc:
         _translate_source_error(exc)
-    status = "unchanged" if existing["lock_identity"] == candidate.lock["lock_identity"] else "stale"
+    status = "unchanged" if _same_deployment_inputs(existing, candidate.lock) else "stale"
     return LockInspection(
         status=status,
         current_lock_identity=existing["lock_identity"],

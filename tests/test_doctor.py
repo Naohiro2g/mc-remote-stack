@@ -11,7 +11,6 @@ from mc_remote_stack.doctor import (
     ProtocolHelloResult,
     TomlDoctorResult,
     _auth_enforcement_required,
-    _unrecorded_compatibility_claims,
     _validate_canonical_composition_mounts,
     _validate_container,
     _validate_volume,
@@ -38,16 +37,6 @@ from .test_toml_apply import (
 
 def _docker(*arguments: str) -> tuple[str, ...]:
     return ("docker", "--context", "default", *arguments)
-
-
-def test_doctor_compatibility_summary_counts_exact_record_coverage() -> None:
-    required = ("profile-render", "protocol-hello", "https-runtime", "websocket-bridge", "wirescope-public-handoff")
-    records = [{"claims": ["profile-render", "protocol-hello"]}]
-
-    assert _unrecorded_compatibility_claims(required, records) == (
-        "https-runtime", "websocket-bridge", "wirescope-public-handoff"
-    )
-    assert _unrecorded_compatibility_claims(required, []) == required
 
 
 def _compose_base(output: Path) -> tuple[str, ...]:
@@ -388,15 +377,6 @@ def test_doctor_checks_current_render_runtime_and_protocol_without_mutation(
         protocol_status="auth-required",
         protocol=None,
         minecraft_version=None,
-        compatibility_status="unverified",
-        compatibility_required_claims=tuple(
-            load_preset(lock["input"]["preset"]["ref"], data_root=data_root)
-            .data["requirements"]["required_claims"]
-        ),
-        compatibility_unrecorded_claims=tuple(
-            load_preset(lock["input"]["preset"]["ref"], data_root=data_root)
-            .data["requirements"]["required_claims"]
-        ),
     )
     assert hello_calls == [
         ("127.0.0.1", 25575, "21.0.0", "1.21.11", "home-beta-world", 5)
@@ -1291,14 +1271,6 @@ def test_cli_doctor_uses_simple_local_defaults_and_does_not_echo_secrets(
             protocol_status="ok",
             protocol="21.0.0",
             minecraft_version="1.21.11",
-            compatibility_status="unverified",
-            compatibility_required_claims=(
-                "profile-render", "protocol-hello", "https-runtime",
-                "websocket-bridge", "wirescope-public-handoff",
-            ),
-            compatibility_unrecorded_claims=(
-                "https-runtime", "websocket-bridge", "wirescope-public-handoff",
-            ),
             homepage_status="current",
             scratch_runtime_status="current",
         )
@@ -1318,11 +1290,7 @@ def test_cli_doctor_uses_simple_local_defaults_and_does_not_echo_secrets(
     assert "OK doctor protocol=21.0.0 mc-version=1.21.11 auth=not-required" in output
     assert "OK doctor homepage=current" in output
     assert "OK doctor scratch-runtime=current" in output
-    assert "WARN doctor compatibility=unverified unrecorded=3/5" in output
-    assert (
-        "INFO doctor unrecorded-claims="
-        "https-runtime,websocket-bridge,wirescope-public-handoff"
-    ) in output
+    assert "compatibility=" not in output
     assert "token" not in output
     assert "session" not in output
     assert "player" not in output
@@ -1352,7 +1320,6 @@ def test_cli_doctor_warns_when_runtime_uses_additional_compose_files(
             protocol_status="ok",
             protocol="21.0.0",
             minecraft_version="1.21.11",
-            compatibility_status="unverified",
         ),
     )
 

@@ -34,9 +34,7 @@
               "status",
               "available_since",
               "required_profile_capabilities",
-              "allowed_channels",
-              "compatibility_status",
-              "compatibility_records"
+              "allowed_channels"
             ],
             "properties": {
               "ref": {
@@ -77,17 +75,6 @@
                 "uniqueItems": true,
                 "items": {
                   "enum": ["stable", "beta", "alpha", "dev"]
-                }
-              },
-              "compatibility_status": {
-                "enum": ["verified", "unverified"]
-              },
-              "compatibility_records": {
-                "type": "array",
-                "uniqueItems": true,
-                "items": {
-                  "type": "string",
-                  "minLength": 1
                 }
               }
             }
