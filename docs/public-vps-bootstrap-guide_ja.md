@@ -2,9 +2,7 @@
 
 このrunbookは、review済みのMcRemote release setで、同一world volumeを継承する既存deploymentを更新する
 現行手順である。current canonical TOML stateを入力に、`deployment update plan`、
-`deployment update apply`、`doctor`の三段階で完了する。対応済みpresetを使うcompact state adoption済みdeploymentは、
-READMEのcompact `apply`／`doctor`を使う。public VPS向けcompact profileと既存VPSのcompact state adoptionは、
-別の実装作業として扱う。
+`deployment update apply`、`doctor`の三段階で完了する。
 
 新しいUbuntu hostのoperator環境は、先に
 [`fresh host bootstrap`](fresh-host-bootstrap-guide_ja.md)で準備する。このrunbookは、Stack担当がbackstage inventoryを読み、
