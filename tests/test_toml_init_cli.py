@@ -10,8 +10,6 @@ def _toml_init_args(project: Path, artifact_store: Path) -> list[str]:
     return [
         "init",
         str(project),
-        "--format",
-        "toml",
         "--deployment-name",
         "home",
         "--profile",
@@ -82,7 +80,7 @@ def test_cli_toml_init_creates_explicit_unresolved_project(
     assert not artifact_store.exists()
 
     output = capsys.readouterr().out
-    assert f"OK initialized format=toml project={project.resolve()}" in output
+    assert f"OK initialized project={project.resolve()}" in output
     assert f"NEXT mcrctl accept-eula --project {project.resolve()} --yes" in output
     assert f"NEXT mcrctl resolve --project {project.resolve()}" in output
 
@@ -93,7 +91,7 @@ def test_cli_toml_init_requires_every_instance_argument_without_creating_directo
 ) -> None:
     project = tmp_path / "home-beta"
 
-    assert main(["init", str(project), "--format", "toml"]) == 2
+    assert main(["init", str(project)]) == 2
 
     output = capsys.readouterr().out
     assert "FAIL init reason=missing_toml_init_argument" in output
@@ -143,18 +141,4 @@ def test_cli_toml_init_reports_cross_field_validation_without_partial_project(
     assert main(args) == 2
 
     assert "reason=unsupported_environment_combination" in capsys.readouterr().out
-    assert not project.exists()
-
-
-def test_cli_legacy_init_rejects_toml_only_arguments_instead_of_ignoring_them(
-    tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    project = tmp_path / "deployment"
-
-    assert main(["init", str(project), "--deployment-name", "ignored"]) == 2
-
-    output = capsys.readouterr().out
-    assert "reason=toml_init_argument_requires_format" in output
-    assert "--format toml" in output
     assert not project.exists()

@@ -15,7 +15,6 @@ from .archive import inspect_archive
 from .artifacts import (
     ArtifactFetchError,
     fetch_locked_artifacts,
-    import_recovery_archive,
     import_reviewed_artifact,
 )
 from .backup import (
@@ -52,10 +51,9 @@ from .preset_registry import (
     load_preset_catalog,
     load_profile,
 )
-from .project import accept_eula, init_project
 from .release_manifest import ReleaseManifestError, parse_release_manifest
-from .render import RenderContractError, RenderError, render_project, render_toml_project
-from .repo_check import check_repository
+from .render import RenderContractError, render_toml_project
+from .repo_check import Issue, check_repository
 from .resolver import ResolutionError, inspect_lock, load_lock, resolve_project
 from .restore import (
     WorldRestoreError,
@@ -71,7 +69,6 @@ from .toml_project import (
     load_order,
     update_order_scalar,
 )
-from .validation import Issue, try_load_project
 
 
 def _print_issues(issues: list[Issue]) -> int:
@@ -257,87 +254,9 @@ def _cmd_resolve(args: argparse.Namespace) -> int:
 
 
 def _cmd_init(args: argparse.Namespace) -> int:
-    if args.format == "toml":
-        required_arguments = (
-            ("--deployment-name", args.deployment_name),
-            ("--profile", args.profile),
-            ("--environment-identity", args.environment_identity),
-            ("--channel", args.channel),
-            ("--exposure", args.exposure),
-            ("--purpose", args.purpose),
-            ("--preset", args.preset),
-            ("--artifact-store", args.artifact_store),
-            ("--volume", args.volume),
-            ("--world-identity", args.world_identity),
-            ("--bind-address", args.bind_address),
-            ("--java-port", args.java_port),
-            ("--mcremote-port", args.mcremote_port),
-        )
-        missing = [name for name, value in required_arguments if value is None or value == []]
-        project_path = Path(args.path).resolve()
-        if missing:
-            return _print_reason_failure(
-                "init",
-                "missing_toml_init_argument",
-                project_path,
-                "missing required TOML init arguments: " + ", ".join(missing),
-            )
-
-        runtime_volumes: dict[str, str] = {}
-        for assignment in args.volume:
-            if assignment.count("=") != 1:
-                return _print_reason_failure(
-                    "init",
-                    "invalid_volume_assignment",
-                    project_path,
-                    f"--volume must use ROLE=IDENTITY exactly once: {assignment!r}",
-                )
-            role, identity = assignment.split("=", 1)
-            if not role or not identity:
-                return _print_reason_failure(
-                    "init",
-                    "invalid_volume_assignment",
-                    project_path,
-                    f"--volume requires non-empty ROLE and IDENTITY: {assignment!r}",
-                )
-            if role in runtime_volumes:
-                return _print_reason_failure(
-                    "init",
-                    "duplicate_volume_assignment",
-                    project_path,
-                    f"--volume role is assigned more than once: {role}",
-                )
-            runtime_volumes[role] = identity
-
-        try:
-            paths = init_toml_project(
-                Path(args.path),
-                deployment_name=args.deployment_name,
-                profile=args.profile,
-                environment_identity=args.environment_identity,
-                channel=args.channel,
-                exposure=args.exposure,
-                purpose=args.purpose,
-                preset=args.preset,
-                artifact_store=args.artifact_store,
-                runtime_volumes=runtime_volumes,
-                world_identity=args.world_identity,
-                bind_address=args.bind_address,
-                java_port=args.java_port,
-                mcremote_port=args.mcremote_port,
-            )
-        except ProjectOrderError as exc:
-            return _print_structured_failure("init", exc)
-        except (OSError, ValueError) as exc:
-            print(f"FAIL init: {exc}")
-            return 2
-        print(f"OK initialized format=toml project={paths.root}")
-        print(f"NEXT mcrctl accept-eula --project {paths.root} --yes")
-        print(f"NEXT mcrctl resolve --project {paths.root}")
-        return 0
-
-    toml_only_arguments = (
+    required_arguments = (
         ("--deployment-name", args.deployment_name),
+        ("--profile", args.profile),
         ("--environment-identity", args.environment_identity),
         ("--channel", args.channel),
         ("--exposure", args.exposure),
@@ -350,26 +269,67 @@ def _cmd_init(args: argparse.Namespace) -> int:
         ("--java-port", args.java_port),
         ("--mcremote-port", args.mcremote_port),
     )
-    unexpected = [
-        name
-        for name, value in toml_only_arguments
-        if value is not None and value != []
-    ]
-    if unexpected:
+    missing = [name for name, value in required_arguments if value is None or value == []]
+    project_path = Path(args.path).resolve()
+    if missing:
         return _print_reason_failure(
             "init",
-            "toml_init_argument_requires_format",
-            Path(args.path).resolve(),
-            f"{', '.join(unexpected)} require --format toml",
+            "missing_toml_init_argument",
+            project_path,
+            "missing required TOML init arguments: " + ", ".join(missing),
         )
 
+    runtime_volumes: dict[str, str] = {}
+    for assignment in args.volume:
+        if assignment.count("=") != 1:
+            return _print_reason_failure(
+                "init",
+                "invalid_volume_assignment",
+                project_path,
+                f"--volume must use ROLE=IDENTITY exactly once: {assignment!r}",
+            )
+        role, identity = assignment.split("=", 1)
+        if not role or not identity:
+            return _print_reason_failure(
+                "init",
+                "invalid_volume_assignment",
+                project_path,
+                f"--volume requires non-empty ROLE and IDENTITY: {assignment!r}",
+            )
+        if role in runtime_volumes:
+            return _print_reason_failure(
+                "init",
+                "duplicate_volume_assignment",
+                project_path,
+                f"--volume role is assigned more than once: {role}",
+            )
+        runtime_volumes[role] = identity
+
     try:
-        paths = init_project(Path(args.path), args.profile or "official-vps")
-    except ValueError as exc:
+        paths = init_toml_project(
+            Path(args.path),
+            deployment_name=args.deployment_name,
+            profile=args.profile,
+            environment_identity=args.environment_identity,
+            channel=args.channel,
+            exposure=args.exposure,
+            purpose=args.purpose,
+            preset=args.preset,
+            artifact_store=args.artifact_store,
+            runtime_volumes=runtime_volumes,
+            world_identity=args.world_identity,
+            bind_address=args.bind_address,
+            java_port=args.java_port,
+            mcremote_port=args.mcremote_port,
+        )
+    except ProjectOrderError as exc:
+        return _print_structured_failure("init", exc)
+    except (OSError, ValueError) as exc:
         print(f"FAIL init: {exc}")
         return 2
-    print(f"OK initialized {paths.root}")
-    print("NEXT review mc-remote.yml, set secrets, accept EULA, then resolve immutable artifacts")
+    print(f"OK initialized project={paths.root}")
+    print(f"NEXT mcrctl accept-eula --project {paths.root} --yes")
+    print(f"NEXT mcrctl resolve --project {paths.root}")
     return 0
 
 
@@ -409,12 +369,22 @@ def _cmd_toml_validate(project_path: Path) -> int:
     return 0
 
 
+def _require_toml_project(operation: str, project_path: Path) -> int | None:
+    if _uses_toml_project(project_path):
+        return None
+    return _print_reason_failure(
+        operation,
+        "toml_project_required",
+        project_path.resolve(),
+        "project must contain mc-remote.toml",
+    )
+
+
 def _cmd_validate(args: argparse.Namespace) -> int:
     project_path = Path(args.project)
-    if _uses_toml_project(project_path):
-        return _cmd_toml_validate(project_path)
-    _, issues = try_load_project(project_path)
-    return _print_issues(issues)
+    if (failure := _require_toml_project("validate", project_path)) is not None:
+        return failure
+    return _cmd_toml_validate(project_path)
 
 
 def _cmd_accept_eula(args: argparse.Namespace) -> int:
@@ -422,49 +392,35 @@ def _cmd_accept_eula(args: argparse.Namespace) -> int:
         print("FAIL EULA acceptance requires --yes after reading https://aka.ms/MinecraftEULA")
         return 2
     project_path = Path(args.project)
-    if _uses_toml_project(project_path):
-        try:
-            changed = update_order_scalar(
-                project_path,
-                ("agreements", "minecraft_eula"),
-                True,
-            )
-        except ProjectOrderError as exc:
-            return _print_structured_failure("accept-eula", exc)
-        except (OSError, ValueError) as exc:
-            print(f"FAIL accept-eula: {exc}")
-            return 2
-        status = "recorded" if changed else "already-recorded"
-        print(
-            f"OK {status} explicit EULA acceptance in "
-            f"{project_path.resolve() / 'mc-remote.toml'}"
-        )
-        return 0
+    if (failure := _require_toml_project("accept-eula", project_path)) is not None:
+        return failure
     try:
-        paths = accept_eula(project_path)
+        changed = update_order_scalar(
+            project_path,
+            ("agreements", "minecraft_eula"),
+            True,
+        )
+    except ProjectOrderError as exc:
+        return _print_structured_failure("accept-eula", exc)
     except (OSError, ValueError) as exc:
         print(f"FAIL accept-eula: {exc}")
         return 2
-    print(f"OK recorded explicit EULA acceptance in {paths.config}")
+    status = "recorded" if changed else "already-recorded"
+    print(
+        f"OK {status} explicit EULA acceptance in "
+        f"{project_path.resolve() / 'mc-remote.toml'}"
+    )
     return 0
 
 
 def _deployment_name(project_path: str) -> tuple[str | None, int]:
-    if _uses_toml_project(Path(project_path)):
-        try:
-            order = load_order(Path(project_path))
-        except ProjectOrderError as exc:
-            return None, _print_structured_failure("secret", exc)
-        return order.order["deployment"]["name"], 0
-    project, issues = try_load_project(Path(project_path))
-    load_failures = [issue for issue in issues if issue.path == str(Path(project_path).resolve())]
-    if project is None or load_failures:
-        return None, _print_issues(load_failures or issues)
-    name = project.config.get("deployment", {}).get("name")
-    if not isinstance(name, str):
-        print("FAIL mc-remote.yml:deployment.name must be a string")
-        return None, 2
-    return name, 0
+    if (failure := _require_toml_project("secret", Path(project_path))) is not None:
+        return None, failure
+    try:
+        order = load_order(Path(project_path))
+    except ProjectOrderError as exc:
+        return None, _print_structured_failure("secret", exc)
+    return order.order["deployment"]["name"], 0
 
 
 def _cmd_secret_set(args: argparse.Namespace) -> int:
@@ -632,75 +588,32 @@ def _cmd_toml_plan(project_path: Path) -> int:
 
 def _cmd_plan(args: argparse.Namespace) -> int:
     project_path = Path(args.project)
-    if _uses_toml_project(project_path):
-        return _cmd_toml_plan(project_path)
-    project, issues = try_load_project(project_path)
-    issues.extend(check_repository(project_path))
-    if project is not None:
-        print(f"PLAN deployment={project.config.get('deployment', {}).get('name', 'unknown')}")
-        print(
-            "PLAN services=caddy,scratch-stable,scratch-beta,bridge-stable,bridge-beta,minecraft-stable,minecraft-beta"
-        )
-        print("PLAN public-ports=80/tcp,443/tcp,25565/tcp,25565/udp,25575/tcp")
-        print("PLAN rcon=disabled backup-source=@server backup-output=/backup/outbox")
-        beta = project.config.get("beta", {})
-        if isinstance(beta, dict) and beta.get("enabled") is True:
-            ports = beta.get("minecraft", {})
-            print("PLAN beta=enabled activation=compose-profile:beta default=dormant")
-            print(
-                "PLAN beta-public-ports="
-                f"{ports.get('java_port', 'unknown')}/tcp,"
-                f"{ports.get('bedrock_port', 'unknown')}/udp,"
-                f"{ports.get('mcremote_port', 'unknown')}/tcp"
-            )
-        else:
-            print("PLAN beta=disabled")
-        transport = project.config.get("backup", {}).get("transport")
-        if isinstance(transport, dict):
-            encryption = transport.get("encryption", {})
-            print(
-                f"PLAN backup-transport={transport.get('type', 'unknown')} "
-                f"backup-encryption={encryption.get('type', 'unknown')} "
-                f"backup-remote={transport.get('host', 'unknown')}:{transport.get('remote_directory', 'unknown')}"
-            )
-        else:
-            print(f"PLAN backup-transport={transport}")
-    return _print_issues(issues)
+    if (failure := _require_toml_project("plan", project_path)) is not None:
+        return failure
+    return _cmd_toml_plan(project_path)
 
 
 def _cmd_render(args: argparse.Namespace) -> int:
     project_path = Path(args.project)
-    if _uses_toml_project(project_path):
-        try:
-            result = render_toml_project(
-                project_path,
-                Path(args.output),
-                data_root=_preset_data_root(),
-            )
-        except (PresetDataError, ProjectOrderError, RenderContractError, ResolutionError) as exc:
-            return _print_structured_failure("render", exc)
-        except OSError as exc:
-            print(f"FAIL render: {exc}")
-            return 2
-        print(
-            f"OK render status={result.status} "
-            f"adapter={result.adapter}@{result.adapter_revision} "
-            f"lock={result.lock_identity} output={result.output}"
-        )
-        return 0
-
-    project, issues = try_load_project(project_path)
-    failures = [issue for issue in issues if issue.severity == "FAIL"]
-    if project is None or failures:
-        return _print_issues(issues)
+    if (failure := _require_toml_project("render", project_path)) is not None:
+        return failure
     try:
-        paths = render_project(project, Path(args.output))
-    except (OSError, RenderError) as exc:
+        result = render_toml_project(
+            project_path,
+            Path(args.output),
+            data_root=_preset_data_root(),
+        )
+    except (PresetDataError, ProjectOrderError, RenderContractError, ResolutionError) as exc:
+        return _print_structured_failure("render", exc)
+    except OSError as exc:
         print(f"FAIL render: {exc}")
         return 2
-    for path in paths:
-        print(f"OK rendered {path}")
-    return 1 if issues else 0
+    print(
+        f"OK render status={result.status} "
+        f"adapter={result.adapter}@{result.adapter_revision} "
+        f"lock={result.lock_identity} output={result.output}"
+    )
+    return 0
 
 
 def _cmd_apply(args: argparse.Namespace) -> int:
@@ -1151,24 +1064,6 @@ def _cmd_runtime_audit_log(args: argparse.Namespace) -> int:
     return 0
 
 
-def _cmd_artifact_import_archive(args: argparse.Namespace) -> int:
-    try:
-        imported = import_recovery_archive(
-            Path(args.project),
-            Path(args.archive),
-            Path(args.store) if args.store else None,
-        )
-    except (OSError, ValueError, zipfile.BadZipFile) as exc:
-        print(f"FAIL artifact import-archive: {exc}")
-        return 2
-    for artifact in imported:
-        print(
-            f"OK artifact {artifact.status} name={artifact.name} filename={artifact.filename} "
-            f"sha256={artifact.sha256} path={artifact.path}"
-        )
-    return 0
-
-
 def _cmd_artifact_fetch(args: argparse.Namespace) -> int:
     try:
         fetched = fetch_locked_artifacts(
@@ -1316,28 +1211,24 @@ def _load_backup_project(
     transport_config: str | None,
 ):
     path = Path(project_path)
-    if _uses_toml_project(path):
-        if transport_config is None:
-            print(
-                "FAIL backup: TOML deployment requires --transport-config "
-                "pointing to a private mode-0600 file"
-            )
-            return None, 2
-        try:
-            order = load_order(path)
-            endpoint = load_backup_endpoint(
-                Path(transport_config),
-                deployment_name=order.order["deployment"]["name"],
-            )
-        except (BackupTransferError, ProjectOrderError, OSError) as exc:
-            print(f"FAIL backup: {exc}")
-            return None, 2
-        return endpoint, 0
-    project, issues = try_load_project(path)
-    failures = [issue for issue in issues if issue.severity == "FAIL"]
-    if project is None or failures:
-        return None, _print_issues(issues)
-    return project, 0
+    if (failure := _require_toml_project("backup", path)) is not None:
+        return None, failure
+    if transport_config is None:
+        print(
+            "FAIL backup: --transport-config must point to a private "
+            "mode-0600 file"
+        )
+        return None, 2
+    try:
+        order = load_order(path)
+        endpoint = load_backup_endpoint(
+            Path(transport_config),
+            deployment_name=order.order["deployment"]["name"],
+        )
+    except (BackupTransferError, ProjectOrderError, OSError) as exc:
+        print(f"FAIL backup: {exc}")
+        return None, 2
+    return endpoint, 0
 
 
 def _cmd_backup_list(args: argparse.Namespace) -> int:
@@ -1440,11 +1331,6 @@ def build_parser() -> argparse.ArgumentParser:
 
     init_parser = subparsers.add_parser("init", help="create a deployment project")
     init_parser.add_argument("path")
-    init_parser.add_argument(
-        "--format",
-        choices=("legacy-yaml", "toml"),
-        default="legacy-yaml",
-    )
     init_parser.add_argument("--deployment-name")
     init_parser.add_argument("--profile")
     init_parser.add_argument("--environment-identity")
@@ -1704,15 +1590,6 @@ def build_parser() -> argparse.ArgumentParser:
     import_reviewed_parser.add_argument("--artifact-id", required=True)
     import_reviewed_parser.add_argument("--expected-sha256", required=True)
     import_reviewed_parser.set_defaults(handler=_cmd_artifact_import_reviewed)
-    import_archive_parser = artifact_subparsers.add_parser(
-        "import-archive",
-        help="import only lock-named JARs from a recovery ZIP",
-    )
-    import_archive_parser.add_argument("archive")
-    import_archive_parser.add_argument("--project", required=True)
-    import_archive_parser.add_argument("--store")
-    import_archive_parser.set_defaults(handler=_cmd_artifact_import_archive)
-
     backup_parser = subparsers.add_parser("backup", help="encrypted backup transfer operations")
     backup_subparsers = backup_parser.add_subparsers(dest="backup_command", required=True)
     transfer_parser = backup_subparsers.add_parser(

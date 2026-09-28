@@ -18,7 +18,6 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Protocol
 
 from .secrets import read_secret
-from .validation import LoadedProject
 
 
 class BackupTransferError(RuntimeError):
@@ -305,7 +304,7 @@ def ready_outbox_archives(
     return [archive for _, _, archive in sorted(ready)]
 
 
-def _transport(project: LoadedProject) -> dict[str, Any]:
+def _transport(project: BackupEndpoint) -> dict[str, Any]:
     backup = project.config["backup"]
     transport = backup["transport"]
     if not isinstance(transport, dict) or transport.get("type") != "ftps-explicit":
@@ -434,7 +433,7 @@ def load_backup_endpoint(
 
 
 def _connected_ftps(
-    project: LoadedProject,
+    project: BackupEndpoint,
     *,
     ftps_factory: Callable[..., FtpsClient],
 ) -> FtpsClient:
@@ -572,7 +571,7 @@ def _publish_record_sidecar(
 
 
 def list_remote_archives(
-    project: LoadedProject,
+    project: BackupEndpoint,
     *,
     ftps_factory: Callable[..., FtpsClient] = ftplib.FTP_TLS,
 ) -> list[RemoteArchive]:
@@ -647,7 +646,7 @@ def list_remote_archives(
 
 
 def download_remote_record(
-    project: LoadedProject,
+    project: BackupEndpoint,
     remote_name: str,
     *,
     output: Path,
@@ -717,7 +716,7 @@ def download_remote_record(
 
 
 def download_remote_archive(
-    project: LoadedProject,
+    project: BackupEndpoint,
     remote_name: str,
     *,
     record_path: Path,
@@ -868,7 +867,7 @@ def decrypt_downloaded_archive(
 
 
 def transfer_archive(
-    project: LoadedProject,
+    project: BackupEndpoint,
     archive: Path,
     *,
     verify_download: bool = False,

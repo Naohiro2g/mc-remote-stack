@@ -2,10 +2,10 @@
 
 import re
 import subprocess
+from dataclasses import dataclass
 from fnmatch import fnmatch
 from pathlib import Path
 
-from .validation import Issue
 from .yamlio import YamlError, load_mapping
 
 SENSITIVE_KEY = re.compile(r"(?:password|passwd|token|secret|credential|private[_-]?key)$", re.IGNORECASE)
@@ -17,6 +17,13 @@ SECRET_TEXT = (
 )
 FORBIDDEN_PARTS = {"generated", "secrets", "backup", "backups"}
 REQUIRED_IGNORES = {"/generated/", "/secrets/", "/.env", "*.zip"}
+
+
+@dataclass(frozen=True)
+class Issue:
+    severity: str
+    path: str
+    message: str
 
 
 def _ignored_without_git(relative: Path, ignores: set[str]) -> bool:

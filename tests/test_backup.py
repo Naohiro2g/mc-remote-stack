@@ -25,10 +25,6 @@ from mc_remote_stack.backup import (
 )
 from mc_remote_stack.cli import main
 from mc_remote_stack.secrets import set_secret
-from mc_remote_stack.validation import load_project
-from mc_remote_stack.yamlio import dump_mapping, load_mapping
-
-from .helpers import make_renderable_project
 
 
 class FakeFtps:
@@ -94,24 +90,95 @@ class FakeFtps:
         self.calls.append(("close",))
 
 
-def configure_ftps(project_root: Path) -> None:
-    config_path = project_root / "mc-remote.yml"
-    config = load_mapping(config_path)
-    config["backup"]["transport"] = {
-        "type": "ftps-explicit",
-        "host": "sv12345.xserver.jp",
-        "port": 21,
-        "passive": True,
-        "tls_verify": True,
-        "username": "vps-backup@example.com",
-        "credential": "secret://backup_ftps_password",
-        "remote_directory": "/",
-        "encryption": {
-            "type": "age",
-            "recipient": "age1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq",
-        },
-    }
-    dump_mapping(config_path, config)
+TRANSPORT = {
+    "type": "ftps-explicit",
+    "host": "sv12345.xserver.jp",
+    "port": 21,
+    "passive": True,
+    "tls_verify": True,
+    "username": "vps-backup@example.com",
+    "credential": "secret://backup_ftps_password",
+    "remote_directory": "/",
+    "encryption": {
+        "type": "age",
+        "recipient": "age1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq",
+    },
+}
+
+
+def _endpoint() -> BackupEndpoint:
+    return BackupEndpoint(
+        config={
+            "deployment": {"name": "official-vps"},
+            "backup": {"transport": TRANSPORT},
+        }
+    )
+
+
+def _toml_backup_project(tmp_path: Path) -> tuple[Path, Path]:
+    project = tmp_path / "official-vps"
+    assert (
+        main(
+            [
+                "init",
+                str(project),
+                "--deployment-name",
+                "official-vps",
+                "--profile",
+                "vps-server@12",
+                "--environment-identity",
+                "official-vps",
+                "--channel",
+                "beta",
+                "--exposure",
+                "public",
+                "--purpose",
+                "integration",
+                "--preset",
+                "public-web-paper@11",
+                "--artifact-store",
+                str(tmp_path / "artifacts"),
+                "--volume",
+                "minecraft-data=official-vps-minecraft-data",
+                "--volume",
+                "caddy-data=official-vps-caddy-data",
+                "--volume",
+                "caddy-config=official-vps-caddy-config",
+                "--world-identity",
+                "official-vps-world",
+                "--bind-address",
+                "0.0.0.0",
+                "--java-port",
+                "25565",
+                "--mcremote-port",
+                "25575",
+            ]
+        )
+        == 0
+    )
+    transport = tmp_path / "backup-transport.toml"
+    transport.write_text(
+        """
+schema_version = 1
+
+[transport]
+type = "ftps-explicit"
+host = "sv12345.xserver.jp"
+port = 21
+passive = true
+tls_verify = true
+username = "vps-backup@example.com"
+credential = "secret://backup_ftps_password"
+remote_directory = "/"
+
+[transport.encryption]
+type = "age"
+recipient = "age1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq"
+""".lstrip(),
+        encoding="utf-8",
+    )
+    transport.chmod(0o600)
+    return project, transport
 
 
 def test_private_transport_config_loads_without_password_value(
@@ -173,8 +240,6 @@ password = "must-not-be-here"
 
 
 def test_transfer_encrypts_before_explicit_ftps_and_download_verifies(tmp_path: Path, monkeypatch) -> None:
-    paths = make_renderable_project(tmp_path)
-    configure_ftps(paths.root)
     monkeypatch.setenv("MC_REMOTE_SECRET_HOME", str(tmp_path / "secrets"))
     set_secret("official-vps", "backup_ftps_password", "hidden-password")
     archive = tmp_path / "backup.zip"
@@ -187,7 +252,7 @@ def test_transfer_encrypts_before_explicit_ftps_and_download_verifies(tmp_path: 
         destination.write_bytes(b"AGE-CIPHERTEXT:" + source.read_bytes())
 
     result = transfer_archive(
-        load_project(paths.root),
+        _endpoint(),
         archive,
         verify_download=True,
         encrypt=encrypt,
@@ -212,8 +277,6 @@ def test_transfer_encrypts_before_explicit_ftps_and_download_verifies(tmp_path: 
 
 
 def test_transfer_retry_reuses_recorded_ciphertext(tmp_path: Path, monkeypatch) -> None:
-    paths = make_renderable_project(tmp_path)
-    configure_ftps(paths.root)
     monkeypatch.setenv("MC_REMOTE_SECRET_HOME", str(tmp_path / "secrets"))
     set_secret("official-vps", "backup_ftps_password", "hidden-password")
     archive = tmp_path / "backup.zip"
@@ -227,13 +290,13 @@ def test_transfer_retry_reuses_recorded_ciphertext(tmp_path: Path, monkeypatch) 
         destination.write_bytes(b"stable encrypted payload")
 
     first = transfer_archive(
-        load_project(paths.root),
+        _endpoint(),
         archive,
         encrypt=encrypt,
         ftps_factory=lambda **kwargs: ftps,
     )
     second = transfer_archive(
-        load_project(paths.root),
+        _endpoint(),
         archive,
         verify_download=True,
         encrypt=encrypt,
@@ -334,8 +397,6 @@ def test_ready_outbox_archives_rejects_corrupt_stable_zip(
 def test_remote_list_returns_only_completed_age_archives(
     tmp_path: Path, monkeypatch
 ) -> None:
-    paths = make_renderable_project(tmp_path)
-    configure_ftps(paths.root)
     monkeypatch.setenv("MC_REMOTE_SECRET_HOME", str(tmp_path / "secrets"))
     set_secret("official-vps", "backup_ftps_password", "hidden-password")
     ftps = FakeFtps(context=ssl.create_default_context(), timeout=30)
@@ -348,7 +409,7 @@ def test_remote_list_returns_only_completed_age_archives(
     }
 
     result = list_remote_archives(
-        load_project(paths.root),
+        _endpoint(),
         ftps_factory=lambda **kwargs: ftps,
     )
 
@@ -366,8 +427,6 @@ def test_remote_list_uses_mlsd_facts_when_size_command_is_unavailable(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    paths = make_renderable_project(tmp_path)
-    configure_ftps(paths.root)
     monkeypatch.setenv("MC_REMOTE_SECRET_HOME", str(tmp_path / "secrets"))
     set_secret("official-vps", "backup_ftps_password", "hidden-password")
 
@@ -386,7 +445,7 @@ def test_remote_list_uses_mlsd_facts_when_size_command_is_unavailable(
     }
 
     result = list_remote_archives(
-        load_project(paths.root),
+        _endpoint(),
         ftps_factory=lambda **kwargs: ftps,
     )
 
@@ -401,8 +460,6 @@ def test_remote_list_uses_mlsd_facts_when_size_command_is_unavailable(
 def test_remote_download_requires_transfer_record_and_verifies_ciphertext(
     tmp_path: Path, monkeypatch
 ) -> None:
-    paths = make_renderable_project(tmp_path)
-    configure_ftps(paths.root)
     monkeypatch.setenv("MC_REMOTE_SECRET_HOME", str(tmp_path / "secrets"))
     set_secret("official-vps", "backup_ftps_password", "hidden-password")
     encrypted = b"AGE-CIPHERTEXT"
@@ -430,7 +487,7 @@ def test_remote_download_requires_transfer_record_and_verifies_ciphertext(
     output = tmp_path / "recovered" / "backup.zip.age"
 
     result = download_remote_archive(
-        load_project(paths.root),
+        _endpoint(),
         remote_name,
         record_path=record,
         output=output,
@@ -446,8 +503,6 @@ def test_remote_download_requires_transfer_record_and_verifies_ciphertext(
 def test_remote_download_rejects_record_whose_name_does_not_embed_ciphertext_hash(
     tmp_path: Path, monkeypatch
 ) -> None:
-    paths = make_renderable_project(tmp_path)
-    configure_ftps(paths.root)
     monkeypatch.setenv("MC_REMOTE_SECRET_HOME", str(tmp_path / "secrets"))
     set_secret("official-vps", "backup_ftps_password", "hidden-password")
     record = tmp_path / "record.json"
@@ -469,7 +524,7 @@ def test_remote_download_rejects_record_whose_name_does_not_embed_ciphertext_has
         match="remote_name does not embed encrypted_sha256",
     ):
         download_remote_archive(
-            load_project(paths.root),
+            _endpoint(),
             "backup.zip.wrong.age",
             record_path=record,
             output=tmp_path / "output.age",
@@ -479,8 +534,6 @@ def test_remote_download_rejects_record_whose_name_does_not_embed_ciphertext_has
 def test_remote_record_download_validates_named_archive(
     tmp_path: Path, monkeypatch
 ) -> None:
-    paths = make_renderable_project(tmp_path)
-    configure_ftps(paths.root)
     monkeypatch.setenv("MC_REMOTE_SECRET_HOME", str(tmp_path / "secrets"))
     set_secret("official-vps", "backup_ftps_password", "hidden-password")
     encrypted_sha256 = hashlib.sha256(b"ciphertext").hexdigest()
@@ -503,7 +556,7 @@ def test_remote_record_download_validates_named_archive(
     output = tmp_path / "records" / "backup.transfer.json"
 
     result = download_remote_record(
-        load_project(paths.root),
+        _endpoint(),
         remote_name,
         output=output,
         ftps_factory=lambda **kwargs: ftps,
@@ -560,22 +613,20 @@ def test_decrypt_downloaded_archive_verifies_plaintext_sha256(tmp_path: Path) ->
 
 
 def test_ftps_transport_validation_rejects_weakened_tls(tmp_path: Path) -> None:
-    paths = make_renderable_project(tmp_path)
-    configure_ftps(paths.root)
-    config = load_mapping(paths.config)
-    config["backup"]["transport"]["tls_verify"] = False
-    dump_mapping(paths.config, config)
+    _, transport = _toml_backup_project(tmp_path)
+    transport.write_text(
+        transport.read_text(encoding="utf-8").replace(
+            "tls_verify = true", "tls_verify = false"
+        ),
+        encoding="utf-8",
+    )
 
-    from mc_remote_stack.validation import try_load_project
-
-    _, issues = try_load_project(paths.root)
-
-    assert any(issue.path.endswith("backup.transport.tls_verify") and issue.severity == "FAIL" for issue in issues)
+    with pytest.raises(BackupTransferError, match="TLS verification"):
+        load_backup_endpoint(transport, deployment_name="official-vps")
 
 
 def test_cli_backup_transfer_reports_identity_without_secret(tmp_path: Path, monkeypatch, capsys) -> None:
-    paths = make_renderable_project(tmp_path)
-    configure_ftps(paths.root)
+    project_root, transport = _toml_backup_project(tmp_path)
     archive = tmp_path / "backup.zip"
     archive.write_bytes(b"archive")
     encrypted = tmp_path / "backup.zip.age"
@@ -588,7 +639,7 @@ def test_cli_backup_transfer_reports_identity_without_secret(tmp_path: Path, mon
         verify_download: bool,
         progress,
     ):
-        assert project.paths.root == paths.root
+        assert project.config["deployment"]["name"] == "official-vps"
         assert source == archive
         assert verify_download is True
         progress("encrypting")
@@ -613,7 +664,9 @@ def test_cli_backup_transfer_reports_identity_without_secret(tmp_path: Path, mon
                 "transfer",
                 str(archive),
                 "--project",
-                str(paths.root),
+                str(project_root),
+                "--transport-config",
+                str(transport),
                 "--verify-download",
             ]
         )
@@ -635,8 +688,7 @@ def test_cli_backup_drain_reports_progress_and_forces_download_verification(
     monkeypatch,
     capsys,
 ) -> None:
-    paths = make_renderable_project(tmp_path)
-    configure_ftps(paths.root)
+    project_root, transport = _toml_backup_project(tmp_path)
     outbox = tmp_path / "outbox"
     outbox.mkdir()
     archive = outbox / "backup.zip"
@@ -660,7 +712,7 @@ def test_cli_backup_drain_reports_progress_and_forces_download_verification(
         verify_download: bool,
         progress,
     ) -> TransferResult:
-        assert project.paths.root == paths.root
+        assert project.config["deployment"]["name"] == "official-vps"
         assert source == archive
         assert verify_download is True
         progress("uploading")
@@ -693,7 +745,9 @@ def test_cli_backup_drain_reports_progress_and_forces_download_verification(
                 "--after",
                 str(marker),
                 "--project",
-                str(paths.root),
+                str(project_root),
+                "--transport-config",
+                str(transport),
             ]
         )
         == 0
@@ -709,8 +763,7 @@ def test_cli_backup_drain_reports_progress_and_forces_download_verification(
 def test_cli_backup_recovery_commands_report_verified_identities(
     tmp_path: Path, monkeypatch, capsys
 ) -> None:
-    paths = make_renderable_project(tmp_path)
-    configure_ftps(paths.root)
+    project_root, transport = _toml_backup_project(tmp_path)
     record = tmp_path / "backup.zip.age.transfer.json"
     encrypted = tmp_path / "backup.zip.age"
     archive = tmp_path / "backup.zip"
@@ -733,7 +786,7 @@ def test_cli_backup_recovery_commands_report_verified_identities(
     )
 
     def fake_download(project, remote_name, *, record_path: Path, output: Path):
-        assert project.paths.root == paths.root
+        assert project.config["deployment"]["name"] == "official-vps"
         assert remote_name == "backup.zip.test.age"
         assert record_path == record
         assert output == encrypted
@@ -781,7 +834,16 @@ def test_cli_backup_recovery_commands_report_verified_identities(
         "mc_remote_stack.cli.decrypt_downloaded_archive", fake_decrypt
     )
 
-    assert main(["backup", "list", "--project", str(paths.root)]) == 0
+    assert main(
+        [
+            "backup",
+            "list",
+            "--project",
+            str(project_root),
+            "--transport-config",
+            str(transport),
+        ]
+    ) == 0
     assert (
         main(
             [
@@ -789,7 +851,9 @@ def test_cli_backup_recovery_commands_report_verified_identities(
                 "download-record",
                 "backup.zip.test.age",
                 "--project",
-                str(paths.root),
+                str(project_root),
+                "--transport-config",
+                str(transport),
                 "--output",
                 str(record),
             ]
@@ -803,7 +867,9 @@ def test_cli_backup_recovery_commands_report_verified_identities(
                 "download",
                 "backup.zip.test.age",
                 "--project",
-                str(paths.root),
+                str(project_root),
+                "--transport-config",
+                str(transport),
                 "--record",
                 str(record),
                 "--output",
@@ -843,16 +909,3 @@ def test_cli_backup_recovery_commands_report_verified_identities(
     assert "sha256=" + "2" * 64 in output
     assert "OK backup decrypt status=decrypted-verified" in output
     assert "sha256=" + "1" * 64 in output
-
-
-def test_plan_shows_backup_transport_without_secret_value(tmp_path: Path, capsys) -> None:
-    paths = make_renderable_project(tmp_path)
-    configure_ftps(paths.root)
-
-    assert main(["plan", "--project", str(paths.root)]) == 0
-
-    output = capsys.readouterr().out
-    assert "backup-transport=ftps-explicit" in output
-    assert "backup-encryption=age" in output
-    assert "backup-remote=sv12345.xserver.jp:/" in output
-    assert "secret://backup_ftps_password" not in output

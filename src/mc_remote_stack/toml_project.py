@@ -20,12 +20,6 @@ from tomlkit.items import String
 
 ORDER_NAME = "mc-remote.toml"
 LOCK_NAME = "mc-remote.lock.toml"
-LEGACY_NAMES = (
-    "mc-remote.yml",
-    "mc-remote.yaml",
-    "mc-remote.lock.yml",
-    "mc-remote.lock.yaml",
-)
 COMPOSITION_KEYS = frozenset({"include", "import", "extends", "glob"})
 EXACT_REFERENCE = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}@[1-9][0-9]*$")
 EXPLICIT_IDENTITY = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
@@ -152,19 +146,7 @@ def _detect_layout(paths: TomlProjectPaths) -> None:
     if not root.is_dir():
         _fail("order_missing", paths.order, "explicit project directory does not contain mc-remote.toml")
 
-    legacy = [root / name for name in LEGACY_NAMES if (root / name).exists()]
-    if paths.order.exists() and legacy:
-        names = ", ".join(path.name for path in legacy)
-        _fail("mixed_order_formats", paths.order, f"TOML order cannot coexist with legacy files: {names}")
-
     if not paths.order.exists():
-        if legacy:
-            names = ", ".join(path.name for path in legacy)
-            _fail(
-                "legacy_order_requires_explicit_conversion",
-                root,
-                f"legacy files require the explicit official-vps conversion path: {names}",
-            )
         if paths.lock.exists():
             _fail("orphan_lock", paths.lock, "mc-remote.lock.toml exists without mc-remote.toml")
         _fail("order_missing", paths.order, "explicit project directory does not contain mc-remote.toml")
