@@ -28,11 +28,15 @@ from .apply import (
     _single_inspect_record,
 )
 from .artifacts import fetch_locked_artifacts
-from .auth_migration import _compose_stack, _validate_effective_mcremote_mount
 from .doctor import doctor_toml_project, probe_protocol_hello
 from .preset_registry import load_profile
 from .render import render_toml_project, verify_toml_render_output
 from .resolver import load_lock, resolve_project
+from .runtime_artifacts import (
+    RuntimeArtifactContractError,
+    RuntimeMount,
+    validate_mcremote_mounts,
+)
 from .toml_project import load_order, update_order_scalar
 
 MAX_PRESERVED_COMPOSE_FILES = 4
@@ -63,6 +67,64 @@ class DeploymentUpdateContractError(ValueError):
 
 def _fail(reason: str, path: object, message: str) -> None:
     raise DeploymentUpdateContractError(reason, path, message)
+
+
+def _compose_stack(
+    output: Path,
+    docker_prefix: list[str],
+    preserved_compose_files: tuple[Path, ...],
+) -> list[str]:
+    command = docker_prefix + [
+        "compose",
+        "--ansi",
+        "never",
+        "--project-directory",
+        str(output.resolve()),
+        "--file",
+        str((output / "compose.yaml").resolve()),
+    ]
+    for path in preserved_compose_files:
+        command.extend(["--file", str(path.resolve())])
+    return command
+
+
+def _validate_effective_mcremote_mount(
+    service: dict[str, Any],
+    lock: dict[str, Any],
+    *,
+    path: object,
+) -> None:
+    source = service.get("volumes")
+    if not isinstance(source, list):
+        _fail(
+            "update_artifact_mount_mismatch",
+            path,
+            "effective Minecraft service volumes are unavailable",
+        )
+    mounts: list[RuntimeMount] = []
+    for mount in source:
+        if not isinstance(mount, dict) or not isinstance(mount.get("target"), str):
+            _fail(
+                "update_artifact_mount_mismatch",
+                path,
+                "effective Minecraft mount record is invalid",
+            )
+        mounts.append(
+            RuntimeMount(
+                kind=str(mount.get("type", "")).lower(),
+                source=(
+                    mount.get("source")
+                    if isinstance(mount.get("source"), str)
+                    else None
+                ),
+                target=mount["target"],
+                read_only=mount.get("read_only") is True,
+            )
+        )
+    try:
+        validate_mcremote_mounts(mounts, lock)
+    except RuntimeArtifactContractError as exc:
+        _fail("update_artifact_mount_mismatch", path, str(exc))
 
 
 @dataclass(frozen=True)
@@ -1004,7 +1066,6 @@ class _DockerUpdateHost:
         return _compose_stack(
             output,
             self.docker_prefix,
-            self.project_root,
             self.preserved_compose_files,
         )
 
@@ -1043,18 +1104,11 @@ class _DockerUpdateHost:
                 "services.minecraft",
                 "effective target has no Minecraft service",
             )
-        try:
-            _validate_effective_mcremote_mount(
-                minecraft,
-                target_lock,
-                path="deployment.update.target.minecraft",
-            )
-        except Exception as exc:
-            if hasattr(exc, "reason") and hasattr(exc, "path"):
-                raise DeploymentUpdateContractError(
-                    str(exc.reason), str(exc.path), str(exc)
-                ) from exc
-            raise
+        _validate_effective_mcremote_mount(
+            minecraft,
+            target_lock,
+            path="deployment.update.target.minecraft",
+        )
         _validate_required_effective_mounts(services, target_lock, target_output)
 
     def validate_plan(
