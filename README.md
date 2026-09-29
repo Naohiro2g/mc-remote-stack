@@ -11,22 +11,18 @@
 
 ## マイクラリモコンとは
 
-マイクラリモコンは、コーディングでマイクラの世界を動かしながら「学び方を学ぶ」ためのオープンソースのツール群です。
-Scratch や Python などで書いたプログラムから、マインクラフトのサーバーへブロックを置いたり、プレイヤーを動かしたりできます。
-マイクラのアプリは Java 版でも統合版でも接続できます。
+マイクラリモコンは、コーディングでマイクラの世界を動かしながら「学び方を学ぶ」ためのオープンソースのツール群です。Scratch や Python などで書いたプログラムから、マインクラフトのサーバーへブロックを置いたり、プレイヤーを動かしたりできます。マイクラのアプリは Java 版でも統合版でも接続できます。
 
 - サーバーのプラグイン（McRemote）
 - 各言語のクライアント（Scratch、Python、Java など）
 - 通信の中身を観察する WireScope
 - サーバーの構築・運用パッケージ（mc-remote-stack、このリポジトリ）
 
-はじめかた、考え方、ロードマップは公式ホームページへ：<https://mc-remote.com/>
+はじめかた、考え方、ロードマップは[公式サイト](https://mc-remote.com/)へ。
 
 ## このリポジトリの役割
 
-マイクラリモコン全体のうち、サーバーの構築・運用の仕組みを受け持ちます。マシンの構築と運営の方式
-（ケータリング方式など）の正本はこのリポジトリにあります。設定ファイルから、versionとdigestを固定した
-Docker Compose構成を生成し、適用して、動作を確認します。コマンドは`mcrctl`です。
+マイクラリモコン全体のうち、サーバーの構築・運用の仕組みを受け持ちます。マシンの構築と運営の方式（ケータリング方式など）の正本はこのリポジトリにあります。設定ファイルから、versionとdigestを固定したDocker Compose構成を生成し、適用して、動作を確認します。コマンドは`mcrctl`です。
 
 ## 組み立てるもの
 
@@ -52,23 +48,14 @@ Docker Compose構成を生成し、適用して、動作を確認します。コ
 
 ## 目指す形と、今との差
 
-目指しているのは「ケータリング方式」です。「b8セットをVPSへ」のような短い依頼から、Stack担当が
-設定ファイル`mc-remote.toml`を一つ用意し、`mcrctl apply`と`mcrctl doctor`の二つのコマンドで、
-新規構築も更新も終えます。設計の正本はknowledgeの
-[deployment interface設計](https://github.com/Naohiro2g/mc-remote-knowledge/blob/main/00-hub/deployment-interface-design_ja.md)です。
+目指しているのは「ケータリング方式」です。「b8セットをVPSへ」のような短い依頼から、Stack担当が設定ファイル`mc-remote.toml`を一つ用意し、`mcrctl apply`と`mcrctl doctor`の二つのコマンドで、新規構築も更新も終えます。設計の正本はknowledgeの[deployment interface設計](https://github.com/Naohiro2g/mc-remote-knowledge/blob/main/00-hub/deployment-interface-design_ja.md)です。
 
 今との差は次のとおりです。
 
-- この形のコード（`mcrctl apply ./mc-remote.toml`）はありますが、扱えるのはScratch、Bridge、
-  Minecraftの三つだけです。Caddy、ホームページ、backup、追加プラグインはまだ扱えず、実機で動かした
-  こともありません。実装の範囲は[deployment interface実装境界](docs/deployment-interface-implementation_ja.md)
-  にあります。
-- そのため公開VPSは、上の「今の手順」で動かしています。こちらはprofileとpresetを指定したproject
-  （`mc-remote.toml`＋`mc-remote.lock.toml`＋`operator/`以下の入力）を、`mcrctl deployment update`で
-  更新する方式です。
+- この形のコード（`mcrctl apply ./mc-remote.toml`）はありますが、扱えるのはScratch、Bridge、Minecraftの三つだけです。Caddy、ホームページ、backup、追加プラグインはまだ扱えず、実機で動かしたこともありません。実装の範囲は[deployment interface実装境界](docs/deployment-interface-implementation_ja.md)にあります。
+- そのため公開VPSは、上の「今の手順」で動かしています。こちらはprofileとpresetを指定したproject（`mc-remote.toml`＋`mc-remote.lock.toml`＋`operator/`以下の入力）を、`mcrctl deployment update`で更新する方式です。
 - 二つの方式は、設定ファイル名がどちらも`mc-remote.toml`ですが、書き方が違います。
-- 次の環境の仕組みは、まだStackにありません: 公式stable（Minecraft部分はXServer GAMEs）、dev
-  サーバーのalpha／beta、Dockerを使わない構成、ケータリングPCでの検証、private opsリポの立ち上げ。
+- 次の環境の仕組みは、まだStackにありません: 公式stable（Minecraft部分はXServer GAMEs）、devサーバーのalpha／beta、Dockerを使わない構成、ケータリングPCでの検証、private opsリポの立ち上げ。
 
 ## 役割分担
 
@@ -80,8 +67,7 @@ Docker Compose構成を生成し、適用して、動作を確認します。コ
 
 Stackとbackstageは協調して働き、どちらが実務を持つかを厳密には区切りません。
 
-OSSとして使う場合は、非公開の運用情報を置くprivate opsリポを自分で持ちます。公開テンプレートは作らず、
-その立ち上げの仕組みをStackに置く予定です。
+OSSとして使う場合は、非公開の運用情報を置くprivate opsリポを自分で持ちます。公開テンプレートは作らず、その立ち上げの仕組みをStackに置く予定です。
 
 ## 開発
 
