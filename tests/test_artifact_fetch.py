@@ -1,4 +1,6 @@
+import hashlib
 import io
+import shutil
 from pathlib import Path
 from urllib.request import Request
 
@@ -19,8 +21,10 @@ from .test_toml_render import (
     PAPER_SHA256,
     PLUGIN_BYTES,
     PLUGIN_SHA256,
+    _legacy_render_fixture,
     _render_fixture,
 )
+from .vps_fixture import FILE_ARTIFACTS
 
 
 class _Response(io.BytesIO):
@@ -47,15 +51,20 @@ class _Response(io.BytesIO):
         self.close()
 
 
+FILE_DIGESTS = [
+    hashlib.sha256(content).hexdigest() for _filename, content in FILE_ARTIFACTS.values()
+]
+
+
 def _remove_fixture_artifacts(artifact_store: Path) -> None:
-    (artifact_store / "sha256" / PAPER_SHA256).unlink()
-    (artifact_store / "sha256" / PLUGIN_SHA256).unlink()
+    for digest in {*FILE_DIGESTS, PAPER_SHA256, PLUGIN_SHA256}:
+        (artifact_store / "sha256" / digest).unlink(missing_ok=True)
 
 
 def _fixture_opener(calls: list[str]):
     content_by_url = {
-        "https://example.invalid/paper-fixture.jar": PAPER_BYTES,
-        "https://example.invalid/mcremote-fixture.jar": PLUGIN_BYTES,
+        f"https://example.invalid/{filename}": content
+        for filename, content in FILE_ARTIFACTS.values()
     }
 
     def open_url(request: Request, *, timeout: int) -> _Response:
@@ -72,7 +81,7 @@ def _fixture_opener(calls: list[str]):
 
 
 def _git_build_fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
-    return _render_fixture(
+    return _legacy_render_fixture(
         tmp_path,
         mcremote_artifact_source=f'''[[artifacts]]
 id = "mcremote-jar"
@@ -276,15 +285,14 @@ def test_fetch_locked_artifacts_downloads_only_exact_https_files(tmp_path: Path)
     )
 
     assert [(item.id, item.status) for item in fetched] == [
-        ("paper-jar", "fetched"),
-        ("mcremote-jar", "fetched"),
+        (artifact_id, "fetched") for artifact_id in FILE_ARTIFACTS
     ]
     assert calls == [
-        "https://example.invalid/paper-fixture.jar",
-        "https://example.invalid/mcremote-fixture.jar",
+        f"https://example.invalid/{filename}" for filename, _content in FILE_ARTIFACTS.values()
     ]
-    assert (artifact_store / "sha256" / PAPER_SHA256).read_bytes() == PAPER_BYTES
-    assert (artifact_store / "sha256" / PLUGIN_SHA256).read_bytes() == PLUGIN_BYTES
+    for _filename, content in FILE_ARTIFACTS.values():
+        digest = hashlib.sha256(content).hexdigest()
+        assert (artifact_store / "sha256" / digest).read_bytes() == content
     assert all(item.path.stat().st_mode & 0o777 == 0o644 for item in fetched)
 
 
@@ -294,7 +302,7 @@ def test_fetch_locked_artifacts_rehashes_present_entries_without_network(
     project, data_root, artifact_store = _render_fixture(tmp_path)
     before_mtimes = {
         digest: (artifact_store / "sha256" / digest).stat().st_mtime_ns
-        for digest in (PAPER_SHA256, PLUGIN_SHA256)
+        for digest in FILE_DIGESTS
     }
 
     def no_network(*args: object, **kwargs: object) -> _Response:
@@ -302,10 +310,10 @@ def test_fetch_locked_artifacts_rehashes_present_entries_without_network(
 
     fetched = fetch_locked_artifacts(project, data_root=data_root, open_url=no_network)
 
-    assert [item.status for item in fetched] == ["present", "present"]
+    assert [item.status for item in fetched] == ["present"] * len(FILE_ARTIFACTS)
     assert {
         digest: (artifact_store / "sha256" / digest).stat().st_mtime_ns
-        for digest in (PAPER_SHA256, PLUGIN_SHA256)
+        for digest in FILE_DIGESTS
     } == before_mtimes
 
 
@@ -393,9 +401,7 @@ def test_fetch_locked_artifacts_rejects_stale_lock_before_network_or_store_write
     tmp_path: Path,
 ) -> None:
     project, data_root, artifact_store = _render_fixture(tmp_path)
-    _remove_fixture_artifacts(artifact_store)
-    (artifact_store / "sha256").rmdir()
-    artifact_store.rmdir()
+    shutil.rmtree(artifact_store)
     update_order_scalar(project, ("network", "java_port"), 25566)
 
     def no_network(*args: object, **kwargs: object) -> _Response:

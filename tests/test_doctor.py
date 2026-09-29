@@ -33,6 +33,7 @@ from .test_toml_apply import (
     _prepared_public_project,
     _result,
 )
+from .vps_fixture import rendered_containers
 
 
 def _docker(*arguments: str) -> tuple[str, ...]:
@@ -283,6 +284,85 @@ def test_doctor_rejects_invalid_volume_creation_provenance(
     assert exc_info.value.reason == "doctor_volume_unmanaged"
 
 
+def _vps_doctor_responses(
+    output: Path,
+    lock: dict,
+    *,
+    containers: list[dict] | None = None,
+    health: str = "healthy",
+) -> dict:
+    """Docker answers for a VPS runtime that runs the canonical render."""
+
+    base = _compose_base(output)
+    containers = containers or rendered_containers(output, health=health)
+    responses = {
+        ("docker", "context", "inspect", "default"): [
+            _result(
+                ("docker",),
+                stdout=json.dumps(
+                    [{"Endpoints": {"docker": {"Host": "unix:///var/run/docker.sock"}}}]
+                )
+                + "\n",
+            )
+        ],
+        _docker("version", "--format", "{{.Server.Version}}"): [
+            _result(("docker",), stdout="29.1.3\n")
+        ],
+        _docker("compose", "version", "--short"): [
+            _result(("docker",), stdout="2.40.3\n")
+        ],
+        base + ("config", "--quiet"): [_result(base)],
+        _docker(
+            "ps",
+            "--all",
+            "--quiet",
+            "--filter",
+            f"label=com.docker.compose.project={lock['deployment']['name']}",
+        ): [
+            _result(
+                ("docker",),
+                stdout="".join(f"{container['Id']}\n" for container in containers),
+            )
+        ],
+    }
+    for container in containers:
+        responses[_docker("inspect", container["Id"])] = [
+            _result(("docker",), stdout=json.dumps([container]) + "\n")
+        ]
+    for assignment in lock["runtime"]["volumes"]:
+        identity = assignment["identity"]
+        responses[_docker("volume", "inspect", identity)] = [
+            _result(
+                ("docker",),
+                stdout=json.dumps([_managed_volume(lock, identity)]) + "\n",
+            )
+        ]
+    return responses
+
+
+def _vps_public_probes(output: Path) -> dict:
+    """Public HTTPS probes that observe exactly what the render publishes."""
+
+    runtime = json.loads((output / "runtime" / "scratch.json").read_text(encoding="utf-8"))
+    return {
+        "homepage_probe": lambda *_args, **_kwargs: None,
+        "scratch_runtime_probe": lambda *_args, **_kwargs: runtime,
+        "wirescope_probe": lambda *_args, **_kwargs: None,
+    }
+
+
+def _auth_required_hello(*_args: object) -> ProtocolHelloResult:
+    return ProtocolHelloResult(status="auth-required", protocol=None, minecraft_version=None)
+
+
+def _minecraft(containers: list[dict]) -> dict:
+    return next(
+        container
+        for container in containers
+        if container["Config"]["Labels"]["com.docker.compose.service"] == "minecraft"
+    )
+
+
 def _doctor_responses(output: Path, lock: dict, *, health: str = "healthy") -> dict:
     base = _compose_base(output)
     deployment = lock["deployment"]["name"]
@@ -335,7 +415,7 @@ def test_doctor_checks_current_render_runtime_and_protocol_without_mutation(
     tmp_path: Path,
 ) -> None:
     project, data_root, output, lock = _prepared_project(tmp_path)
-    runner = FakeDocker(_doctor_responses(output, lock))
+    runner = FakeDocker(_vps_doctor_responses(output, lock))
     hello_calls: list[tuple[str, int, str, str, str, int]] = []
 
     def hello_probe(
@@ -347,11 +427,7 @@ def test_doctor_checks_current_render_runtime_and_protocol_without_mutation(
         timeout: int,
     ) -> ProtocolHelloResult:
         hello_calls.append((address, port, protocol, minecraft_version, world, timeout))
-        return ProtocolHelloResult(
-            status="auth-required",
-            protocol=None,
-            minecraft_version=None,
-        )
+        return _auth_required_hello()
 
     result = doctor_toml_project(
         project,
@@ -361,25 +437,29 @@ def test_doctor_checks_current_render_runtime_and_protocol_without_mutation(
         timeout=5,
         runner=runner,
         hello_probe=hello_probe,
+        **_vps_public_probes(output),
     )
 
     assert result == TomlDoctorResult(
-        deployment="home",
-        environment="home-beta",
+        deployment="official-vps",
+        environment="official-vps",
         lock_identity=lock["lock_identity"],
         docker_context="default",
         runtime_status="healthy",
         render_status="current",
-        network_scope="loopback",
-        bind_address="127.0.0.1",
+        network_scope="public",
+        bind_address="0.0.0.0",
         java_port=25565,
         mcremote_port=25575,
         protocol_status="auth-required",
         protocol=None,
         minecraft_version=None,
+        homepage_status="current",
+        scratch_runtime_status="current",
+        wirescope_status="current",
     )
     assert hello_calls == [
-        ("127.0.0.1", 25575, "21.0.0", "1.21.11", "home-beta-world", 5)
+        ("0.0.0.0", 25575, "23.1.0", "1.21.11", "official-vps-world", 5)
     ]
     mutation_words = {"pull", "up", "down", "create", "rm", "start", "stop", "restart"}
     assert all(not mutation_words.intersection(command) for command, _ in runner.calls)
@@ -670,29 +750,19 @@ def test_doctor_reports_additional_compose_files_without_hiding_health(
     tmp_path: Path,
 ) -> None:
     project, data_root, output, lock = _prepared_project(tmp_path)
-    responses = _doctor_responses(output, lock)
-    container = _managed_container(lock, output)
-    labels = container["Config"]["Labels"]
-    labels["com.docker.compose.project.config_files"] = (
-        f"{output.resolve() / 'compose.yaml'},"
-        f"{tmp_path / 'recovery.override.yaml'}"
+    containers = rendered_containers(output)
+    _minecraft(containers)["Config"]["Labels"]["com.docker.compose.project.config_files"] = (
+        f"{output.resolve() / 'compose.yaml'},{tmp_path / 'recovery.override.yaml'}"
     )
-    responses[_docker("inspect", "container-current")] = [
-        _result(("docker",), stdout=json.dumps([container]) + "\n")
-    ]
-    runner = FakeDocker(responses)
 
     result = doctor_toml_project(
         project,
         output,
         docker_context="default",
         data_root=data_root,
-        runner=runner,
-        hello_probe=lambda *_args: ProtocolHelloResult(
-            status="auth-required",
-            protocol=None,
-            minecraft_version=None,
-        ),
+        runner=FakeDocker(_vps_doctor_responses(output, lock, containers=containers)),
+        hello_probe=_auth_required_hello,
+        **_vps_public_probes(output),
     )
 
     assert result.runtime_status == "healthy"
@@ -703,22 +773,22 @@ def test_doctor_rejects_additional_compose_that_masks_exact_plugin_artifact(
     tmp_path: Path,
 ) -> None:
     project, data_root, output, lock = _prepared_project(tmp_path)
-    responses = _doctor_responses(output, lock)
-    container = _managed_container(lock, output)
-    container["Config"]["Labels"]["com.docker.compose.project.config_files"] = (
-        f"{output.resolve() / 'compose.yaml'},"
-        f"{tmp_path / 'recovery.override.yaml'}"
+    containers = rendered_containers(output)
+    minecraft = _minecraft(containers)
+    minecraft["Config"]["Labels"]["com.docker.compose.project.config_files"] = (
+        f"{output.resolve() / 'compose.yaml'},{tmp_path / 'recovery.override.yaml'}"
     )
-    container["Mounts"] = [
+    minecraft["Mounts"] = [
+        mount
+        for mount in minecraft["Mounts"]
+        if not str(mount["Destination"]).startswith("/plugins/")
+    ] + [
         {
             "Type": "bind",
             "Source": str(tmp_path / "recovery" / "plugins"),
             "Destination": "/plugins",
             "RW": False,
         }
-    ]
-    responses[_docker("inspect", "container-current")] = [
-        _result(("docker",), stdout=json.dumps([container]) + "\n")
     ]
 
     with pytest.raises(DoctorContractError) as exc_info:
@@ -727,8 +797,9 @@ def test_doctor_rejects_additional_compose_that_masks_exact_plugin_artifact(
             output,
             docker_context="default",
             data_root=data_root,
-            runner=FakeDocker(responses),
+            runner=FakeDocker(_vps_doctor_responses(output, lock, containers=containers)),
             hello_probe=lambda *_args: pytest.fail("hello probe must not run"),
+            **_vps_public_probes(output),
         )
 
     assert exc_info.value.reason == "doctor_artifact_mount_mismatch"
@@ -850,13 +921,7 @@ def test_doctor_reports_public_vps_network_scope(tmp_path: Path) -> None:
 
 def test_doctor_rejects_unhealthy_runtime_before_protocol_probe(tmp_path: Path) -> None:
     project, data_root, output, lock = _prepared_project(tmp_path)
-    runner = FakeDocker(_doctor_responses(output, lock, health="unhealthy"))
-    hello_called = False
-
-    def hello_probe(*_args: object) -> ProtocolHelloResult:
-        nonlocal hello_called
-        hello_called = True
-        raise AssertionError("protocol probe must not run for an unhealthy container")
+    runner = FakeDocker(_vps_doctor_responses(output, lock, health="unhealthy"))
 
     with pytest.raises(DoctorContractError) as exc_info:
         doctor_toml_project(
@@ -865,22 +930,19 @@ def test_doctor_rejects_unhealthy_runtime_before_protocol_probe(tmp_path: Path) 
             docker_context="default",
             data_root=data_root,
             runner=runner,
-            hello_probe=hello_probe,
+            hello_probe=lambda *_args: pytest.fail(
+                "protocol probe must not run for an unhealthy container"
+            ),
+            **_vps_public_probes(output),
         )
 
     assert exc_info.value.reason == "doctor_runtime_unhealthy"
-    assert hello_called is False
 
 
 def test_doctor_rejects_live_port_drift_before_protocol_probe(tmp_path: Path) -> None:
     project, data_root, output, lock = _prepared_project(tmp_path)
-    responses = _doctor_responses(output, lock)
-    container = _managed_container(lock, output)
-    container["NetworkSettings"]["Ports"]["25575/tcp"][0]["HostIp"] = "0.0.0.0"
-    responses[_docker("inspect", "container-current")] = [
-        _result(("docker",), stdout=json.dumps([container]) + "\n")
-    ]
-    runner = FakeDocker(responses)
+    containers = rendered_containers(output)
+    _minecraft(containers)["NetworkSettings"]["Ports"]["25575/tcp"][0]["HostIp"] = "127.0.0.1"
 
     with pytest.raises(DoctorContractError) as exc_info:
         doctor_toml_project(
@@ -888,8 +950,9 @@ def test_doctor_rejects_live_port_drift_before_protocol_probe(tmp_path: Path) ->
             output,
             docker_context="default",
             data_root=data_root,
-            runner=runner,
+            runner=FakeDocker(_vps_doctor_responses(output, lock, containers=containers)),
             hello_probe=lambda *_args: pytest.fail("hello probe must not run"),
+            **_vps_public_probes(output),
         )
 
     assert exc_info.value.reason == "doctor_network_mismatch"

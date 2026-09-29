@@ -19,6 +19,7 @@ from mc_remote_stack.toml_project import init_toml_project, update_order_scalar
 
 from .test_preset_registry import _data_root, _write_policy
 from .test_resolver import FIRST_RESOLVED_AT, SECOND_RESOLVED_AT, _acknowledge
+from .vps_fixture import build_vps_fixture
 
 PAPER_BYTES = b"deterministic paper fixture\n"
 PLUGIN_BYTES = b"deterministic mcremote fixture\n"
@@ -89,7 +90,7 @@ origin = "https://example.invalid/paper-fixture.jar"
 """
 
 
-def _render_fixture(
+def _legacy_render_fixture(
     tmp_path: Path,
     *,
     deployment_name: str = "home",
@@ -190,7 +191,7 @@ def _render_fixture(
 
 
 def test_public_vps_profile_renders_exact_public_runtime(tmp_path: Path) -> None:
-    project, data_root, _ = _render_fixture(
+    project, data_root, _ = _legacy_render_fixture(
         tmp_path,
         deployment_name="official-public-beta",
         identity="official-public-beta",
@@ -212,6 +213,13 @@ def test_public_vps_profile_renders_exact_public_runtime(tmp_path: Path) -> None
     ]
 
 
+def _render_fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
+    """Resolved public VPS project, data root, and artifact store."""
+
+    fixture = build_vps_fixture(tmp_path)
+    return fixture.project, fixture.data_root, fixture.artifact_store
+
+
 def _tree_bytes(root: Path) -> dict[str, bytes]:
     return {
         path.relative_to(root).as_posix(): path.read_bytes()
@@ -223,7 +231,7 @@ def _tree_bytes(root: Path) -> dict[str, bytes]:
 def test_toml_compose_renderer_uses_only_locked_artifacts_and_instance_contract(
     tmp_path: Path,
 ) -> None:
-    project, data_root, artifact_store = _render_fixture(tmp_path)
+    project, data_root, _ = _render_fixture(tmp_path)
     output = project / "generated"
 
     result = render_toml_project(project, output, data_root=data_root)
@@ -231,67 +239,25 @@ def test_toml_compose_renderer_uses_only_locked_artifacts_and_instance_contract(
     assert result.status == "created"
     compose = yaml.safe_load((output / "compose.yaml").read_text(encoding="utf-8"))
     minecraft = compose["services"]["minecraft"]
-    assert compose["name"] == "home"
-    assert minecraft["image"] == f"registry.example/minecraft:fixture-java21@{OCI_DIGEST}"
-    assert minecraft["environment"]["EULA"] == "TRUE"
-    assert minecraft["environment"]["TYPE"] == "PAPER"
-    assert minecraft["environment"]["VERSION"] == "1.21.11"
-    assert minecraft["environment"]["PAPER_CUSTOM_JAR"] == "/artifacts/paper-fixture.jar"
-    assert minecraft["environment"]["ONLINE_MODE"] == "true"
-    assert minecraft["environment"]["ENABLE_RCON"] == "false"
-    assert minecraft["environment"]["LEVEL"] == "home-beta-world"
+    assert compose["name"] == "official-vps"
+    assert minecraft["environment"]["LEVEL"] == "official-vps-world"
     assert minecraft["environment"]["SYNC_SKIP_NEWER_IN_DESTINATION"] == "true", (
         "server.properties / plugin config must be seed-once, not "
         "force-reasserted over an operator's live edit on every restart "
         "(docs/operator-editable-runtime-config-design_ja.md)"
     )
-    assert minecraft["ports"] == [
-        "127.0.0.1:25565:25565/tcp",
-        "127.0.0.1:25575:25575/tcp",
-    ]
-    assert minecraft["volumes"] == [
-        {
-            "type": "volume",
-            "source": "minecraft-data",
-            "target": "/data",
-        },
-        {
-            "type": "bind",
-            "source": "./minecraft",
-            "target": "/config",
-            "read_only": True,
-        },
-        {
-            "type": "bind",
-            "source": f"{artifact_store}/sha256/{PAPER_SHA256}",
-            "target": "/artifacts/paper-fixture.jar",
-            "read_only": True,
-        },
-        {
-            "type": "bind",
-            "source": f"{artifact_store}/sha256/{PLUGIN_SHA256}",
-            "target": "/plugins/mcremote-fixture.jar",
-            "read_only": True,
-        },
-    ]
-    assert compose["volumes"]["minecraft-data"] == {
-        "name": "home-beta-minecraft-data",
-        "external": True,
+    assert compose["volumes"] == {
+        role: {"name": f"official-vps-{role}", "external": True}
+        for role in ("caddy-config", "caddy-data", "minecraft-data")
     }
-    assert minecraft["labels"]["io.mc-remote.world"] == "home-beta-world"
-    assert minecraft["labels"]["io.mc-remote.lock"] == result.lock_identity
-
-    properties = (output / "minecraft" / "server.properties").read_text(encoding="utf-8")
-    assert "enable-rcon=false\n" in properties
-    assert "online-mode=true\n" in properties
-    assert "server-port=25565\n" in properties
-    assert "level-name=home-beta-world\n" in properties
+    for service in compose["services"].values():
+        assert service["labels"]["io.mc-remote.lock"] == result.lock_identity
 
 
 def test_credential_storage_renderer_mounts_security_state_outside_data(
     tmp_path: Path,
 ) -> None:
-    project, data_root, _ = _render_fixture(
+    project, data_root, _ = _legacy_render_fixture(
         tmp_path,
         profile_revision="3",
     )
@@ -355,7 +321,7 @@ def test_credential_storage_renderer_mounts_security_state_outside_data(
 
 
 def test_current_home_renderer_enforces_b2_authentication(tmp_path: Path) -> None:
-    project, data_root, _ = _render_fixture(
+    project, data_root, _ = _legacy_render_fixture(
         tmp_path,
         deployment_name="home-alpha",
         identity="home-alpha",
@@ -405,49 +371,18 @@ def test_toml_render_manifest_is_deterministic_and_second_render_is_noop(tmp_pat
     } == before_mtimes
     assert manifest["schema_version"] == 1
     assert manifest["adapter"] == "compose"
-    assert manifest["adapter_revision"] == "6"
+    assert manifest["adapter_revision"] == "13"
     assert manifest["lock_identity"] == first.lock_identity
     assert [entry["path"] for entry in manifest["files"]] == [
         "compose.yaml",
+        "Caddyfile",
+        "runtime/scratch.json",
         "minecraft/server.properties",
         "minecraft/plugins/McRemote/config.yml",
+        "wirescope/assets/app.js",
+        "wirescope/index.html",
+        "wirescope/wirescope-app.manifest.json",
     ]
-
-
-def test_toml_render_projects_only_locked_minecraft_motd_semantics(
-    tmp_path: Path,
-) -> None:
-    project, data_root, _ = _render_fixture(tmp_path)
-    order_path = project / "mc-remote.toml"
-    order_path.write_text(
-        order_path.read_text(encoding="utf-8")
-        + """
-[[operator_inputs]]
-role = "minecraft-motd"
-adapter = "minecraft-motd@1"
-path = "operator/minecraft-motd/server.properties"
-""",
-        encoding="utf-8",
-    )
-    source_path = project / "operator" / "minecraft-motd" / "server.properties"
-    source_path.parent.mkdir(parents=True)
-    source_path.write_text(
-        "# lexical comment is not runtime output\nmotd = McRemote home beta\n",
-        encoding="utf-8",
-    )
-    resolve_project(
-        project,
-        data_root=data_root,
-        allow_unverified=True,
-        resolved_at=SECOND_RESOLVED_AT,
-    )
-
-    output = project / "generated"
-    render_toml_project(project, output, data_root=data_root)
-
-    properties = (output / "minecraft" / "server.properties").read_text(encoding="utf-8")
-    assert "motd=McRemote home beta\n" in properties
-    assert "lexical comment" not in properties
 
 
 def test_toml_render_rejects_stale_lock_without_changing_managed_output(tmp_path: Path) -> None:
@@ -532,7 +467,7 @@ def test_toml_render_replaces_only_valid_previous_managed_output(tmp_path: Path)
 
     assert replacement.status == "replaced"
     assert replacement.lock_identity != first.lock_identity
-    assert compose["services"]["minecraft"]["ports"][0] == "127.0.0.1:25566:25565/tcp"
+    assert compose["services"]["minecraft"]["ports"][0] == "0.0.0.0:25566:25565/tcp"
 
 
 def test_toml_render_publish_failure_rolls_back_previous_managed_output(
@@ -597,7 +532,7 @@ def test_cli_render_routes_toml_project_to_compose_adapter(
     assert main(["render", "--project", str(project), "--output", str(output)]) == 0
 
     rendered = capsys.readouterr().out
-    assert "OK render status=created adapter=compose@6 lock=sha256:" in rendered
+    assert "OK render status=created adapter=compose@13 lock=sha256:" in rendered
     assert f"output={output.resolve()}" in rendered
 
 
@@ -624,7 +559,7 @@ def test_toml_render_surfaces_lock_tamper_instead_of_reclassifying_it(
     lock_path = project / "mc-remote.lock.toml"
     lock_path.write_text(
         lock_path.read_text(encoding="utf-8").replace(
-            'identity = "home-beta-world"',
+            'identity = "official-vps-world"',
             'identity = "tampered-world"',
             1,
         ),

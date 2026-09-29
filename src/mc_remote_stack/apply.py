@@ -12,6 +12,8 @@ from importlib.resources.abc import Traversable
 from pathlib import Path
 from typing import Any, Protocol
 
+import yaml
+
 from .render import RenderContractError, verify_toml_render_output
 from .runtime_contract import MINECRAFT_RUNTIME_GID, MINECRAFT_RUNTIME_UID
 
@@ -486,27 +488,38 @@ def _volume_exists(
     return names == [volume]
 
 
+def _published_host_ports(output: Path, default_address: str) -> list[tuple[str, int]]:
+    """Host bindings the verified canonical render publishes, in render order."""
+
+    compose = yaml.safe_load((output / "compose.yaml").read_text(encoding="utf-8"))
+    published: list[tuple[str, int]] = []
+    for service in compose["services"].values():
+        for specification in service.get("ports", []):
+            mapping = str(specification).split("/", 1)[0].split(":")
+            if len(mapping) == 3:
+                address, host_port = mapping[0], mapping[1]
+            elif len(mapping) == 2:
+                address, host_port = default_address, mapping[0]
+            else:
+                _fail(
+                    "render_port_unsupported",
+                    output / "compose.yaml",
+                    f"unsupported port publication: {specification!r}",
+                )
+            binding = (address, int(host_port))
+            if binding not in published:
+                published.append(binding)
+    return published
+
+
 def _check_ports(
     runner: CommandRunner,
     docker_prefix: list[str],
     lock: dict[str, Any],
+    output: Path,
     port_probe: PortProbe,
 ) -> None:
-    address = lock["network"]["bind_address"]
-    ports = [lock["network"]["java_port"], lock["network"]["mcremote_port"]]
-    if lock["render_plan"]["adapter_revision"] in {
-        "2",
-        "3",
-        "4",
-        "7",
-        "8",
-        "9",
-        "10",
-        "11",
-        "12",
-    }:
-        ports = [80, 443, *ports]
-    for port in ports:
+    for address, port in _published_host_ports(output, lock["network"]["bind_address"]):
         published = _run(
             runner,
             docker_prefix
@@ -755,7 +768,7 @@ def apply_toml_project(
         )
 
     progress("check-ports")
-    _check_ports(runner, docker_prefix, lock, port_probe)
+    _check_ports(runner, docker_prefix, lock, output, port_probe)
     progress("pull-images")
     _run(
         runner,

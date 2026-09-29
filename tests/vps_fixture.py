@@ -327,6 +327,10 @@ def build_vps_fixture(tmp_path: Path, *, identity: str = "official-vps") -> VpsF
     homepage = import_homepage_tree(homepage_source, artifact_store)
     backup = tmp_path / "backup"
     backup.mkdir()
+    # The live homepage directory `mcrctl homepage sync` maintains beside the store.
+    live_homepage = artifact_store.parent / "homepage"
+    live_homepage.mkdir()
+    (live_homepage / "index.html").write_text("homepage fixture\n", encoding="utf-8")
 
     project = init_toml_project(
         tmp_path / identity,
@@ -386,3 +390,48 @@ def build_vps_fixture(tmp_path: Path, *, identity: str = "official-vps") -> VpsF
         resolved_at=FIRST_RESOLVED_AT,
     )
     return VpsFixture(project, data_root, artifact_store, backup)
+
+
+def rendered_containers(output: Path, *, health: str = "healthy") -> list[dict]:
+    """Docker inspect records of a runtime that runs exactly the canonical render."""
+
+    import yaml
+
+    compose = yaml.safe_load((output / "compose.yaml").read_text(encoding="utf-8"))
+    output = output.resolve()
+    records = []
+    for service_id, service in compose["services"].items():
+        ports: dict[str, list[dict[str, str]]] = {}
+        for specification in service.get("ports", []):
+            mapping, _, protocol = str(specification).partition("/")
+            address, host_port, container_port = mapping.split(":")
+            ports.setdefault(f"{container_port}/{protocol or 'tcp'}", []).append(
+                {"HostIp": address, "HostPort": host_port}
+            )
+        mounts = []
+        for volume in service.get("volumes", []):
+            mount = {"Type": volume["type"], "Destination": volume["target"]}
+            mount["RW"] = volume.get("read_only") is not True
+            if volume["type"] == "volume":
+                mount["Name"] = compose["volumes"][volume["source"]]["name"]
+            else:
+                mount["Source"] = str((output / volume["source"]).resolve())
+            mounts.append(mount)
+        records.append(
+            {
+                "Id": f"container-{service_id}",
+                "Config": {
+                    "Labels": {
+                        **service.get("labels", {}),
+                        "com.docker.compose.project": compose["name"],
+                        "com.docker.compose.service": service_id,
+                        "com.docker.compose.project.config_files": str(output / "compose.yaml"),
+                        "com.docker.compose.project.working_dir": str(output),
+                    }
+                },
+                "State": {"Running": True, "Health": {"Status": health}},
+                "NetworkSettings": {"Ports": ports},
+                "Mounts": mounts,
+            }
+        )
+    return records
