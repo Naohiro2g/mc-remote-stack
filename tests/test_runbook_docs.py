@@ -30,11 +30,10 @@ def test_public_vps_runbook_is_one_positive_canonical_path() -> None:
     )
 
     assert len(guide.splitlines()) <= 185
-    assert "uv run" in guide
-    assert '"$MC_REMOTE_PROJECT/mc-remote.toml"' in guide
     assert "mcrctl deployment update plan" in guide
     assert "mcrctl deployment update apply" in guide
     assert "mcrctl doctor" in guide
+    assert guide.index("mcrctl operator check") < guide.index("mcrctl deployment update plan")
     assert guide.index("mcrctl deployment update plan") < guide.index(
         "mcrctl deployment update apply"
     ) < guide.index("mcrctl doctor")
@@ -67,18 +66,33 @@ def test_operator_uv_has_one_canonical_install_path() -> None:
 
     assert 'UV_BIN="$HOME/.local/bin/uv"' in bootstrap
     assert "ensure_uv_on_login_path" in bootstrap
-    assert "command -v uv" in bootstrap
+    assert 'resolves_to uv "$UV_BIN"' in bootstrap
     assert "$HOME/.local/bin/uv" in fresh_host
 
 
-def test_operator_runbooks_use_bare_uv_after_bootstrap() -> None:
+def test_operator_runbooks_use_plain_mcrctl_and_check_first() -> None:
+    for document in _documents():
+        assert "uv run --project" not in document.read_text(encoding="utf-8"), document.name
+
     for relative_path in (
-        "docs/fresh-host-bootstrap-guide_ja.md",
         "docs/public-vps-bootstrap-guide_ja.md",
+        "docs/homepage-sync-guide_ja.md",
+        "docs/backup-and-restore-guide_ja.md",
     ):
         guide = (REPO_ROOT / relative_path).read_text(encoding="utf-8")
+        commands = re.findall(r"(?m)^mcrctl [a-z-]+(?: [a-z-]+)?", guide)
+        assert commands[0] == "mcrctl operator check", relative_path
+        assert "fresh-host-bootstrap-guide_ja.md#pathが通っていないとき" in guide
 
-        assert re.search(r"(?m)^uv (?:run|sync|--version)(?: |$)", guide)
+
+def test_fresh_host_guide_restores_commands_without_reinstalling() -> None:
+    guide = (REPO_ROOT / "docs" / "fresh-host-bootstrap-guide_ja.md").read_text(
+        encoding="utf-8"
+    )
+    recovery = guide.split("## PATHが通っていないとき", 1)[1]
+
+    assert "bootstrap-ubuntu-operator.sh --check" in recovery
+    assert "bootstrap-ubuntu-operator.sh --link" in recovery
 
 
 def test_release_artifact_intake_is_one_canonical_path_before_deployment() -> None:

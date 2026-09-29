@@ -71,6 +71,19 @@ from .toml_project import (
 )
 
 
+def _add_project_argument(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--project",
+        help="deployment project directory (default: the current directory)",
+    )
+    parser.set_defaults(project_required=True)
+
+
+def _current_project() -> Path | None:
+    current = Path.cwd()
+    return current if (current / "mc-remote.toml").is_file() else None
+
+
 def _print_issues(issues: list[Issue]) -> int:
     for issue in issues:
         print(f"{issue.severity} {issue.path}: {issue.message}")
@@ -331,6 +344,10 @@ def _cmd_init(args: argparse.Namespace) -> int:
     print(f"NEXT mcrctl accept-eula --project {paths.root} --yes")
     print(f"NEXT mcrctl resolve --project {paths.root}")
     return 0
+
+
+def _generated_output(args: argparse.Namespace) -> Path:
+    return Path(args.output) if args.output else Path(args.project) / "generated"
 
 
 def _uses_toml_project(project: Path) -> bool:
@@ -600,7 +617,7 @@ def _cmd_render(args: argparse.Namespace) -> int:
     try:
         result = render_toml_project(
             project_path,
-            Path(args.output),
+            _generated_output(args),
             data_root=_preset_data_root(),
         )
     except (PresetDataError, ProjectOrderError, RenderContractError, ResolutionError) as exc:
@@ -864,12 +881,15 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
         )
         return 0
     if args.project is None:
-        return _print_reason_failure(
-            "doctor",
-            "doctor_deployment_required",
-            "deployment",
-            "pass one deployment identity",
-        )
+        current = _current_project()
+        if current is None:
+            return _print_reason_failure(
+                "doctor",
+                "doctor_deployment_required",
+                "deployment",
+                "run inside a deployment project directory or pass one deployment identity",
+            )
+        args.project = str(current)
     project_path = Path(args.project)
     if not _uses_toml_project(project_path):
         return _print_reason_failure(
@@ -994,7 +1014,7 @@ def _cmd_world_restore_plan(args: argparse.Namespace) -> int:
     try:
         result = plan_world_restore(
             Path(args.project),
-            Path(args.output),
+            _generated_output(args),
             Path(args.archive),
             source_world=args.source_world,
             expected_archive_sha256=args.expected_archive_sha256,
@@ -1012,7 +1032,7 @@ def _cmd_world_restore_apply(args: argparse.Namespace) -> int:
     try:
         result = apply_world_restore(
             Path(args.project),
-            Path(args.output),
+            _generated_output(args),
             Path(args.archive),
             source_world=args.source_world,
             expected_archive_sha256=args.expected_archive_sha256,
@@ -1368,17 +1388,17 @@ def build_parser() -> argparse.ArgumentParser:
     release_manifest_verify_parser.set_defaults(handler=_cmd_release_manifest_verify)
 
     resolve_parser = subparsers.add_parser("resolve", help="resolve one TOML deployment project")
-    resolve_parser.add_argument("--project", required=True)
+    _add_project_argument(resolve_parser)
     resolve_parser.add_argument("--allow-unverified", action="store_true", help=argparse.SUPPRESS)
     resolve_parser.add_argument("--allow-eol", action="store_true")
     resolve_parser.set_defaults(handler=_cmd_resolve)
 
     validate_parser = subparsers.add_parser("validate", help="validate deployment config and lock")
-    validate_parser.add_argument("--project", required=True)
+    _add_project_argument(validate_parser)
     validate_parser.set_defaults(handler=_cmd_validate)
 
     eula_parser = subparsers.add_parser("accept-eula", help="record explicit Minecraft EULA acceptance")
-    eula_parser.add_argument("--project", required=True)
+    _add_project_argument(eula_parser)
     eula_parser.add_argument("--yes", action="store_true")
     eula_parser.set_defaults(handler=_cmd_accept_eula)
 
@@ -1386,17 +1406,17 @@ def build_parser() -> argparse.ArgumentParser:
     secret_subparsers = secret_parser.add_subparsers(dest="secret_command", required=True)
     secret_set_parser = secret_subparsers.add_parser("set", help="store a secret without adding it to Git")
     secret_set_parser.add_argument("name")
-    secret_set_parser.add_argument("--project", required=True)
+    _add_project_argument(secret_set_parser)
     secret_set_parser.add_argument("--from-file")
     secret_set_parser.set_defaults(handler=_cmd_secret_set)
     secret_list_parser = secret_subparsers.add_parser("list", help="list secret names without values")
-    secret_list_parser.add_argument("--project", required=True)
+    _add_project_argument(secret_list_parser)
     secret_list_parser.set_defaults(handler=_cmd_secret_list)
 
     repo_parser = subparsers.add_parser("repo", help="deployment repository operations")
     repo_subparsers = repo_parser.add_subparsers(dest="repo_command", required=True)
     check_parser = repo_subparsers.add_parser("check", help="check for secret and generated-file leakage")
-    check_parser.add_argument("--project", required=True)
+    _add_project_argument(check_parser)
     check_parser.set_defaults(handler=_cmd_repo_check)
 
     operator_parser = subparsers.add_parser(
@@ -1411,7 +1431,7 @@ def build_parser() -> argparse.ArgumentParser:
         "check",
         help="verify tools, direct Docker access, and project ownership",
     )
-    operator_check_parser.add_argument("--project", required=True)
+    _add_project_argument(operator_check_parser)
     operator_check_parser.add_argument("--docker-context", default="default")
     operator_check_parser.add_argument(
         "--bootstrap-ports",
@@ -1421,12 +1441,12 @@ def build_parser() -> argparse.ArgumentParser:
     operator_check_parser.set_defaults(handler=_cmd_operator_check)
 
     plan_parser = subparsers.add_parser("plan", help="show deployment intent and blockers")
-    plan_parser.add_argument("--project", required=True)
+    _add_project_argument(plan_parser)
     plan_parser.set_defaults(handler=_cmd_plan)
 
     render_parser = subparsers.add_parser("render", help="render validated runtime configuration")
-    render_parser.add_argument("--project", required=True)
-    render_parser.add_argument("--output", required=True)
+    _add_project_argument(render_parser)
+    render_parser.add_argument("--output")
     render_parser.set_defaults(handler=_cmd_render)
 
     apply_parser = subparsers.add_parser(
@@ -1467,7 +1487,7 @@ def build_parser() -> argparse.ArgumentParser:
         "plan",
         help="prepare an exact update from live provenance",
     )
-    deployment_update_plan_parser.add_argument("--project", required=True)
+    _add_project_argument(deployment_update_plan_parser)
     deployment_update_plan_parser.add_argument("--output")
     deployment_update_plan_parser.add_argument("--docker-context", default="default")
     deployment_update_plan_parser.add_argument("--to-profile", required=True)
@@ -1483,7 +1503,7 @@ def build_parser() -> argparse.ArgumentParser:
         "apply",
         help="apply or retry one exact durable update plan",
     )
-    deployment_update_apply_parser.add_argument("--project", required=True)
+    _add_project_argument(deployment_update_apply_parser)
     deployment_update_apply_parser.add_argument("--plan-id", required=True)
     deployment_update_apply_parser.add_argument("--wait-timeout", type=int, default=300)
     deployment_update_apply_parser.add_argument("--yes", action="store_true")
@@ -1498,7 +1518,7 @@ def build_parser() -> argparse.ArgumentParser:
     homepage_sync_parser = homepage_subparsers.add_parser(
         "sync", help="synchronize knowledge main to the public directory"
     )
-    homepage_sync_parser.add_argument("--project", required=True)
+    _add_project_argument(homepage_sync_parser)
     homepage_sync_parser.set_defaults(handler=_cmd_homepage_sync)
 
     doctor_parser = subparsers.add_parser(
@@ -1547,8 +1567,8 @@ def build_parser() -> argparse.ArgumentParser:
             help=f"{action} an exact world-only restore",
         )
         action_parser.add_argument("archive")
-        action_parser.add_argument("--project", required=True)
-        action_parser.add_argument("--output", required=True)
+        _add_project_argument(action_parser)
+        action_parser.add_argument("--output")
         action_parser.add_argument("--source-world", required=True)
         action_parser.add_argument(
             "--expected-archive-sha256",
@@ -1579,14 +1599,14 @@ def build_parser() -> argparse.ArgumentParser:
         "fetch",
         help="fetch exact HTTPS files named by the current TOML lock",
     )
-    fetch_parser.add_argument("--project", required=True)
+    _add_project_argument(fetch_parser)
     fetch_parser.set_defaults(handler=_cmd_artifact_fetch)
     import_reviewed_parser = artifact_subparsers.add_parser(
         "import-reviewed",
         help="import one reviewed git-build output named by the current TOML lock",
     )
     import_reviewed_parser.add_argument("source")
-    import_reviewed_parser.add_argument("--project", required=True)
+    _add_project_argument(import_reviewed_parser)
     import_reviewed_parser.add_argument("--artifact-id", required=True)
     import_reviewed_parser.add_argument("--expected-sha256", required=True)
     import_reviewed_parser.set_defaults(handler=_cmd_artifact_import_reviewed)
@@ -1597,7 +1617,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="encrypt an archive and upload it with explicit FTPS",
     )
     transfer_parser.add_argument("archive")
-    transfer_parser.add_argument("--project", required=True)
+    _add_project_argument(transfer_parser)
     transfer_parser.add_argument("--transport-config")
     transfer_parser.add_argument("--verify-download", action="store_true")
     transfer_parser.set_defaults(handler=_cmd_backup_transfer)
@@ -1610,14 +1630,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     drain_parser.add_argument("outbox")
     drain_parser.add_argument("--after", required=True)
-    drain_parser.add_argument("--project", required=True)
+    _add_project_argument(drain_parser)
     drain_parser.add_argument("--transport-config")
     drain_parser.set_defaults(handler=_cmd_backup_drain)
     list_parser = backup_subparsers.add_parser(
         "list",
         help="list completed encrypted archives on the configured FTPS target",
     )
-    list_parser.add_argument("--project", required=True)
+    _add_project_argument(list_parser)
     list_parser.add_argument("--transport-config")
     list_parser.set_defaults(handler=_cmd_backup_list)
     download_record_parser = backup_subparsers.add_parser(
@@ -1625,7 +1645,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="download and validate the recovery sidecar for one named ciphertext",
     )
     download_record_parser.add_argument("remote_name")
-    download_record_parser.add_argument("--project", required=True)
+    _add_project_argument(download_record_parser)
     download_record_parser.add_argument("--transport-config")
     download_record_parser.add_argument("--output", required=True)
     download_record_parser.set_defaults(handler=_cmd_backup_download_record)
@@ -1634,7 +1654,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="download one named ciphertext and verify its transfer record",
     )
     download_parser.add_argument("remote_name")
-    download_parser.add_argument("--project", required=True)
+    _add_project_argument(download_parser)
     download_parser.add_argument("--transport-config")
     download_parser.add_argument("--record", required=True)
     download_parser.add_argument("--output", required=True)
@@ -1653,6 +1673,16 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    if getattr(args, "project_required", False) and args.project is None:
+        current = _current_project()
+        if current is None:
+            return _print_reason_failure(
+                args.command,
+                "project_required",
+                Path.cwd(),
+                "run inside a deployment project directory or pass --project",
+            )
+        args.project = str(current)
     project_argument = getattr(args, "project", None)
     if project_argument is None and args.command == "init":
         project_argument = args.path

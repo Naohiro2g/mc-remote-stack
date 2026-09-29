@@ -19,17 +19,16 @@ handoffには次の値が一組で入る。
 
 | 値 | 内容 | 所有元 |
 | --- | --- | --- |
-| `MC_REMOTE_TARGET` | 対象hostのSSH接続先 | backstage inventoryをStackが取得 |
-| `MC_REMOTE_KNOWLEDGE_COMMIT` | 今回参照するknowledge commit | Knowledge SSOT |
-| `MC_REMOTE_STACK` | 対象host上のreview済みStack checkout | Stack |
-| `MC_REMOTE_STACK_COMMIT` | checkoutのexact commit | Stack |
-| `MC_REMOTE_PROJECT` | 対象host上のdeployment project | Stack／backstage |
-| `MC_REMOTE_PROFILE` | 更新先のexact profile revision | Stackが依頼と現行stateから確定 |
-| `MC_REMOTE_PRESET` | 更新先のexact preset revision | Stackがrelease handoffから確定 |
+| SSH接続先 | 対象hostのSSH接続先 | backstage inventoryをStackが取得 |
+| knowledge commit | 今回参照するknowledge commit | Knowledge SSOT |
+| Stack commit | 対象hostのStack checkout（`~/mc-remote-stack`）のexact commit | Stack |
+| deployment project | 対象host上のdeployment projectのpath | Stack／backstage |
+| exact profile | 更新先のprofile revision | Stackが依頼と現行stateから確定 |
+| exact preset | 更新先のpreset revision | Stackがrelease handoffから確定 |
 | `authorized next action` | 今回実行するpublic VPS update | human operator |
 
 release済みsetではgate coordinatorを通常handoffの必須者にしない。candidate setをshared環境へ配置する場合だけ、
-gate coordinatorがexact setとauthorized next actionを渡す。指定された`MC_REMOTE_KNOWLEDGE_COMMIT`では次を読む。
+gate coordinatorがexact setとauthorized next actionを渡す。指定されたknowledge commitでは次を読む。
 
 - [release operations responsibility](https://github.com/Naohiro2g/mc-remote-knowledge/blob/main/00-hub/release-operations-responsibility-design_ja.md):
   host写像、private情報、deploy／doctorの実行担当
@@ -61,74 +60,55 @@ Stack担当が`resolve`／`render`を単独実行したりしない。理由は`
 管理端末からhandoffの接続先へ入る。
 
 ```sh
-MC_REMOTE_TARGET="<handoffのSSH接続先>"
-ssh "$MC_REMOTE_TARGET"
+ssh "<handoffのSSH接続先>"
 ```
 
-fresh host bootstrapを完了した新しいlogin sessionでhandoff値を設定する。
-`uv`を含むoperator toolchainは、この時点ですべてcommand名だけで実行できる。
+Stack checkoutがhandoffのcommitであることを確かめ、環境を揃える。
 
 ```sh
-MC_REMOTE_STACK="<handoffのStack checkout>"
-MC_REMOTE_STACK_COMMIT="<handoffのStack commit>"
-MC_REMOTE_PROJECT="<handoffのdeployment project>"
-MC_REMOTE_PROFILE="<handoffのexact profile>"
-MC_REMOTE_PRESET="<handoffのexact preset>"
+cd ~/mc-remote-stack
+test "$(git rev-parse HEAD)" = "<handoffのStack commit>"
+uv sync --frozen --extra dev
+tools/bootstrap-ubuntu-operator.sh --check
+```
 
-uv --version
-test "$(git -C "$MC_REMOTE_STACK" rev-parse HEAD)" = "$MC_REMOTE_STACK_COMMIT"
-uv sync --project "$MC_REMOTE_STACK" --frozen --extra dev
-"$MC_REMOTE_STACK/tools/bootstrap-ubuntu-operator.sh" --check
-uv run --project "$MC_REMOTE_STACK" mcrctl operator check \
-  --project "$MC_REMOTE_PROJECT" \
-  --docker-context default
-test -f "$MC_REMOTE_PROJECT/mc-remote.toml"
+以降のcommandはdeployment projectのdirectoryで実行する。
+
+```sh
+cd "<handoffのdeployment project>"
+mcrctl operator check
 ```
 
 ここまでの成功で、Python、Docker、Compose、operator権限、project owner、local Docker context、
-Stack commitが一組に揃う。
+Stack commitが一組に揃う。`mcrctl`が見つからない場合は、
+[PATHが通っていないとき](fresh-host-bootstrap-guide_ja.md#pathが通っていないとき)で戻す。
 
 ## 4. exact update planを作る
 
 ```sh
-uv run --project "$MC_REMOTE_STACK" \
-  mcrctl deployment update plan \
-  --project "$MC_REMOTE_PROJECT" \
-  --docker-context default \
-  --to-profile "$MC_REMOTE_PROFILE" \
-  --to-preset "$MC_REMOTE_PRESET" \
-  --allow-unverified
+mcrctl deployment update plan \
+  --to-profile "<handoffのexact profile>" \
+  --to-preset "<handoffのexact preset>"
 ```
 
 planは現在のdeploymentをdoctorで確認し、更新先presetを解決し、必要なartifactをdigestで取得し、
-target renderとsame-volume更新内容を生成する。出力された`PLAN deployment-update id=sha256:...`を
-`MC_REMOTE_PLAN_ID`へ設定する。
-
-```sh
-MC_REMOTE_PLAN_ID="sha256:<plan出力のid>"
-```
+target renderとsame-volume更新内容を生成する。出力の`PLAN deployment-update id=sha256:...`が
+次の手順で使うplan IDである。
 
 ## 5. planを適用する
 
 ```sh
-uv run --project "$MC_REMOTE_STACK" \
-  mcrctl deployment update apply \
-  --project "$MC_REMOTE_PROJECT" \
-  --plan-id "$MC_REMOTE_PLAN_ID" \
-  --yes
+mcrctl deployment update apply --plan-id "sha256:<plan ID>" --yes
 ```
 
 transactionは同じvolume identityでtargetを起動し、起動後doctorまで実行する。target検証が完了すると
 `OK deployment-update status=complete`を返す。target起動またはdoctorが失敗した場合はsource projectionを
-復帰し、同じ`MC_REMOTE_PLAN_ID`で再開できる状態を返す。
+復帰し、同じplan IDで再開できる状態を返す。
 
 ## 6. live deploymentを確認する
 
 ```sh
-uv run --project "$MC_REMOTE_STACK" mcrctl doctor \
-  --project "$MC_REMOTE_PROJECT" \
-  --output "$MC_REMOTE_PROJECT/generated" \
-  --docker-context default
+mcrctl doctor
 ```
 
 完了時は次の状態が一度に確認できる。
@@ -148,10 +128,10 @@ uv run --project "$MC_REMOTE_STACK" mcrctl doctor \
 
 ```text
 target: <backstage上の参照>
-stack commit: <MC_REMOTE_STACK_COMMIT>
-project: <MC_REMOTE_PROJECT>
-profile / preset: <MC_REMOTE_PROFILE> / <MC_REMOTE_PRESET>
-plan id: <MC_REMOTE_PLAN_ID>
+stack commit: <Stack commit>
+project: <deployment project>
+profile / preset: <exact profile> / <exact preset>
+plan id: <plan ID>
 transaction: complete
 doctor: <OK行>
 next action: service継続

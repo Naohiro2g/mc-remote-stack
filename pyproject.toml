@@ -7,7 +7,7 @@ name = "mc-remote-stack"
 version = "0.1.0.dev0"
 description = "Reproducible deployment and operations package for McRemote servers"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 license = "MIT"
 license-files = ["LICENSE"]
 dependencies = [
@@ -28,13 +28,17 @@ dev = [
     "setuptools>=77",
 ]
 
+[tool.uv]
+# Use the OS Python so Ubuntu security updates reach it; .python-version pins the minor.
+python-preference = "system"
+
 [tool.pytest.ini_options]
 addopts = "-q"
 testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 120
-target-version = "py311"
+target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
