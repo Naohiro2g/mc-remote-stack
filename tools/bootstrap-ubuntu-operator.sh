@@ -11,18 +11,21 @@ repair_project=
 repair_artifact_store=
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd -- "$script_dir/.." && pwd)"
+MCRCTL_BIN="$repo_root/.venv/bin/mcrctl"
 
 usage() {
   cat <<'EOF'
 Usage:
   tools/bootstrap-ubuntu-operator.sh --check
+  tools/bootstrap-ubuntu-operator.sh --link
   tools/bootstrap-ubuntu-operator.sh --install [--repair-project PATH] [--repair-artifact-store PATH]
 
 --check reports every missing operator prerequisite without changing the host.
+--link only restores the uv and mcrctl commands in /usr/local/bin.
 --install installs missing Ubuntu packages, pinned uv, Docker Engine/Compose when
 absent, and explicitly grants the current trusted sudo administrator direct
-Docker access. It also makes the canonical $HOME/.local/bin/uv available as uv
-in subsequent login sessions. If the conventional runtime root exists, it grants that
+Docker access. It also makes uv and this checkout's mcrctl available as plain
+commands. If the conventional runtime root exists, it grants that
 operator traversal through its dedicated mcremote group. Re-login is required
 after group membership changes.
 --repair-project is accepted only with --install and only below
@@ -36,6 +39,9 @@ while (($#)); do
   case "$1" in
     --check)
       mode=check
+      ;;
+    --link)
+      mode=link
       ;;
     --install)
       mode=install
@@ -134,12 +140,20 @@ ensure_uv_on_login_path() {
       printf '\n%s\n' "$path_line" >> "$profile"
     fi
   done
+}
 
-  # Non-interactive, non-login SSH commands (`ssh host 'uv ...'`, the shape
-  # runbook automation actually uses) source none of the profiles above, so
-  # the PATH edit alone leaves uv invisible there. /usr/local/bin is on PATH
-  # for every shell sshd starts, interactive or not.
+link_operator_commands() {
+  # Non-interactive, non-login SSH commands (`ssh host 'mcrctl ...'`) source
+  # none of the login profiles, so a PATH edit alone leaves the commands
+  # invisible there. /usr/local/bin is on PATH for every shell sshd starts.
   sudo ln -sf "$UV_BIN" /usr/local/bin/uv
+  sudo ln -sf "$MCRCTL_BIN" /usr/local/bin/mcrctl
+}
+
+resolves_to() {
+  local found
+  found="$(command -v "$1" 2>/dev/null || true)"
+  [[ -n "$found" && "$(readlink -f -- "$found")" == "$(readlink -f -- "$2")" ]]
 }
 
 install_docker_engine() {
@@ -197,15 +211,21 @@ repair_artifact_store_ownership() {
   echo "OK repaired artifact store ownership path=$resolved owner=$(id -un)"
 }
 
+if [[ "$mode" == link ]]; then
+  if [[ ! -x "$UV_BIN" || ! -x "$MCRCTL_BIN" ]]; then
+    echo "FAIL uv or the repo environment is absent; run this same script with --install" >&2
+    exit 2
+  fi
+  link_operator_commands
+  echo "OK linked uv=/usr/local/bin/uv mcrctl=/usr/local/bin/mcrctl"
+  exec "$0" --check
+fi
+
 missing=()
 for command_name in curl git; do
   command -v "$command_name" >/dev/null 2>&1 || missing+=("$command_name")
 done
-uv_on_path="$(command -v uv 2>/dev/null || true)"
-if [[ -z "$uv_on_path" ]] || \
-   [[ "$(readlink -f -- "$uv_on_path")" != "$(readlink -f -- "$UV_BIN")" ]]; then
-  missing+=(uv)
-fi
+resolves_to uv "$UV_BIN" || missing+=(uv)
 command -v docker >/dev/null 2>&1 || missing+=(docker)
 
 if [[ "$mode" == check && ${#missing[@]} -gt 0 ]]; then
@@ -231,22 +251,28 @@ if [[ "$mode" == install ]]; then
   if [[ -n "$repair_artifact_store" ]]; then
     repair_artifact_store_ownership "$repair_artifact_store"
   fi
-  "$UV_BIN" python install 3.11
   (
     cd -- "$repo_root"
-    "$UV_BIN" sync --extra dev
+    "$UV_BIN" sync --locked
   )
-elif [[ ! -x "$repo_root/.venv/bin/mcrctl" ]]; then
-  echo "FAIL repo environment is absent: $repo_root/.venv/bin/mcrctl" >&2
+  link_operator_commands
+elif [[ ! -x "$MCRCTL_BIN" ]]; then
+  echo "FAIL repo environment is absent: $MCRCTL_BIN" >&2
   echo "Run this same script with --install." >&2
+  exit 2
+elif ! resolves_to mcrctl "$MCRCTL_BIN"; then
+  echo "FAIL mcrctl is not on PATH or points to another checkout" >&2
+  echo "Run this same script with --link." >&2
   exit 2
 fi
 
 git --version >/dev/null
 "$UV_BIN" --version >/dev/null
-if ! "$repo_root/.venv/bin/python" -c \
-  'import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)'; then
-  echo "FAIL repo environment does not use Python 3.11 or newer" >&2
+required_python="$(tr -d '[:space:]' < "$repo_root/.python-version")"
+observed_python="$("$repo_root/.venv/bin/python" -c \
+  'import sys; print(f"{sys.version_info[0]}.{sys.version_info[1]}")')"
+if [[ "$observed_python" != "$required_python" ]]; then
+  echo "FAIL repo environment uses Python $observed_python, not $required_python" >&2
   echo "Run this same script with --install." >&2
   exit 2
 fi
@@ -314,9 +340,9 @@ if ! docker --context default version >/dev/null 2>&1; then
 fi
 
 echo "OK operator bootstrap tools=ready uv=$UV_BIN docker-access=direct compose=$compose_version"
-echo "OK repo environment=$repo_root/.venv"
+echo "OK repo environment=$repo_root/.venv python=$observed_python mcrctl=$(command -v mcrctl)"
 if [[ -n "$repair_project" ]]; then
-  "$repo_root/.venv/bin/mcrctl" operator check \
+  "$MCRCTL_BIN" operator check \
     --project "$(realpath -e -- "$repair_project")" \
     --docker-context default
 fi

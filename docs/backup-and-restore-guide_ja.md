@@ -3,8 +3,14 @@
 ServerBackupプラグインが作るサーバー全体のarchive（ZIP）を、暗号化してVPSの外へ転送し、必要なときに
 取り戻してworldだけを復元する手順です。VPSの中にだけあるsnapshotは、off-host backupではありません。
 
-コマンドは対象hostのStack checkoutのdirectoryで実行します。`MC_REMOTE_PROJECT`は
-deployment projectのpathです。
+コマンドは対象hostで、deployment projectのdirectoryに入って実行します。最初に環境を確かめます。
+
+```sh
+cd "$HOME/mc-remote-deployments/<deployment名>"
+mcrctl operator check
+```
+
+`mcrctl`が見つからない場合は、[PATHが通っていないとき](fresh-host-bootstrap-guide_ja.md#pathが通っていないとき)で戻します。
 
 ## 1. 転送先を設定する
 
@@ -31,7 +37,7 @@ recipient = "age1..."
 ```
 
 ```sh
-uv run mcrctl secret set backup_ftps_password --project "$MC_REMOTE_PROJECT"
+mcrctl secret set backup_ftps_password
 ```
 
 暗号化にはageを使います。転送するのはage暗号文だけで、復号に使うage identityはprojectとGitの外に保管します。
@@ -39,8 +45,7 @@ uv run mcrctl secret set backup_ftps_password --project "$MC_REMOTE_PROJECT"
 ## 2. archiveを一つ転送する
 
 ```sh
-uv run mcrctl backup transfer /backup/outbox/backup.zip \
-  --project "$MC_REMOTE_PROJECT" \
+mcrctl backup transfer /backup/outbox/backup.zip \
   --transport-config /secure/path/backup-transport.toml \
   --verify-download
 ```
@@ -58,9 +63,8 @@ SHA-256も比べます。復元が転送元VPSに依存しないよう、秘密�
 ```sh
 install -m 600 /dev/null /secure/state/backup-transfer-activated
 
-uv run mcrctl backup drain /backup/outbox \
+mcrctl backup drain /backup/outbox \
   --after /secure/state/backup-transfer-activated \
-  --project "$MC_REMOTE_PROJECT" \
   --transport-config /secure/path/backup-transport.toml
 ```
 
@@ -73,20 +77,17 @@ remoteの世代はどれも削除しません。手元に残す世代数は別�
 復元する世代は、必ず名前を指定して選びます。`latest`のような暗黙の選択はしません。
 
 ```sh
-uv run mcrctl backup list --project "$MC_REMOTE_PROJECT" \
-  --transport-config /secure/path/backup-transport.toml
+mcrctl backup list --transport-config /secure/path/backup-transport.toml
 
 REMOTE_NAME='backup.zip.<encrypted-sha256>.age'
-uv run mcrctl backup download-record "$REMOTE_NAME" \
-  --project "$MC_REMOTE_PROJECT" \
+mcrctl backup download-record "$REMOTE_NAME" \
   --transport-config /secure/path/backup-transport.toml \
   --output ./recovery/backup.transfer.json
-uv run mcrctl backup download "$REMOTE_NAME" \
-  --project "$MC_REMOTE_PROJECT" \
+mcrctl backup download "$REMOTE_NAME" \
   --transport-config /secure/path/backup-transport.toml \
   --record ./recovery/backup.transfer.json \
   --output ./recovery/backup.zip.age
-uv run mcrctl backup decrypt ./recovery/backup.zip.age \
+mcrctl backup decrypt ./recovery/backup.zip.age \
   --record ./recovery/backup.transfer.json \
   --identity /secure/path/age-identity.txt \
   --output ./recovery/backup.zip
@@ -102,7 +103,7 @@ uv run mcrctl backup decrypt ./recovery/backup.zip.age \
 プラグインの設定内容は表示しません。
 
 ```sh
-uv run mcrctl archive inspect ./recovery/backup.zip --json
+mcrctl archive inspect ./recovery/backup.zip --json
 ```
 
 ## 6. worldだけを復元する
@@ -111,16 +112,12 @@ archiveから選んだworld（overworldと、あればNether／End）だけを�
 `--expected-archive-sha256`と`--expected-lock-identity`には、上で確かめた値と、今のlockの値を入れます。
 
 ```sh
-uv run mcrctl world restore plan ./recovery/backup.zip \
-  --project "$MC_REMOTE_PROJECT" \
-  --output "$MC_REMOTE_PROJECT/generated" \
+mcrctl world restore plan ./recovery/backup.zip \
   --source-world world \
   --expected-archive-sha256 '<64-lowercase-hex>' \
   --expected-lock-identity 'sha256:<64-hex>'
 
-uv run mcrctl world restore apply ./recovery/backup.zip \
-  --project "$MC_REMOTE_PROJECT" \
-  --output "$MC_REMOTE_PROJECT/generated" \
+mcrctl world restore apply ./recovery/backup.zip \
   --source-world world \
   --expected-archive-sha256 '<64-lowercase-hex>' \
   --expected-lock-identity 'sha256:<64-hex>' \

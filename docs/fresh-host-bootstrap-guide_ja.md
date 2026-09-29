@@ -11,9 +11,9 @@ backstage／Stack handoffから次を受け取る。
 | --- | --- |
 | `ADMIN_USER` | 個人管理者のlogin名 |
 | `AUTHORIZED_KEYS` | 管理者の公開鍵file |
-| `MC_REMOTE_TARGET` | SSH接続先 |
-| `MC_REMOTE_STACK_REF` | review済みStack commitを含むremote ref |
-| `MC_REMOTE_STACK_COMMIT` | review済みStack exact commit |
+| SSH接続先 | 対象host |
+| remote ref | review済みStack commitを含むremote ref |
+| exact commit | review済みStack commit |
 
 provider consoleのroot sessionを、管理者SSHの確認が終わるまで維持する。
 
@@ -35,8 +35,7 @@ install -m 600 -o "$ADMIN_USER" -g "$ADMIN_USER" "$AUTHORIZED_KEYS" \
 管理端末の別terminalから接続と管理権限を確認する。
 
 ```sh
-MC_REMOTE_TARGET="<handoffのSSH接続先>"
-ssh "$MC_REMOTE_TARGET"
+ssh "<handoffのSSH接続先>"
 sudo -v
 ```
 
@@ -74,15 +73,13 @@ pubkeyauthentication yes
 
 個人管理者のsessionで実行する。
 
-```sh
-MC_REMOTE_STACK="$HOME/mc-remote-stack"
-MC_REMOTE_STACK_REF="<handoffのremote ref>"
-MC_REMOTE_STACK_COMMIT="<handoffのexact commit>"
+Stack checkoutの場所は`~/mc-remote-stack`に固定する。
 
-git clone https://github.com/Naohiro2g/mc-remote-stack.git "$MC_REMOTE_STACK"
-git -C "$MC_REMOTE_STACK" fetch origin "$MC_REMOTE_STACK_REF"
-git -C "$MC_REMOTE_STACK" switch --detach "$MC_REMOTE_STACK_COMMIT"
-test "$(git -C "$MC_REMOTE_STACK" rev-parse HEAD)" = "$MC_REMOTE_STACK_COMMIT"
+```sh
+git clone https://github.com/Naohiro2g/mc-remote-stack.git ~/mc-remote-stack
+cd ~/mc-remote-stack
+git fetch origin "<handoffのremote ref>"
+git switch --detach "<handoffのexact commit>"
 ```
 
 ## 5. operator toolchainを構築する
@@ -90,29 +87,27 @@ test "$(git -C "$MC_REMOTE_STACK" rev-parse HEAD)" = "$MC_REMOTE_STACK_COMMIT"
 checkoutに同梱されたbootstrapを実行する。
 
 ```sh
-"$MC_REMOTE_STACK/tools/bootstrap-ubuntu-operator.sh" --install
+~/mc-remote-stack/tools/bootstrap-ubuntu-operator.sh --install
 ```
 
-bootstrapはUbuntuのsupport対象versionを確認し、固定versionの`uv`を
-`$HOME/.local/bin/uv`へ配置してlogin時の`PATH`へ接続する。続いてPython 3.11、Docker Engine、Compose、checkoutの`.venv`を
-準備し、個人管理者へDocker accessを設定する。`/var/lib/mc-remote`が専用runtime groupで管理される
+bootstrapはUbuntuのsupport対象versionを確認し、固定versionの`uv`を`$HOME/.local/bin/uv`へ配置する。
+続いてDocker Engine、Compose、checkoutの`.venv`（Pythonは`.python-version`の3.12で、UbuntuのPythonを使う）を
+準備し、`uv`と`mcrctl`を`/usr/local/bin`へlinkして、どこからでもcommand名だけで実行できるようにする。
+個人管理者へDocker accessも設定する。`/var/lib/mc-remote`が専用runtime groupで管理される
 hostでは、そのgroup membershipも同時に設定する。
 
 install完了後に一度logoutし、新しいSSH sessionで確認する。
 
 ```sh
-MC_REMOTE_STACK="$HOME/mc-remote-stack"
-
-uv --version
-"$MC_REMOTE_STACK/tools/bootstrap-ubuntu-operator.sh" --check
-uv run --project "$MC_REMOTE_STACK" mcrctl --help
+~/mc-remote-stack/tools/bootstrap-ubuntu-operator.sh --check
+mcrctl --help
 ```
 
 成功時は次の二行が含まれる。
 
 ```text
 OK operator bootstrap tools=ready uv=/home/<operator>/.local/bin/uv docker-access=direct compose=<version>
-OK repo environment=/home/<operator>/mc-remote-stack/.venv
+OK repo environment=/home/<operator>/mc-remote-stack/.venv python=3.12 mcrctl=/usr/local/bin/mcrctl
 ```
 
 ## 6. deployment runbookへ進む
@@ -122,12 +117,29 @@ host bootstrapの返却値は次の一組である。
 ```text
 target: <backstage上の参照>
 operator: <ADMIN_USER>
-stack checkout: <MC_REMOTE_STACK>
-stack commit: <MC_REMOTE_STACK_COMMIT>
+stack checkout: ~/mc-remote-stack
+stack commit: <handoffのexact commit>
 uv: /home/<operator>/.local/bin/uv
+mcrctl: /usr/local/bin/mcrctl
 docker context: default
 operator bootstrap: ready
 ```
 
 この値をpublic VPS deployment handoffへ入れ、
 [public VPS release deployment runbook](public-vps-bootstrap-guide_ja.md)の`mcrctl operator check`から続行する。
+
+## PATHが通っていないとき
+
+作業中に`mcrctl: command not found`や`uv: command not found`になったら、まず確認する。
+
+```sh
+~/mc-remote-stack/tools/bootstrap-ubuntu-operator.sh --check
+```
+
+`--link`を実行するよう表示されたら、linkだけを張り直す。aptやDockerには触れない。
+
+```sh
+~/mc-remote-stack/tools/bootstrap-ubuntu-operator.sh --link
+```
+
+`--install`を実行するよう表示された場合は、`5. operator toolchainを構築する`へ戻る。
