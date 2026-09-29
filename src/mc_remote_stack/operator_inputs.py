@@ -14,13 +14,10 @@ from .toml_project import LoadedOrder
 
 MINECRAFT_MOTD_ADAPTER = "minecraft-motd@1"
 MINECRAFT_MOTD_PATH = "operator/minecraft-motd/server.properties"
-PUBLIC_ROUTES_ADAPTER = "public-routes@1"
 PUBLIC_ROUTES_V2_ADAPTER = "public-routes@2"
 PUBLIC_ROUTES_PATH = "operator/public-routes/routes.toml"
 MINECRAFT_SERVER_ADAPTER = "minecraft-server@1"
 MINECRAFT_SERVER_PATH = "operator/minecraft-server/server.toml"
-CONNECTION_TARGETS_ADAPTER = "connection-targets@1"
-CONNECTION_TARGETS_V2_ADAPTER = "connection-targets@2"
 CONNECTION_TARGETS_V3_ADAPTER = "connection-targets@3"
 CONNECTION_TARGETS_PATH = "operator/connection-targets/targets.toml"
 MINECRAFT_PLUGINS_ADAPTER = "minecraft-plugins@1"
@@ -45,10 +42,7 @@ SUPPORTED_ADAPTERS = frozenset(
     {
         MINECRAFT_MOTD_ADAPTER,
         MINECRAFT_SERVER_ADAPTER,
-        PUBLIC_ROUTES_ADAPTER,
         PUBLIC_ROUTES_V2_ADAPTER,
-        CONNECTION_TARGETS_ADAPTER,
-        CONNECTION_TARGETS_V2_ADAPTER,
         CONNECTION_TARGETS_V3_ADAPTER,
         MINECRAFT_PLUGINS_ADAPTER,
         HOMEPAGE_STATIC_ADAPTER,
@@ -265,15 +259,6 @@ def _parse_public_routes_for_keys(
     return semantic
 
 
-def _parse_public_routes(path: Path, source: bytes) -> dict[str, Any]:
-    return _parse_public_routes_for_keys(
-        path,
-        source,
-        adapter=PUBLIC_ROUTES_ADAPTER,
-        required_keys=PUBLIC_ROUTE_KEYS,
-    )
-
-
 def _parse_public_routes_v2(path: Path, source: bytes) -> dict[str, Any]:
     return _parse_public_routes_for_keys(
         path,
@@ -464,17 +449,6 @@ def _connection_targets_semantic(path: Path, targets: object) -> list[dict[str, 
     return semantic_targets
 
 
-def _parse_connection_targets(path: Path, source: bytes) -> dict[str, Any]:
-    value = _connection_targets_document(path, source)
-    if set(value) != {"targets"}:
-        _fail(
-            "operator_input_parse_failed",
-            path,
-            "connection-targets@1 requires exactly the targets key",
-        )
-    return {"targets": _connection_targets_semantic(path, value["targets"])}
-
-
 def _notice_text(
     path: Path,
     key: str,
@@ -524,44 +498,6 @@ def _notice_href(path: Path, value: object, *, key: str = "notice_href") -> str:
             f"{key} must be one absolute HTTPS URL without credentials or fragment",
         )
     return href
-
-
-def _parse_connection_targets_v2(path: Path, source: bytes) -> dict[str, Any]:
-    value = _connection_targets_document(path, source)
-    if set(value) != CONNECTION_TARGET_V2_KEYS:
-        _fail(
-            "operator_input_parse_failed",
-            path,
-            "connection-targets@2 requires targets and the four notice fields",
-        )
-    return {
-        "targets": _connection_targets_semantic(path, value["targets"]),
-        "notices": [
-            {
-                "heading": _notice_text(
-                    path,
-                    "notice_heading",
-                    value["notice_heading"],
-                    maximum=MAX_LABEL_CHARACTERS,
-                ),
-                "body": _notice_text(
-                    path,
-                    "notice_body",
-                    value["notice_body"],
-                    maximum=MAX_NOTICE_BODY_CHARACTERS,
-                ),
-                "link": {
-                    "href": _notice_href(path, value["notice_href"]),
-                    "label": _notice_text(
-                        path,
-                        "notice_label",
-                        value["notice_label"],
-                        maximum=MAX_LABEL_CHARACTERS,
-                    ),
-                },
-            }
-        ],
-    }
 
 
 def _parse_connection_targets_v3(path: Path, source: bytes) -> dict[str, Any]:
@@ -820,14 +756,6 @@ def _parse_adapter(adapter: str, path: Path, relative_path: str) -> dict[str, An
                 f"{adapter} requires exact path {MINECRAFT_MOTD_PATH}",
             )
         return _parse_minecraft_motd(path, _read_source(path))
-    if adapter == PUBLIC_ROUTES_ADAPTER:
-        if relative_path != PUBLIC_ROUTES_PATH:
-            _fail(
-                "operator_input_path_invalid",
-                path,
-                f"{adapter} requires exact path {PUBLIC_ROUTES_PATH}",
-            )
-        return _parse_public_routes(path, _read_source(path))
     if adapter == PUBLIC_ROUTES_V2_ADAPTER:
         if relative_path != PUBLIC_ROUTES_PATH:
             _fail(
@@ -844,22 +772,6 @@ def _parse_adapter(adapter: str, path: Path, relative_path: str) -> dict[str, An
                 f"{adapter} requires exact path {MINECRAFT_SERVER_PATH}",
             )
         return _parse_minecraft_server(path, _read_source(path))
-    if adapter == CONNECTION_TARGETS_ADAPTER:
-        if relative_path != CONNECTION_TARGETS_PATH:
-            _fail(
-                "operator_input_path_invalid",
-                path,
-                f"{adapter} requires exact path {CONNECTION_TARGETS_PATH}",
-            )
-        return _parse_connection_targets(path, _read_source(path))
-    if adapter == CONNECTION_TARGETS_V2_ADAPTER:
-        if relative_path != CONNECTION_TARGETS_PATH:
-            _fail(
-                "operator_input_path_invalid",
-                path,
-                f"{adapter} requires exact path {CONNECTION_TARGETS_PATH}",
-            )
-        return _parse_connection_targets_v2(path, _read_source(path))
     if adapter == CONNECTION_TARGETS_V3_ADAPTER:
         if relative_path != CONNECTION_TARGETS_PATH:
             _fail(

@@ -5,8 +5,6 @@ import pytest
 from mc_remote_stack.cli import main
 from mc_remote_stack.operator_inputs import (
     OperatorInputError,
-    _parse_connection_targets,
-    _parse_connection_targets_v2,
     _parse_connection_targets_v3,
     _parse_homepage_static,
     _parse_lan_routes,
@@ -69,7 +67,7 @@ def _add_public_routes_input(project: Path, data_root: Path, content: bytes) -> 
         + """
 [[operator_input_roles]]
 id = "public-routes"
-adapter = "public-routes@1"
+adapter = "public-routes@2"
 required = true
 """,
         encoding="utf-8",
@@ -80,7 +78,7 @@ required = true
         + """
 [[operator_inputs]]
 role = "public-routes"
-adapter = "public-routes@1"
+adapter = "public-routes@2"
 path = "operator/public-routes/routes.toml"
 """,
         encoding="utf-8",
@@ -177,6 +175,7 @@ def test_public_routes_semantics_enter_the_lock(tmp_path: Path) -> None:
             b'scratch = "scratch.mc-remote.example"\n'
             b'bridge = "bridge.mc-remote.example"\n'
             b'minecraft = "sb.mc-remote.example"\n'
+            b'wirescope = "wirescope.mc-remote.example"\n'
         ),
     )
     _acknowledge(project, "unverified")
@@ -195,6 +194,7 @@ def test_public_routes_semantics_enter_the_lock(tmp_path: Path) -> None:
         "homepage_aliases": ["www.mc-remote.example"],
         "minecraft": "sb.mc-remote.example",
         "scratch": "scratch.mc-remote.example",
+        "wirescope": "wirescope.mc-remote.example",
     }
 
 
@@ -204,19 +204,19 @@ def test_public_routes_semantics_enter_the_lock(tmp_path: Path) -> None:
         (
             b'homepage = "192.0.2.10"\nhomepage_aliases = []\n'
             b'scratch = "scratch.example"\nbridge = "bridge.example"\n'
-            b'minecraft = "sb.example"\n',
+            b'minecraft = "sb.example"\nwirescope = "wirescope.example"\n',
             "operator_input_parse_failed",
         ),
         (
             b'homepage = "mc.example"\nhomepage_aliases = []\n'
             b'scratch = "same.example"\nbridge = "same.example"\n'
-            b'minecraft = "sb.example"\n',
+            b'minecraft = "sb.example"\nwirescope = "wirescope.example"\n',
             "operator_input_parse_failed",
         ),
         (
             b'homepage = "mc.example"\nhomepage_aliases = []\n'
             b'scratch = "secret://runtime"\nbridge = "bridge.example"\n'
-            b'minecraft = "sb.example"\n',
+            b'minecraft = "sb.example"\nwirescope = "wirescope.example"\n',
             "operator_input_secret_forbidden",
         ),
     ],
@@ -302,146 +302,6 @@ def test_minecraft_motd_adapter_fails_closed(
 
     assert exc_info.value.reason == reason
     assert not (project / "mc-remote.lock.toml").exists()
-
-
-def test_connection_targets_adapter_parses_ordered_semantic_list(tmp_path: Path) -> None:
-    source = b"""
-[[targets]]
-id = "stable"
-label = "Stable"
-sandbox = "sb.mc-remote.example"
-
-[[targets]]
-id = "beta"
-label = "Beta"
-sandbox = "beta.sb.mc-remote.example"
-""".lstrip()
-
-    semantic = _parse_connection_targets(tmp_path / "targets.toml", source)
-
-    assert semantic == {
-        "targets": [
-            {"id": "stable", "label": "Stable", "sandbox": "sb.mc-remote.example"},
-            {"id": "beta", "label": "Beta", "sandbox": "beta.sb.mc-remote.example"},
-        ]
-    }
-
-
-@pytest.mark.parametrize(
-    ("content", "reason"),
-    [
-        (b"targets = []\n", "operator_input_parse_failed"),
-        (
-            b'[[targets]]\nid = "stable"\nlabel = "Stable"\n'
-            b'sandbox = "sb.mc-remote.example"\nextra = "nope"\n',
-            "operator_input_parse_failed",
-        ),
-        (
-            b'[[targets]]\nid = "Stable"\nlabel = "Stable"\n'
-            b'sandbox = "sb.mc-remote.example"\n',
-            "operator_input_parse_failed",
-        ),
-        (
-            b'[[targets]]\nid = "stable"\nlabel = ""\n'
-            b'sandbox = "sb.mc-remote.example"\n',
-            "operator_input_parse_failed",
-        ),
-        (
-            b'[[targets]]\nid = "stable"\nlabel = "secret://token"\n'
-            b'sandbox = "sb.mc-remote.example"\n',
-            "operator_input_secret_forbidden",
-        ),
-        (
-            b'[[targets]]\nid = "stable"\nlabel = "Stable"\n'
-            b'sandbox = "192.0.2.10"\n',
-            "operator_input_parse_failed",
-        ),
-        (
-            b'[[targets]]\nid = "stable"\nlabel = "Stable"\n'
-            b'sandbox = "sb.mc-remote.example"\n'
-            b'[[targets]]\nid = "stable"\nlabel = "Stable again"\n'
-            b'sandbox = "other.mc-remote.example"\n',
-            "operator_input_parse_failed",
-        ),
-        (
-            b'[[targets]]\nid = "stable"\nlabel = "Stable"\n'
-            b'sandbox = "sb.mc-remote.example"\n'
-            b'[[targets]]\nid = "beta"\nlabel = "Beta"\n'
-            b'sandbox = "sb.mc-remote.example"\n',
-            "operator_input_parse_failed",
-        ),
-    ],
-)
-def test_connection_targets_adapter_fails_closed(
-    tmp_path: Path,
-    content: bytes,
-    reason: str,
-) -> None:
-    with pytest.raises(OperatorInputError) as exc_info:
-        _parse_connection_targets(tmp_path / "targets.toml", content)
-
-    assert exc_info.value.reason == reason
-
-
-def test_connection_targets_v2_projects_one_public_notice(tmp_path: Path) -> None:
-    source = b'''notice_heading = "WireScope beta"
-notice_body = "Scratch and Minecraft traffic can now be observed."
-notice_href = "https://wirescope-beta.mc-remote.example/"
-notice_label = "Open WireScope"
-
-[[targets]]
-id = "beta"
-label = "Beta"
-sandbox = "sb-beta.mc-remote.example"
-'''
-
-    assert _parse_connection_targets_v2(tmp_path / "targets.toml", source) == {
-        "targets": [
-            {
-                "id": "beta",
-                "label": "Beta",
-                "sandbox": "sb-beta.mc-remote.example",
-            }
-        ],
-        "notices": [
-            {
-                "heading": "WireScope beta",
-                "body": "Scratch and Minecraft traffic can now be observed.",
-                "link": {
-                    "href": "https://wirescope-beta.mc-remote.example/",
-                    "label": "Open WireScope",
-                },
-            }
-        ],
-    }
-
-
-@pytest.mark.parametrize(
-    "replacement",
-    [
-        b'notice_heading = ""',
-        b'notice_href = "http://wirescope-beta.mc-remote.example/"',
-        b'notice_href = "secret://credential"',
-    ],
-)
-def test_connection_targets_v2_rejects_invalid_public_notice(
-    tmp_path: Path,
-    replacement: bytes,
-) -> None:
-    source = b'''notice_heading = "WireScope beta"
-notice_body = "Observe traffic."
-notice_href = "https://wirescope-beta.mc-remote.example/"
-notice_label = "Open WireScope"
-[[targets]]
-id = "beta"
-label = "Beta"
-sandbox = "sb-beta.mc-remote.example"
-'''
-    key = replacement.partition(b" =")[0]
-    lines = [replacement if line.startswith(key + b" =") else line for line in source.splitlines()]
-
-    with pytest.raises(OperatorInputError):
-        _parse_connection_targets_v2(tmp_path / "targets.toml", b"\n".join(lines) + b"\n")
 
 
 def test_connection_targets_v3_preserves_ordered_public_notice_feed(

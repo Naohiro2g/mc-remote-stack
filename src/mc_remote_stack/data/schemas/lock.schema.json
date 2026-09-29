@@ -438,7 +438,7 @@
                 "$ref": "#/$defs/token"
               },
               "kind": {
-                "enum": ["world", "runtime-data", "security-state", "backup", "cache"]
+                "enum": ["world", "runtime-data", "backup", "cache"]
               }
             }
           }
@@ -649,19 +649,10 @@
           "$ref": "#/$defs/minecraftMotdInput"
         },
         {
-          "$ref": "#/$defs/publicRoutesInput"
-        },
-        {
           "$ref": "#/$defs/publicRoutesV2Input"
         },
         {
           "$ref": "#/$defs/minecraftServerInput"
-        },
-        {
-          "$ref": "#/$defs/connectionTargetsInput"
-        },
-        {
-          "$ref": "#/$defs/connectionTargetsV2Input"
         },
         {
           "$ref": "#/$defs/connectionTargetsV3Input"
@@ -705,7 +696,7 @@
           "const": "public-routes"
         },
         "adapter": {
-          "enum": ["public-routes@1", "public-routes@2"]
+          "enum": ["public-routes@2"]
         },
         "required": {
           "type": "boolean"
@@ -737,7 +728,7 @@
           "const": "connection-targets"
         },
         "adapter": {
-          "enum": ["connection-targets@1", "connection-targets@2", "connection-targets@3"]
+          "enum": ["connection-targets@3"]
         },
         "required": {
           "type": "boolean"
@@ -880,69 +871,6 @@
               "type": "string",
               "minLength": 1,
               "maxLength": 256
-            }
-          }
-        }
-      }
-    },
-    "publicRoutesInput": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "role",
-        "adapter",
-        "path",
-        "semantic_sha256",
-        "semantic"
-      ],
-      "properties": {
-        "role": {
-          "const": "public-routes"
-        },
-        "adapter": {
-          "const": "public-routes@1"
-        },
-        "path": {
-          "const": "operator/public-routes/routes.toml"
-        },
-        "semantic_sha256": {
-          "$ref": "#/$defs/sha256"
-        },
-        "semantic": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "homepage",
-            "homepage_aliases",
-            "scratch",
-            "bridge",
-            "minecraft"
-          ],
-          "properties": {
-            "homepage": {
-              "type": "string",
-              "minLength": 1
-            },
-            "homepage_aliases": {
-              "type": "array",
-              "maxItems": 8,
-              "uniqueItems": true,
-              "items": {
-                "type": "string",
-                "minLength": 1
-              }
-            },
-            "scratch": {
-              "type": "string",
-              "minLength": 1
-            },
-            "bridge": {
-              "type": "string",
-              "minLength": 1
-            },
-            "minecraft": {
-              "type": "string",
-              "minLength": 1
             }
           }
         }
@@ -1121,157 +1049,6 @@
               "maximum": 32
             },
             "white_list": {"type": "boolean"}
-          }
-        }
-      }
-    },
-    "connectionTargetsInput": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "role",
-        "adapter",
-        "path",
-        "semantic_sha256",
-        "semantic"
-      ],
-      "properties": {
-        "role": {
-          "const": "connection-targets"
-        },
-        "adapter": {
-          "const": "connection-targets@1"
-        },
-        "path": {
-          "const": "operator/connection-targets/targets.toml"
-        },
-        "semantic_sha256": {
-          "$ref": "#/$defs/sha256"
-        },
-        "semantic": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["targets"],
-          "properties": {
-            "targets": {
-              "type": "array",
-              "minItems": 1,
-              "maxItems": 32,
-              "items": {
-                "type": "object",
-                "additionalProperties": false,
-                "required": ["id", "label", "sandbox"],
-                "properties": {
-                  "id": {
-                    "$ref": "#/$defs/token"
-                  },
-                  "label": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 64
-                  },
-                  "sandbox": {
-                    "type": "string",
-                    "minLength": 1
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "connectionTargetsV2Input": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "role",
-        "adapter",
-        "path",
-        "semantic_sha256",
-        "semantic"
-      ],
-      "properties": {
-        "role": {
-          "const": "connection-targets"
-        },
-        "adapter": {
-          "const": "connection-targets@2"
-        },
-        "path": {
-          "const": "operator/connection-targets/targets.toml"
-        },
-        "semantic_sha256": {
-          "$ref": "#/$defs/sha256"
-        },
-        "semantic": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["targets", "notices"],
-          "properties": {
-            "targets": {
-              "type": "array",
-              "minItems": 1,
-              "maxItems": 32,
-              "items": {
-                "type": "object",
-                "additionalProperties": false,
-                "required": ["id", "label", "sandbox"],
-                "properties": {
-                  "id": {
-                    "$ref": "#/$defs/token"
-                  },
-                  "label": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 64
-                  },
-                  "sandbox": {
-                    "type": "string",
-                    "minLength": 1
-                  }
-                }
-              }
-            },
-            "notices": {
-              "type": "array",
-              "minItems": 1,
-              "maxItems": 1,
-              "items": {
-                "type": "object",
-                "additionalProperties": false,
-                "required": ["heading", "body", "link"],
-                "properties": {
-                  "heading": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 64
-                  },
-                  "body": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 512
-                  },
-                  "link": {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": ["href", "label"],
-                    "properties": {
-                      "href": {
-                        "type": "string",
-                        "pattern": "^https://",
-                        "maxLength": 2048
-                      },
-                      "label": {
-                        "type": "string",
-                        "minLength": 1,
-                        "maxLength": 64
-                      }
-                    }
-                  }
-                }
-              }
-            }
           }
         }
       }

@@ -13,7 +13,6 @@ from mc_remote_stack.cli import main
 from mc_remote_stack.preset_registry import build_preset_catalog, semantic_sha256
 from mc_remote_stack.render import RenderContractError, render_toml_project
 from mc_remote_stack.resolver import ResolutionError, load_lock, resolve_project
-from mc_remote_stack.runtime_content import import_homepage_tree
 from mc_remote_stack.toml_project import init_toml_project, update_order_scalar
 
 from .test_preset_registry import _data_root, _write_policy
@@ -644,588 +643,85 @@ bridge_port = 8444
     assert manifest["adapter_revision"] == "14"
 
 
-def test_compose_v9_requires_explicit_scratch_target_and_emits_empty_notices(
-    monkeypatch: pytest.MonkeyPatch,
+def _public_lock(tmp_path: Path) -> dict:
+    fixture = build_vps_fixture(tmp_path)
+    return load_lock(fixture.project, data_root=fixture.data_root)
+
+
+def _replace_connection_targets(lock: dict, semantic: dict) -> None:
+    for inputs in (lock["operator_inputs"], lock["render_plan"]["operator_inputs"]):
+        for item in inputs:
+            if item["role"] == "connection-targets":
+                item["semantic"] = copy.deepcopy(semantic)
+                item["semantic_sha256"] = semantic_sha256(semantic)
+
+
+def test_public_renderer_appends_preset_release_notice_after_operator_feed(
+    tmp_path: Path,
 ) -> None:
-    base_runtime = {
-        "bridge_url": "wss://bridge-beta.mc-remote.example",
-        "default_sandbox": "sb-beta.mc-remote.example",
-        "connection_targets": [
-            {
-                "id": "beta",
-                "label": "公開ベータ",
-                "sandbox": "sb-beta.mc-remote.example",
-            }
-        ],
-        "connection_enabled": True,
-        "release_identity": "scratch-b3",
-    }
-    monkeypatch.setattr(
-        render_module,
-        "_compose_v8",
-        lambda _lock: (
-            {"services": {}},
-            {"runtime/scratch.json": json.dumps(base_runtime, ensure_ascii=False) + "\n"},
-        ),
-    )
-
-    _compose, rendered_files = render_module._compose_v9(
-        {"environment": {"channel": "beta"}}
-    )
-    runtime = json.loads(rendered_files["runtime/scratch.json"])
-
-    assert runtime["connection_targets"] == base_runtime["connection_targets"]
-    assert runtime["default_sandbox"] == "sb-beta.mc-remote.example"
-    assert runtime["notices"] == []
-
-
-def test_compose_v9_projects_typed_public_notice(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    runtime = {
-        "bridge_url": "wss://bridge-beta.mc-remote.example",
-        "default_sandbox": "sb-beta.mc-remote.example",
-        "connection_targets": [
-            {
-                "id": "beta",
-                "label": "Beta",
-                "sandbox": "sb-beta.mc-remote.example",
-            }
-        ],
-        "connection_enabled": True,
-        "release_identity": "scratch-b4",
-    }
-    notices = [
-        {
-            "heading": "WireScope beta",
-            "body": "Observe Scratch and Minecraft traffic.",
-            "link": {
-                "href": "https://wirescope-beta.mc-remote.example/",
-                "label": "Open WireScope",
-            },
-        }
-    ]
-    monkeypatch.setattr(
-        render_module,
-        "_compose_v8",
-        lambda _lock: (
-            {"services": {}},
-            {"runtime/scratch.json": json.dumps(runtime) + "\n"},
-        ),
-    )
-    monkeypatch.setattr(
-        render_module,
-        "_locked_connection_notices",
-        lambda _lock: notices,
-        raising=False,
-    )
-
-    _compose, rendered = render_module._compose_v9({"environment": {"channel": "beta"}})
-
-    assert json.loads(rendered["runtime/scratch.json"])["notices"] == notices
-
-
-def test_compose_v13_appends_preset_release_notice_after_operator_feed(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    operator_notices = [
-        {
-            "heading": "今後のリリース予定",
-            "body": "10月RC版、年内に安定版リリース予定です。",
-            "link": {"href": "https://mc-remote.com", "label": "公式サイトを見る"},
-        },
-        {
-            "heading": "WireScope（ワイヤースコープ）ライブ画面",
-            "body": "ScratchとMinecraftの通信を観察できます。",
-            "link": {
-                "href": "https://wirescope-beta.mc-remote.com/",
-                "label": "WireScopeを見る",
-            },
-        },
-    ]
+    lock = _public_lock(tmp_path)
     release_notice = {
         "heading": "マイクラリモコンScratchクライアント ver.2100.0.0b4",
         "body": "リリース情報は「こちら」。",
-        "link": {
-            "href": "https://github.com/Naohiro2g/scratch-editor/releases#release-v2100.0.0b4",
-            "label": "こちら",
-        },
+        "link": {"href": "https://example.invalid/releases", "label": "こちら"},
     }
-    monkeypatch.setattr(
-        render_module,
-        "_compose_v12",
-        lambda _lock: (
-            {
-                "services": {
-                    "scratch": {
-                        "volumes": [
-                            {
-                                "type": "bind",
-                                "source": "./runtime/scratch.json",
-                                "target": "/usr/share/nginx/html/mc-remote-runtime-config.json",
-                                "read_only": True,
-                            }
-                        ]
-                    }
-                }
-            },
-            {
-                "runtime/scratch.json": json.dumps(
-                    {"notices": operator_notices}, ensure_ascii=False
-                )
-                + "\n"
-            },
-        ),
-    )
+    lock["presentation"] = {"scratch_release_notice": release_notice}
+    lock["render_plan"]["presentation"] = copy.deepcopy(lock["presentation"])
 
-    _compose, rendered = render_module._compose_v13(
-        {
-            "presentation": {"scratch_release_notice": release_notice},
-            "render_plan": {
-                "presentation": {"scratch_release_notice": release_notice}
-            },
-        }
-    )
+    _compose, rendered = render_module._compose_public(lock)
 
-    assert json.loads(rendered["runtime/scratch.json"])["notices"] == [
-        *operator_notices,
-        release_notice,
-    ]
+    notices = json.loads(rendered["runtime/scratch.json"])["notices"]
+    assert notices == [{"heading": "お知らせ", "body": "fixture notice"}, release_notice]
 
 
-def test_compose_v13_skips_release_notice_when_preset_has_no_presentation(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """DEC 2026-09-05-02: product-config's {version} notice is now the sole
-    developer-notice source, so a preset may omit `[presentation]` entirely."""
-
-    operator_notices = [
-        {
-            "heading": "今後のリリース予定",
-            "body": "10月RC版、年内に安定版リリース予定です。",
-            "link": {"href": "https://mc-remote.com", "label": "公式サイトを見る"},
-        },
-    ]
-    monkeypatch.setattr(
-        render_module,
-        "_compose_v12",
-        lambda _lock: (
-            {
-                "services": {
-                    "scratch": {
-                        "volumes": [
-                            {
-                                "type": "bind",
-                                "source": "./runtime/scratch.json",
-                                "target": "/usr/share/nginx/html/mc-remote-runtime-config.json",
-                                "read_only": True,
-                            }
-                        ]
-                    }
-                }
-            },
-            {
-                "runtime/scratch.json": json.dumps(
-                    {"notices": operator_notices}, ensure_ascii=False
-                )
-                + "\n"
-            },
-        ),
-    )
-
-    _compose, rendered = render_module._compose_v13({"render_plan": {}})
-
-    assert json.loads(rendered["runtime/scratch.json"])["notices"] == operator_notices
-
-
-def test_compose_v13_projects_locked_b7_runtime_contract_without_release_identity(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    runtime = {
-        "bridge_url": "wss://bridge-beta.mc-remote.com",
-        "default_sandbox": "sb.mc-remote.com",
-        "connection_targets": [
-            {"id": "official", "label": "Official", "sandbox": "sb.mc-remote.com"}
-        ],
-        "connection_enabled": True,
-        "release_identity": "sha-obsolete",
-        "notices": [{"heading": "Operator", "body": "Maintenance notice"}],
-    }
-    release_notice = {
-        "heading": "McRemote b7",
-        "body": "Release information",
-    }
-    contract = {
-        "source_commit": "4c893bd532002d9216665c5c9b9825e09ede1e7c",
-        "source_directory": "packages/scratch-gui/contracts/runtime-config",
-        "directory_tree_sha": "ecb669a02ac6c8e502b44850e6dd28260c5adad4",
-        "schema_sha256": "4e1f8489dc6ea03800f5cf0fefd2f078fd6d71c8efda581f1711f68e384f99e4",
-        "container_mount_path": "/usr/share/nginx/html/mc-remote-runtime-config.json",
-        "image_digest": "sha256:"
-        "c2693fd5078ba547ced1cfe6b1732d5e9c283ffc44aaf8356bce6967e5aa7f2c",
-        "accepted_fixtures": ["fixtures/disabled.json", "fixtures/valid.json"],
-        "rejected_fixtures": [
-            "fixtures/invalid/enabled-missing-targets.json",
-            "fixtures/invalid/nested-unknown-field.json",
-            "fixtures/invalid/schema-version.json",
-            "fixtures/invalid/unknown-field.json",
-        ],
-        "fixture_sha256": {
-            "fixtures/disabled.json": "bec0cf2c31fbca7d3bd603e29c1d145d82b6ecf7b4661b9adafde31dfa2eec2d",
-            "fixtures/valid.json": "cc2282144e1e87b42d2e31229461f9aeead26eeb446ae817571eb96935360e20",
-            "fixtures/invalid/enabled-missing-targets.json": (
-                "f5392059e42431b45fb8f7f03aa09e734fb8b9e79f8fb92913082ff05842736c"
-            ),
-            "fixtures/invalid/nested-unknown-field.json": (
-                "ed0923793b8713ec67615b6f14bc9f8fb342041b0cdeed5d7b9b10110a3c62b7"
-            ),
-            "fixtures/invalid/schema-version.json": "9e0d32fc83501a2b73095ae59675e27ace5d11fb31e19443b78e49341ba3e766",
-            "fixtures/invalid/unknown-field.json": "35f1f21562e237cce722f5a1f93723f00d927d07769f8b12174d3ff9f73d5e3d",
-        },
-    }
-    monkeypatch.setattr(
-        render_module,
-        "_compose_v12",
-        lambda _lock: (
-            {
-                "services": {
-                    "scratch": {
-                        "volumes": [
-                            {
-                                "type": "bind",
-                                "source": "./runtime/scratch.json",
-                                "target": contract["container_mount_path"],
-                                "read_only": True,
-                            }
-                        ]
-                    }
-                }
-            },
-            {"runtime/scratch.json": json.dumps(runtime, ensure_ascii=False) + "\n"},
-        ),
-    )
-
-    _compose, rendered = render_module._compose_v13(
-        {
-            "components": [
-                {
-                    "id": "scratch",
-                    "role": "scratch-runtime",
-                    "artifact": "scratch-image",
-                }
-            ],
-            "artifacts": [
-                {
-                    "id": "scratch-image",
-                    "kind": "oci",
-                    "digest": contract["image_digest"],
-                }
-            ],
-            "scratch_runtime_contract": contract,
-            "presentation": {"scratch_release_notice": release_notice},
-            "render_plan": {
-                "scratch_runtime_contract": contract,
-                "presentation": {"scratch_release_notice": release_notice},
-            },
-        }
-    )
-
-    projected = json.loads(rendered["runtime/scratch.json"])
-    assert projected["schema_version"] == 1
-    assert "release_identity" not in projected
-    assert projected["notices"] == [runtime["notices"][0], release_notice]
-
-
-def test_compose_v13_rejects_release_notice_projection_mismatch(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        render_module,
-        "_compose_v12",
-        lambda _lock: (
-            {"services": {}},
-            {"runtime/scratch.json": json.dumps({"notices": [{}]}) + "\n"},
-        ),
-    )
+def test_public_renderer_rejects_release_notice_projection_mismatch(tmp_path: Path) -> None:
+    lock = _public_lock(tmp_path)
+    lock["presentation"] = {"scratch_release_notice": {"heading": "one"}}
+    lock["render_plan"]["presentation"] = {"scratch_release_notice": {"heading": "two"}}
 
     with pytest.raises(RenderContractError) as exc_info:
-        render_module._compose_v13(
-            {
-                "presentation": {"scratch_release_notice": {"heading": "one"}},
-                "render_plan": {
-                    "presentation": {"scratch_release_notice": {"heading": "two"}}
-                },
-            }
-        )
+        render_module._compose_public(lock)
 
     assert exc_info.value.reason == "render_plan_invalid"
 
 
-def test_compose_v10_uses_writable_world_scoped_session_store(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        render_module,
-        "_compose_v9",
-        lambda _lock: (
-            {"services": {"minecraft": {}}},
-            {
-                "minecraft/plugins/McRemote/config.yml": "old\n",
-                "runtime/scratch.json": "{}\n",
-            },
+@pytest.mark.parametrize(
+    ("targets", "path"),
+    [
+        ([], "runtime/scratch.json.connection_targets"),
+        (
+            [{"id": "other", "label": "Other", "sandbox": "other.mc-remote.example"}],
+            "runtime/scratch.json.default_sandbox",
         ),
-    )
-
-    _compose, rendered_files = render_module._compose_v10(
-        {"components": [{"role": "paper-server", "minecraft_version": "1.21.11"}]}
-    )
-
-    config = rendered_files["minecraft/plugins/McRemote/config.yml"]
-    assert "# Generated by mcrctl compose@10." in config
-    assert (
-        'credential_store_path: "/data/plugins/McRemote/session-only/store/snapshot.json"'
-        in config
-    )
-    assert (
-        'revocation_authority_path: "/data/plugins/McRemote/session-only/authority"'
-        in config
-    )
-    assert "/config/mcremote-session-only" not in config
-
-
-def test_compose_v9_rejects_missing_connection_targets(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    runtime = {
-        "bridge_url": "wss://bridge-beta.mc-remote.example",
-        "default_sandbox": "sb-beta.mc-remote.example",
-        "connection_enabled": True,
-        "release_identity": "scratch-b3",
-    }
-    monkeypatch.setattr(
-        render_module,
-        "_compose_v8",
-        lambda _lock: (
-            {"services": {}},
-            {"runtime/scratch.json": json.dumps(runtime) + "\n"},
-        ),
-    )
-
-    with pytest.raises(render_module.RenderContractError) as exc_info:
-        render_module._compose_v9({"environment": {"channel": "beta"}})
-
-    assert exc_info.value.reason == "scratch_runtime_config_invalid"
-    assert exc_info.value.path == "runtime/scratch.json.connection_targets"
-
-
-def test_compose_v9_rejects_default_outside_connection_targets(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    runtime = {
-        "bridge_url": "wss://bridge-beta.mc-remote.example",
-        "default_sandbox": "sb-beta.mc-remote.example",
-        "connection_targets": [
-            {
-                "id": "stable",
-                "label": "安定版",
-                "sandbox": "sb.mc-remote.example",
-            }
-        ],
-        "connection_enabled": True,
-        "release_identity": "scratch-b3",
-    }
-    monkeypatch.setattr(
-        render_module,
-        "_compose_v8",
-        lambda _lock: (
-            {"services": {}},
-            {"runtime/scratch.json": json.dumps(runtime, ensure_ascii=False) + "\n"},
-        ),
-    )
-
-    with pytest.raises(render_module.RenderContractError) as exc_info:
-        render_module._compose_v9({"environment": {"channel": "beta"}})
-
-    assert exc_info.value.reason == "scratch_runtime_config_invalid"
-    assert exc_info.value.path == "runtime/scratch.json.default_sandbox"
-
-
-def test_compose_v12_projects_exact_plugins_and_homepage_without_overlays(
+    ],
+)
+def test_public_renderer_rejects_unusable_connection_targets(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    targets: list,
+    path: str,
 ) -> None:
-    store = tmp_path / "artifacts"
-    plugin_bytes = b"peripheral plugin\n"
-    plugin_sha256 = hashlib.sha256(plugin_bytes).hexdigest()
-    plugin_path = store / "sha256" / plugin_sha256
-    plugin_path.parent.mkdir(parents=True)
-    plugin_path.write_bytes(plugin_bytes)
-    homepage_source = tmp_path / "homepage-source"
-    homepage_source.mkdir()
-    (homepage_source / "index.html").write_text("homepage\n", encoding="utf-8")
-    homepage = import_homepage_tree(homepage_source, store)
-
-    routes_semantic = {
-        "homepage": "mc-remote.example",
-        "homepage_aliases": ["www.mc-remote.example"],
-        "scratch": "scratch-beta.mc-remote.example",
-        "bridge": "bridge-beta.mc-remote.example",
-        "minecraft": "sb-beta.mc-remote.example",
-        "wirescope": "wirescope-beta.mc-remote.example",
-    }
-    plugins_semantic = {
-        "plugins": [{"filename": "WorldEdit.jar", "sha256": plugin_sha256}]
-    }
-    homepage_semantic = {
-        "tree_sha256": homepage.tree_sha256,
-        "file_count": homepage.file_count,
-        "total_bytes": homepage.total_bytes,
-    }
-    backup_path = tmp_path / "backup"
-    backup_path.mkdir()
-    backup_semantic = {"host_path": str(backup_path)}
-    operator_inputs = [
-        {
-            "role": "public-routes",
-            "adapter": "public-routes@2",
-            "path": "operator/public-routes/routes.toml",
-            "semantic_sha256": semantic_sha256(routes_semantic),
-            "semantic": routes_semantic,
-        },
-        {
-            "role": "minecraft-plugins",
-            "adapter": "minecraft-plugins@1",
-            "path": "operator/minecraft-plugins/plugins.toml",
-            "semantic_sha256": semantic_sha256(plugins_semantic),
-            "semantic": plugins_semantic,
-        },
-        {
-            "role": "homepage-static",
-            "adapter": "homepage-static@1",
-            "path": "operator/homepage-static/homepage.toml",
-            "semantic_sha256": semantic_sha256(homepage_semantic),
-            "semantic": homepage_semantic,
-        },
-        {
-            "role": "minecraft-backup",
-            "adapter": "minecraft-backup@1",
-            "path": "operator/minecraft-backup/backup.toml",
-            "semantic_sha256": semantic_sha256(backup_semantic),
-            "semantic": backup_semantic,
-        },
-    ]
-    lock = {
-        "runtime": {"artifact_store": str(store)},
-        "operator_inputs": operator_inputs,
-        "render_plan": {"operator_inputs": operator_inputs},
-    }
-    homepage_domains = "mc-remote.example, www.mc-remote.example"
-    base_compose = {
-        "services": {
-            "minecraft": {
-                "volumes": [
-                    {
-                        "type": "bind",
-                        "source": "/artifacts/mcremote",
-                        "target": "/plugins/McRemote.jar",
-                        "read_only": True,
-                    }
-                ],
-                "labels": {},
-            },
-            "caddy": {"volumes": [], "labels": {}},
-        }
-    }
-    base_files = {
-        "Caddyfile": f'''# Generated by mcrctl compose@11. Do not edit.
-{homepage_domains} {{
-    encode zstd gzip
-    respond "McRemote public edge is healthy; homepage content is not installed." 200
-}}
-'''
-    }
-    monkeypatch.setattr(
-        render_module,
-        "_compose_v11",
-        lambda _lock: (copy.deepcopy(base_compose), dict(base_files)),
-    )
-
-    compose, rendered = render_module._compose_v12(lock)
-
-    assert {
-        "type": "bind",
-        "source": str(plugin_path),
-        "target": "/plugins/WorldEdit.jar",
-        "read_only": True,
-    } in compose["services"]["minecraft"]["volumes"]
-    assert {
-        "type": "bind",
-        "source": str(store.parent / "homepage"),
-        "target": "/srv/homepage",
-        "read_only": True,
-    } in compose["services"]["caddy"]["volumes"]
-    assert {
-        "type": "bind",
-        "source": str(backup_path),
-        "target": "/backup",
-    } in compose["services"]["minecraft"]["volumes"]
-    assert "root * /srv/homepage" in rendered["Caddyfile"]
-    assert "file_server" in rendered["Caddyfile"]
-    assert "content is not installed" not in rendered["Caddyfile"]
-    assert "compose@12" in rendered["Caddyfile"]
-
-
-def test_compose_v12_rejects_missing_peripheral_plugin(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    plugins = {"plugins": [{"filename": "WorldEdit.jar", "sha256": "a" * 64}]}
-    homepage = {"tree_sha256": "b" * 64, "file_count": 1, "total_bytes": 1}
-    backup = {"host_path": str(tmp_path / "backup")}
-    inputs = [
-        {
-            "role": "minecraft-plugins",
-            "adapter": "minecraft-plugins@1",
-            "path": "operator/minecraft-plugins/plugins.toml",
-            "semantic_sha256": semantic_sha256(plugins),
-            "semantic": plugins,
-        },
-        {
-            "role": "homepage-static",
-            "adapter": "homepage-static@1",
-            "path": "operator/homepage-static/homepage.toml",
-            "semantic_sha256": semantic_sha256(homepage),
-            "semantic": homepage,
-        },
-        {
-            "role": "minecraft-backup",
-            "adapter": "minecraft-backup@1",
-            "path": "operator/minecraft-backup/backup.toml",
-            "semantic_sha256": semantic_sha256(backup),
-            "semantic": backup,
-        },
-    ]
-    monkeypatch.setattr(
-        render_module,
-        "_compose_v11",
-        lambda _lock: (
-            {
-                "services": {
-                    "minecraft": {"volumes": [], "labels": {}},
-                    "caddy": {"volumes": [], "labels": {}},
-                }
-            },
-            {"Caddyfile": ""},
-        ),
+    lock = _public_lock(tmp_path)
+    _replace_connection_targets(
+        lock,
+        {"targets": targets, "notices": [{"heading": "お知らせ", "body": "fixture notice"}]},
     )
 
     with pytest.raises(RenderContractError) as exc_info:
-        render_module._compose_v12(
-            {
-                "runtime": {"artifact_store": str(tmp_path / "store")},
-                "operator_inputs": inputs,
-                "render_plan": {"operator_inputs": inputs},
-            }
-        )
+        render_module._compose_public(lock)
+
+    assert exc_info.value.reason == "scratch_runtime_config_invalid"
+    assert exc_info.value.path == path
+
+
+def test_public_renderer_rejects_missing_peripheral_plugin(tmp_path: Path) -> None:
+    lock = _public_lock(tmp_path)
+    plugins = next(
+        item for item in lock["operator_inputs"] if item["role"] == "minecraft-plugins"
+    )
+    for plugin in plugins["semantic"]["plugins"]:
+        (Path(lock["runtime"]["artifact_store"]) / "sha256" / plugin["sha256"]).unlink()
+
+    with pytest.raises(RenderContractError) as exc_info:
+        render_module._compose_public(lock)
 
     assert exc_info.value.reason == "runtime_content_missing"
