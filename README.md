@@ -1,13 +1,32 @@
 # mc-remote-stack
 
-> [!NOTE]
-> このリポジトリの文書は日本語を正本とします。方針は
-> [LANGUAGE_POLICY.md](https://github.com/Naohiro2g/mc-remote-knowledge/blob/main/LANGUAGE_POLICY.md)
-> を参照してください。
+[マイクラリモコン](https://mc-remote.com/)（Minecraft Remote / mc-remote）のサーバーを構築・運用するためのパッケージです。
 
-McRemote（マイクラリモコン）のサーバー一式を、同じ手順で何度でも組み立てるためのパッケージです。
-設定ファイルから、versionとdigestを固定したDocker Compose構成を生成し、適用して、動作を確認します。
-コマンドは`mcrctl`です。
+🏠 **公式サイト**: [mc-remote.com](https://mc-remote.com/)
+
+> [!NOTE]
+> **🌐 言語方針について / Language Policy**  
+> 本リポジトリは、一次情報（SSOT）の鮮度と正確性を保つため、日本語を正本として記述しています。多言語参加やIssue/PRの利用方針については [主要言語についての方針転換 / Language Policy](https://github.com/Naohiro2g/mc-remote-knowledge/blob/main/LANGUAGE_POLICY.md) をご覧ください。  
+> *This repository is maintained in Japanese as its primary Single Source of Truth (SSOT). Multi-language contributions are welcome. Please see our [Language Policy](https://github.com/Naohiro2g/mc-remote-knowledge/blob/main/LANGUAGE_POLICY.md).*
+
+## マイクラリモコンとは
+
+マイクラリモコンは、コーディングでマイクラの世界を動かしながら「学び方を学ぶ」ためのオープンソースのツール群です。
+Scratch や Python などで書いたプログラムから、マインクラフトのサーバーへブロックを置いたり、プレイヤーを動かしたりできます。
+マイクラのアプリは Java 版でも統合版でも接続できます。
+
+- サーバーのプラグイン（McRemote）
+- 各言語のクライアント（Scratch、Python、Java など）
+- 通信の中身を観察する WireScope
+- サーバーの構築・運用パッケージ（mc-remote-stack、このリポジトリ）
+
+はじめかた、考え方、ロードマップは公式ホームページへ：<https://mc-remote.com/>
+
+## このリポジトリの役割
+
+マイクラリモコン全体のうち、サーバーの構築・運用の仕組みを受け持ちます。マシンの構築と運営の方式
+（ケータリング方式など）の正本はこのリポジトリにあります。設定ファイルから、versionとdigestを固定した
+Docker Compose構成を生成し、適用して、動作を確認します。コマンドは`mcrctl`です。
 
 ## 組み立てるもの
 
