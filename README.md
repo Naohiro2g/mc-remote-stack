@@ -49,18 +49,20 @@ McRemote（マイクラリモコン）のサーバー一式を、同じ手順で
   更新する方式です。
 - 二つの方式は、設定ファイル名がどちらも`mc-remote.toml`ですが、書き方が違います。
 - 次の環境の仕組みは、まだStackにありません: 公式stable（Minecraft部分はXServer GAMEs）、dev
-  サーバーのalpha／beta、Dockerを使わない構成、ケータリングPCでの検証、非公開リポジトリの立ち上げ。
+  サーバーのalpha／beta、Dockerを使わない構成、ケータリングPCでの検証、private opsリポの立ち上げ。
 
 ## 役割分担
 
 | リポジトリ | 持つもの |
 | --- | --- |
-| mc-remote-stack（ここ） | 構築の仕組みと、公開できる手順。方式が確立するまでは、各環境での構築もStackが行う |
-| mc-remote-backstage（非公開） | 実際のhost、接続先、契約などの非公開情報。方式が確立した後の日々の運用 |
+| mc-remote-stack（ここ） | マシンの構築と運営の方式、公開できる手順。方式を確立していく間は、運用の実務も持つ |
+| mc-remote-backstage（非公開） | 公式運用のprivate opsリポ。実際のhost、接続先、契約などの非公開情報。方式が確立した環境では、日々の実務を担う |
 | [mc-remote-knowledge](https://github.com/Naohiro2g/mc-remote-knowledge) | 設計判断の正本 |
 
-OSSとして使う場合は、backstageに相当する非公開リポジトリを自分で用意します。その立ち上げの仕組みも
-Stackに置く予定です。
+Stackとbackstageは協調して働き、どちらが実務を持つかを厳密には区切りません。
+
+OSSとして使う場合は、非公開の運用情報を置くprivate opsリポを自分で持ちます。公開テンプレートは作らず、
+その立ち上げの仕組みをStackに置く予定です。
 
 ## 開発
 
