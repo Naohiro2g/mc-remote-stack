@@ -18,7 +18,6 @@ import yaml
 
 from .preset_registry import semantic_sha256
 from .resolver import inspect_lock, load_lock
-from .runtime_contract import MINECRAFT_RUNTIME_GID, MINECRAFT_RUNTIME_UID
 from .scratch_contract import (
     ScratchContractError,
     load_runtime_config_schema,
@@ -394,235 +393,6 @@ def _oci_image(lock: dict[str, Any], role: str, *, adapter: str) -> tuple[dict[s
     return artifact, f"{artifact['locator']}:{artifact['version']}@{artifact['digest']}"
 
 
-def _compose_v1(
-    lock: dict[str, Any],
-    *,
-    credential_storage: bool = False,
-) -> tuple[dict[str, Any], str]:
-    adapter = "compose@5" if credential_storage else "compose@1"
-    runtime_component = _component_for_role(lock, "minecraft-runtime")
-    paper_component = _component_for_role(lock, "paper-server")
-    plugin_component = _component_for_role(lock, "mcremote-plugin")
-    runtime_artifact = _artifact_for_component(lock, runtime_component)
-    paper_artifact = _artifact_for_component(lock, paper_component)
-    plugin_artifact = _artifact_for_component(lock, plugin_component)
-
-    if runtime_artifact["kind"] != "oci":
-        _render_fail(
-            "unsupported_artifact_kind",
-            f"artifacts.{runtime_artifact['id']}",
-            f"{adapter} requires an OCI minecraft-runtime artifact",
-        )
-    if not OCI_TAG.fullmatch(runtime_artifact["version"]):
-        _render_fail(
-            "render_plan_invalid",
-            f"artifacts.{runtime_artifact['id']}.version",
-            f"{adapter} requires an explicit OCI tag-compatible version",
-        )
-    minecraft_version = paper_component.get("minecraft_version")
-    if not isinstance(minecraft_version, str) or not minecraft_version:
-        _render_fail(
-            "render_plan_invalid",
-            "components.paper-server.minecraft_version",
-            f"{adapter} requires an explicit Minecraft target version",
-        )
-
-    artifact_store = Path(lock["runtime"]["artifact_store"])
-    paper_filename, paper_sha256, paper_path = _verify_artifact_file(artifact_store, paper_artifact)
-    plugin_filename, plugin_sha256, plugin_path = _verify_artifact_file(artifact_store, plugin_artifact)
-
-    deployment_name = lock["deployment"]["name"]
-    if not COMPOSE_NAME.fullmatch(deployment_name):
-        _render_fail(
-            "render_plan_invalid",
-            "deployment.name",
-            f"{adapter} deployment name must be a Compose-compatible token",
-        )
-    services = lock["render_plan"]["services"]
-    if services != [{"id": "minecraft", "role": "minecraft"}]:
-        _render_fail(
-            "render_plan_invalid",
-            "render_plan.services",
-            f"{adapter} requires exactly the minecraft service declared by the selected profile",
-        )
-    service_id = services[0]["id"]
-    volume_assignments = {assignment["role"]: assignment["identity"] for assignment in lock["runtime"]["volumes"]}
-    volume_roles = lock["render_plan"]["volume_roles"]
-    expected_volume_roles = [{"id": "minecraft-data", "kind": "world"}]
-    if credential_storage:
-        expected_volume_roles.extend(
-            [
-                {"id": "credential-store", "kind": "runtime-data"},
-                {"id": "credential-revocations", "kind": "security-state"},
-            ]
-        )
-    if volume_roles != expected_volume_roles:
-        _render_fail(
-            "render_plan_invalid",
-            "render_plan.volume_roles",
-            f"{adapter} requires its exact declared volume roles",
-        )
-    expected_volume_ids = {role["id"] for role in expected_volume_roles}
-    if set(volume_assignments) != expected_volume_ids:
-        _render_fail(
-            "render_plan_invalid",
-            "runtime.volumes",
-            f"{adapter} requires exactly one assignment for every declared volume role",
-        )
-    world_identity = lock["world"]["identity"]
-    network = lock["network"]
-    lock_identity = lock["lock_identity"]
-    motd = _locked_minecraft_motd(lock)
-
-    image = f"{runtime_artifact['locator']}:{runtime_artifact['version']}@{runtime_artifact['digest']}"
-    minecraft_volumes = [
-        {
-            "type": "volume",
-            "source": "minecraft-data",
-            "target": "/data",
-        }
-    ]
-    if credential_storage:
-        minecraft_volumes.extend(
-            [
-                {
-                    "type": "volume",
-                    "source": "credential-store",
-                    "target": "/mcremote/credential-store",
-                },
-                {
-                    "type": "volume",
-                    "source": "credential-revocations",
-                    "target": "/mcremote/credential-revocations",
-                },
-            ]
-        )
-    minecraft_volumes.extend(
-        [
-            {
-                "type": "bind",
-                "source": f"./{service_id}",
-                "target": "/config",
-                "read_only": True,
-            },
-            {
-                "type": "bind",
-                "source": str(paper_path),
-                "target": f"/artifacts/{paper_filename}",
-                "read_only": True,
-            },
-            {
-                "type": "bind",
-                "source": str(plugin_path),
-                "target": f"/plugins/{plugin_filename}",
-                "read_only": True,
-            },
-        ]
-    )
-
-    environment = {
-        "EULA": "TRUE",
-        "TYPE": "PAPER",
-        "VERSION": minecraft_version,
-        "PAPER_CUSTOM_JAR": f"/artifacts/{paper_filename}",
-        "ONLINE_MODE": "true",
-        "ENABLE_RCON": "false",
-        "CREATE_CONSOLE_IN_PIPE": "true",
-        "REMOVE_OLD_MODS": "true",
-        "REMOVE_OLD_MODS_DEPTH": "1",
-        "SKIP_DOWNLOAD_DEFAULTS": "true",
-        "COPY_CONFIG_DEST": "/data",
-        # Seed-once, not force-enforced: see docs/operator-editable-runtime-config-design_ja.md.
-        # An operator's live edit to server.properties or plugins/*/config.yml
-        # (newer mtime than the rendered template) survives ordinary restarts;
-        # only an explicit render + reapply pushes fresher defaults. Deployed
-        # behavior — not this file — is what doctor verifies (protocol.hello
-        # auth-required probe).
-        "SYNC_SKIP_NEWER_IN_DESTINATION": "true",
-        "REPLACE_ENV_DURING_SYNC": "false",
-        "LEVEL": world_identity,
-    }
-    if credential_storage:
-        environment.update(
-            {
-                "UID": str(MINECRAFT_RUNTIME_UID),
-                "GID": str(MINECRAFT_RUNTIME_GID),
-            }
-        )
-
-    compose = {
-        "name": deployment_name,
-        "services": {
-            service_id: {
-                "image": image,
-                "restart": "unless-stopped",
-                "environment": environment,
-                "ports": [
-                    f"{network['bind_address']}:{network['java_port']}:25565/tcp",
-                    f"{network['bind_address']}:{network['mcremote_port']}:25575/tcp",
-                ],
-                "volumes": minecraft_volumes,
-                "labels": {
-                    "io.mc-remote.deployment": deployment_name,
-                    "io.mc-remote.environment": lock["environment"]["identity"],
-                    "io.mc-remote.world": world_identity,
-                    "io.mc-remote.lock": lock_identity,
-                    "io.mc-remote.paper-sha256": paper_sha256,
-                    "io.mc-remote.plugin-sha256": plugin_sha256,
-                },
-            }
-        },
-        "volumes": {
-            role: {"name": identity, "external": True}
-            for role, identity in volume_assignments.items()
-        },
-    }
-    property_values = [
-        ("enable-rcon", "false"),
-        ("enforce-secure-profile", "true"),
-        ("level-name", world_identity),
-    ]
-    if motd is not None:
-        property_values.append(("motd", motd))
-    property_values.extend(
-        [
-            ("online-mode", "true"),
-            ("server-port", "25565"),
-        ]
-    )
-    properties = f"# Generated by mcrctl {adapter}. Do not edit.\n" + "".join(
-        f"{key}={value}\n" for key, value in property_values
-    )
-    return compose, properties
-
-
-def _compose_v5(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str]]:
-    compose, properties = _compose_v1(lock, credential_storage=True)
-    minecraft_version = _component_for_role(lock, "paper-server")["minecraft_version"]
-    credential_config = f'''# Generated by mcrctl compose@5. Do not edit.
-api_port: 25575
-luckperm_permissions:
-  online: "mcr.online"
-  offline: "mcr.offline"
-  build.range: "mcr.build.range"
-default_build_range: 1000
-supported_mc_versions:
-  - "{minecraft_version}"
-auth:
-  enforcement: true
-  pair_code_ttl_seconds: 120
-  session_token_ttl_seconds: 7200
-  max_sessions_per_uuid: 16
-  credential_store_path: "/mcremote/credential-store/snapshot.json"
-  revocation_authority_path: "/mcremote/credential-revocations"
-  max_long_lived_credentials_per_uuid: 16
-'''
-    return compose, {
-        "minecraft/server.properties": properties,
-        "minecraft/plugins/McRemote/config.yml": credential_config,
-    }
-
-
 def _mcremote_b2_config(*, adapter: str, minecraft_version: str) -> str:
     return f'''# Generated by mcrctl {adapter}. Do not edit.
 api_port: 25575
@@ -661,18 +431,6 @@ auth:
   revocation_authority_path: "/config/mcremote-session-only/authority"
   max_long_lived_credentials_per_uuid: 16
 '''
-
-
-def _compose_v6(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str]]:
-    compose, properties = _compose_v1(lock)
-    minecraft_version = _component_for_role(lock, "paper-server")["minecraft_version"]
-    return compose, {
-        "minecraft/server.properties": properties.replace("compose@1", "compose@6"),
-        "minecraft/plugins/McRemote/config.yml": _mcremote_b2_config(
-            adapter="compose@6",
-            minecraft_version=minecraft_version,
-        ),
-    }
 
 
 def _minecraft_port_publications(
@@ -1000,20 +758,6 @@ def _compose_v4(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str]]:
         relative: content.replace("compose@3", "compose@4")
         for relative, content in rendered_files.items()
     }
-    return compose, rendered_files
-
-
-def _compose_v7(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str]]:
-    compose, rendered_files = _compose_v4(lock)
-    minecraft_version = _component_for_role(lock, "paper-server")["minecraft_version"]
-    rendered_files = {
-        relative: content.replace("compose@4", "compose@7")
-        for relative, content in rendered_files.items()
-    }
-    rendered_files["minecraft/plugins/McRemote/config.yml"] = _mcremote_b2_config(
-        adapter="compose@7",
-        minecraft_version=minecraft_version,
-    )
     return compose, rendered_files
 
 
@@ -1826,167 +1570,6 @@ def _fsync_directory(path: Path) -> None:
         os.close(descriptor)
 
 
-def _stage_compose_v1(lock: dict[str, Any], staging: Path) -> tuple[str, ...]:
-    compose, properties = _compose_v1(lock)
-    compose_source = yaml.safe_dump(compose, sort_keys=False, allow_unicode=True).encode("utf-8")
-    _write_synced(staging / "compose.yaml", compose_source)
-    _write_synced(staging / "minecraft" / "server.properties", properties.encode("utf-8"))
-
-    rendered_paths = ("compose.yaml", "minecraft/server.properties")
-    manifest = {
-        "schema_version": 1,
-        "adapter": "compose",
-        "adapter_revision": "1",
-        "lock_identity": lock["lock_identity"],
-        "render_plan_sha256": lock["render_plan"]["semantic_sha256"],
-        "files": [
-            {
-                "path": relative,
-                "sha256": _sha256_file(staging / PurePosixPath(relative)),
-            }
-            for relative in rendered_paths
-        ],
-    }
-    manifest_source = (json.dumps(manifest, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
-    _write_synced(staging / "render-manifest.json", manifest_source)
-    _fsync_directory(staging / "minecraft")
-    _fsync_directory(staging)
-    return rendered_paths
-
-
-def _stage_compose_v2(lock: dict[str, Any], staging: Path) -> tuple[str, ...]:
-    compose, rendered_files = _compose_v2(lock)
-    _write_synced(
-        staging / "compose.yaml",
-        yaml.safe_dump(compose, sort_keys=False, allow_unicode=True).encode("utf-8"),
-    )
-    for relative, content in rendered_files.items():
-        _write_synced(staging / PurePosixPath(relative), content.encode("utf-8"))
-    rendered_paths = ("compose.yaml", *rendered_files)
-    manifest = {
-        "schema_version": 1,
-        "adapter": "compose",
-        "adapter_revision": "2",
-        "lock_identity": lock["lock_identity"],
-        "render_plan_sha256": lock["render_plan"]["semantic_sha256"],
-        "files": [
-            {
-                "path": relative,
-                "sha256": _sha256_file(staging / PurePosixPath(relative)),
-            }
-            for relative in rendered_paths
-        ],
-    }
-    _write_synced(
-        staging / "render-manifest.json",
-        (json.dumps(manifest, ensure_ascii=False, indent=2) + "\n").encode("utf-8"),
-    )
-    for directory in (staging / "runtime", staging / "minecraft", staging):
-        _fsync_directory(directory)
-    return rendered_paths
-
-
-def _stage_compose_v3(lock: dict[str, Any], staging: Path) -> tuple[str, ...]:
-    compose, rendered_files = _compose_v3(lock)
-    _write_synced(
-        staging / "compose.yaml",
-        yaml.safe_dump(compose, sort_keys=False, allow_unicode=True).encode("utf-8"),
-    )
-    for relative, content in rendered_files.items():
-        _write_synced(staging / PurePosixPath(relative), content.encode("utf-8"))
-    rendered_paths = ("compose.yaml", *rendered_files)
-    manifest = {
-        "schema_version": 1,
-        "adapter": "compose",
-        "adapter_revision": "3",
-        "lock_identity": lock["lock_identity"],
-        "render_plan_sha256": lock["render_plan"]["semantic_sha256"],
-        "files": [
-            {
-                "path": relative,
-                "sha256": _sha256_file(staging / PurePosixPath(relative)),
-            }
-            for relative in rendered_paths
-        ],
-    }
-    _write_synced(
-        staging / "render-manifest.json",
-        (json.dumps(manifest, ensure_ascii=False, indent=2) + "\n").encode("utf-8"),
-    )
-    for directory in (staging / "runtime", staging / "minecraft", staging):
-        _fsync_directory(directory)
-    return rendered_paths
-
-
-def _stage_compose_v4(lock: dict[str, Any], staging: Path) -> tuple[str, ...]:
-    compose, rendered_files = _compose_v4(lock)
-    _write_synced(
-        staging / "compose.yaml",
-        yaml.safe_dump(compose, sort_keys=False, allow_unicode=True).encode("utf-8"),
-    )
-    for relative, content in rendered_files.items():
-        _write_synced(staging / PurePosixPath(relative), content.encode("utf-8"))
-    rendered_paths = ("compose.yaml", *rendered_files)
-    manifest = {
-        "schema_version": 1,
-        "adapter": "compose",
-        "adapter_revision": "4",
-        "lock_identity": lock["lock_identity"],
-        "render_plan_sha256": lock["render_plan"]["semantic_sha256"],
-        "files": [
-            {
-                "path": relative,
-                "sha256": _sha256_file(staging / PurePosixPath(relative)),
-            }
-            for relative in rendered_paths
-        ],
-    }
-    _write_synced(
-        staging / "render-manifest.json",
-        (json.dumps(manifest, ensure_ascii=False, indent=2) + "\n").encode("utf-8"),
-    )
-    for directory in (staging / "runtime", staging / "minecraft", staging):
-        _fsync_directory(directory)
-    return rendered_paths
-
-
-def _stage_compose_v5(lock: dict[str, Any], staging: Path) -> tuple[str, ...]:
-    compose, rendered_files = _compose_v5(lock)
-    _write_synced(
-        staging / "compose.yaml",
-        yaml.safe_dump(compose, sort_keys=False, allow_unicode=True).encode("utf-8"),
-    )
-    for relative, content in rendered_files.items():
-        _write_synced(staging / PurePosixPath(relative), content.encode("utf-8"))
-    rendered_paths = ("compose.yaml", *rendered_files)
-    manifest = {
-        "schema_version": 1,
-        "adapter": "compose",
-        "adapter_revision": "5",
-        "lock_identity": lock["lock_identity"],
-        "render_plan_sha256": lock["render_plan"]["semantic_sha256"],
-        "files": [
-            {
-                "path": relative,
-                "sha256": _sha256_file(staging / PurePosixPath(relative)),
-            }
-            for relative in rendered_paths
-        ],
-    }
-    _write_synced(
-        staging / "render-manifest.json",
-        (json.dumps(manifest, ensure_ascii=False, indent=2) + "\n").encode("utf-8"),
-    )
-    for directory in (
-        staging / "minecraft" / "plugins" / "McRemote",
-        staging / "minecraft" / "plugins",
-        staging / "minecraft",
-        staging,
-    ):
-        _fsync_directory(directory)
-    return rendered_paths
-
-
 def _stage_auth_enforced_compose(
     lock: dict[str, Any],
     staging: Path,
@@ -2028,137 +1611,6 @@ def _stage_auth_enforced_compose(
     }
     if "runtime/scratch.json" in rendered_files:
         directories.add(staging / "runtime")
-    for directory in sorted(directories, key=lambda path: len(path.parts), reverse=True):
-        _fsync_directory(directory)
-    return rendered_paths
-
-
-def _stage_compose_v6(lock: dict[str, Any], staging: Path) -> tuple[str, ...]:
-    return _stage_auth_enforced_compose(
-        lock,
-        staging,
-        revision="6",
-        renderer=_compose_v6,
-    )
-
-
-def _stage_compose_v7(lock: dict[str, Any], staging: Path) -> tuple[str, ...]:
-    return _stage_auth_enforced_compose(
-        lock,
-        staging,
-        revision="7",
-        renderer=_compose_v7,
-    )
-
-
-def _stage_compose_v8(lock: dict[str, Any], staging: Path) -> tuple[str, ...]:
-    return _stage_auth_enforced_compose(
-        lock,
-        staging,
-        revision="8",
-        renderer=_compose_v8,
-    )
-
-
-def _stage_compose_v9(lock: dict[str, Any], staging: Path) -> tuple[str, ...]:
-    return _stage_auth_enforced_compose(
-        lock,
-        staging,
-        revision="9",
-        renderer=_compose_v9,
-    )
-
-
-def _stage_compose_v10(lock: dict[str, Any], staging: Path) -> tuple[str, ...]:
-    return _stage_auth_enforced_compose(
-        lock,
-        staging,
-        revision="10",
-        renderer=_compose_v10,
-    )
-
-
-def _stage_compose_v11(lock: dict[str, Any], staging: Path) -> tuple[str, ...]:
-    compose, rendered_files = _compose_v11(lock)
-    assets, manifest_source = _verified_wirescope_assets(lock)
-    _write_synced(
-        staging / "compose.yaml",
-        yaml.safe_dump(compose, sort_keys=False, allow_unicode=True).encode("utf-8"),
-    )
-    for relative, content in rendered_files.items():
-        _write_synced(staging / PurePosixPath(relative), content.encode("utf-8"))
-    wirescope_paths: list[str] = []
-    for relative, content in assets:
-        output_path = f"wirescope/{relative}"
-        _write_synced(staging / PurePosixPath(output_path), content)
-        wirescope_paths.append(output_path)
-    detached_path = "wirescope/wirescope-app.manifest.json"
-    _write_synced(staging / detached_path, manifest_source)
-    wirescope_paths.append(detached_path)
-    rendered_paths = ("compose.yaml", *rendered_files, *wirescope_paths)
-    manifest = {
-        "schema_version": 1,
-        "adapter": "compose",
-        "adapter_revision": "11",
-        "lock_identity": lock["lock_identity"],
-        "render_plan_sha256": lock["render_plan"]["semantic_sha256"],
-        "files": [
-            {
-                "path": relative,
-                "sha256": _sha256_file(staging / PurePosixPath(relative)),
-            }
-            for relative in rendered_paths
-        ],
-    }
-    _write_synced(
-        staging / "render-manifest.json",
-        (json.dumps(manifest, ensure_ascii=False, indent=2) + "\n").encode("utf-8"),
-    )
-    directories = {staging}
-    directories.update(path.parent for path in staging.rglob("*") if path.is_file())
-    for directory in sorted(directories, key=lambda path: len(path.parts), reverse=True):
-        _fsync_directory(directory)
-    return rendered_paths
-
-
-def _stage_compose_v12(lock: dict[str, Any], staging: Path) -> tuple[str, ...]:
-    compose, rendered_files = _compose_v12(lock)
-    assets, manifest_source = _verified_wirescope_assets(lock)
-    _write_synced(
-        staging / "compose.yaml",
-        yaml.safe_dump(compose, sort_keys=False, allow_unicode=True).encode("utf-8"),
-    )
-    for relative, content in rendered_files.items():
-        _write_synced(staging / PurePosixPath(relative), content.encode("utf-8"))
-    wirescope_paths: list[str] = []
-    for relative, content in assets:
-        output_path = f"wirescope/{relative}"
-        _write_synced(staging / PurePosixPath(output_path), content)
-        wirescope_paths.append(output_path)
-    detached_path = "wirescope/wirescope-app.manifest.json"
-    _write_synced(staging / detached_path, manifest_source)
-    wirescope_paths.append(detached_path)
-    rendered_paths = ("compose.yaml", *rendered_files, *wirescope_paths)
-    manifest = {
-        "schema_version": 1,
-        "adapter": "compose",
-        "adapter_revision": "12",
-        "lock_identity": lock["lock_identity"],
-        "render_plan_sha256": lock["render_plan"]["semantic_sha256"],
-        "files": [
-            {
-                "path": relative,
-                "sha256": _sha256_file(staging / PurePosixPath(relative)),
-            }
-            for relative in rendered_paths
-        ],
-    }
-    _write_synced(
-        staging / "render-manifest.json",
-        (json.dumps(manifest, ensure_ascii=False, indent=2) + "\n").encode("utf-8"),
-    )
-    directories = {staging}
-    directories.update(path.parent for path in staging.rglob("*") if path.is_file())
     for directory in sorted(directories, key=lambda path: len(path.parts), reverse=True):
         _fsync_directory(directory)
     return rendered_paths
@@ -2218,35 +1670,15 @@ def _stage_compose_v14(lock: dict[str, Any], staging: Path) -> tuple[str, ...]:
 
 def _stage_current(lock: dict[str, Any], staging: Path) -> tuple[str, ...]:
     revision = lock["render_plan"]["adapter_revision"]
-    if revision == "1":
-        return _stage_compose_v1(lock, staging)
-    if revision == "2":
-        return _stage_compose_v2(lock, staging)
-    if revision == "3":
-        return _stage_compose_v3(lock, staging)
-    if revision == "4":
-        return _stage_compose_v4(lock, staging)
-    if revision == "5":
-        return _stage_compose_v5(lock, staging)
-    if revision == "6":
-        return _stage_compose_v6(lock, staging)
-    if revision == "7":
-        return _stage_compose_v7(lock, staging)
-    if revision == "8":
-        return _stage_compose_v8(lock, staging)
-    if revision == "9":
-        return _stage_compose_v9(lock, staging)
-    if revision == "10":
-        return _stage_compose_v10(lock, staging)
-    if revision == "11":
-        return _stage_compose_v11(lock, staging)
-    if revision == "12":
-        return _stage_compose_v12(lock, staging)
     if revision == "13":
         return _stage_compose_v13(lock, staging)
     if revision == "14":
         return _stage_compose_v14(lock, staging)
-    _render_fail("unsupported_renderer", "render_plan", f"unsupported renderer: compose@{revision}")
+    _render_fail(
+        "unsupported_adapter",
+        "render_plan.adapter_revision",
+        f"compose@{revision} is not a supported renderer revision",
+    )
 
 
 def _output_files(root: Path) -> set[str]:
@@ -2292,7 +1724,7 @@ def _load_managed_manifest(output: Path) -> dict[str, Any] | None:
         or manifest.get("schema_version") != 1
         or manifest.get("adapter") != "compose"
         or manifest.get("adapter_revision")
-        not in {"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14"}
+        not in {"13", "14"}
         or not isinstance(manifest.get("files"), list)
     ):
         _render_fail("render_output_tampered", manifest_path, "managed render manifest shape is invalid")
@@ -2421,22 +1853,7 @@ def _load_current_toml_render_lock(
         lock = load_lock(project_root, data_root=data_root)
     adapter = lock["render_plan"]["adapter"]
     adapter_revision = lock["render_plan"]["adapter_revision"]
-    supported_revisions = {
-        "1",
-        "2",
-        "3",
-        "4",
-        "5",
-        "6",
-        "7",
-        "8",
-        "9",
-        "10",
-        "11",
-        "12",
-        "13",
-        "14",
-    }
+    supported_revisions = {"13", "14"}
     if adapter != "compose" or adapter_revision not in supported_revisions:
         _render_fail(
             "unsupported_renderer",

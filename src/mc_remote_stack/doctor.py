@@ -492,63 +492,6 @@ def _validate_volume(record: dict[str, Any], volume: str, lock: dict[str, Any]) 
         )
 
 
-def _validate_credential_mounts(record: dict[str, Any], lock: dict[str, Any]) -> None:
-    if lock["render_plan"]["adapter_revision"] != "5":
-        return
-    assignments = {
-        assignment["role"]: assignment["identity"]
-        for assignment in lock["runtime"]["volumes"]
-    }
-    expected = {
-        "/data": assignments.get("minecraft-data"),
-        "/mcremote/credential-store": assignments.get("credential-store"),
-        "/mcremote/credential-revocations": assignments.get(
-            "credential-revocations"
-        ),
-    }
-    mounts = record.get("Mounts")
-    if not isinstance(mounts, list) or any(value is None for value in expected.values()):
-        _fail(
-            "doctor_credential_mount_mismatch",
-            "runtime.mounts",
-            "credential profile requires exact world, snapshot, and authority volume mounts",
-        )
-    actual: dict[str, str] = {}
-    for mount in mounts:
-        if not isinstance(mount, dict) or mount.get("Type") != "volume":
-            continue
-        destination = mount.get("Destination")
-        name = mount.get("Name")
-        if (
-            not isinstance(destination, str)
-            or not isinstance(name, str)
-            or mount.get("RW") is not True
-            or destination in actual
-        ):
-            _fail(
-                "doctor_credential_mount_mismatch",
-                "runtime.mounts",
-                "managed volume mounts must be unique writable paths",
-            )
-        actual[destination] = name
-    if actual != expected:
-        _fail(
-            "doctor_credential_mount_mismatch",
-            "runtime.mounts",
-            "live world, credential snapshot, and revocation authority mounts do not match the lock",
-        )
-    for destination in (
-        "/mcremote/credential-store",
-        "/mcremote/credential-revocations",
-    ):
-        if destination == "/data" or destination.startswith("/data/"):
-            _fail(
-                "doctor_credential_mount_mismatch",
-                destination,
-                "credential state must remain outside the Minecraft data write set",
-            )
-
-
 def _validate_mcremote_artifact_mount(
     record: dict[str, Any],
     lock: dict[str, Any],
@@ -726,7 +669,6 @@ def _validate_container(
         )
     if service == "minecraft":
         _validate_mcremote_artifact_mount(record, lock)
-        _validate_credential_mounts(record, lock)
     _validate_canonical_composition_mounts(record, lock, service=service)
 
     state = record.get("State")
@@ -772,19 +714,7 @@ def _validate_container(
             ],
         }
         renderer_revision = lock["render_plan"]["adapter_revision"]
-        if renderer_revision in {
-            "2",
-            "3",
-            "4",
-            "7",
-            "8",
-            "9",
-            "10",
-            "11",
-            "12",
-            "13",
-            "14",
-        }:
+        if renderer_revision in {"13", "14"}:
             expected_ports["25565/udp"] = [
                 {
                     "HostIp": address,
@@ -1145,7 +1075,7 @@ def doctor_toml_project(
     homepage_status = "not-applicable"
     scratch_runtime_status = "not-applicable"
     wirescope_status = "not-applicable"
-    if lock["render_plan"]["adapter_revision"] in {"9", "10", "11", "12", "13"}:
+    if lock["render_plan"]["adapter_revision"] == "13":
         runtime_path = output / "runtime" / "scratch.json"
         try:
             expected_runtime = json.loads(runtime_path.read_text(encoding="utf-8"))
@@ -1156,7 +1086,7 @@ def doctor_toml_project(
                 f"cannot read canonical Scratch runtime config: {exc}",
             )
         routes = _locked_public_routes(lock)
-        if lock["render_plan"]["adapter_revision"] in {"12", "13"}:
+        if lock["render_plan"]["adapter_revision"] == "13":
             index_path = (
                 Path(lock["runtime"]["artifact_store"]).parent
                 / "homepage"
@@ -1199,7 +1129,7 @@ def doctor_toml_project(
             schema=schema,
         )
         scratch_runtime_status = "current"
-        if lock["render_plan"]["adapter_revision"] in {"11", "12", "13"}:
+        if lock["render_plan"]["adapter_revision"] == "13":
             expected_wirescope_url = f"https://{routes['wirescope']}/"
             if expected_runtime.get("wirescope_url") != expected_wirescope_url:
                 _fail(
@@ -1223,14 +1153,6 @@ def doctor_toml_project(
                 timeout=timeout,
             )
             wirescope_status = "current"
-
-    if lock["render_plan"]["adapter_revision"] == "5":
-        _fail(
-            "doctor_credential_health_unsupported",
-            "credential.health",
-            "credential profile mount topology is valid, but the plugin does not "
-            "yet expose the required machine-readable domain health projection",
-        )
 
     network = lock["network"]
     hello = hello_probe(

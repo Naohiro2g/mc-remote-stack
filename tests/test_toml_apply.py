@@ -8,7 +8,6 @@ import pytest
 from mc_remote_stack.apply import (
     ApplyContractError,
     TomlApplyResult,
-    _initialize_created_credential_volumes,
     _inspect_managed_volume,
     _safe_command_failure_detail,
     _validate_bootstrap_contract,
@@ -18,7 +17,7 @@ from mc_remote_stack.cli import main
 from mc_remote_stack.render import render_toml_project
 from mc_remote_stack.resolver import load_lock
 
-from .test_toml_render import _legacy_render_fixture, _render_fixture
+from .test_toml_render import _render_fixture
 
 
 class FakeDocker:
@@ -102,97 +101,8 @@ def _prepared_project(tmp_path: Path) -> tuple[Path, Path, Path, dict]:
     return project, data_root, output, load_lock(project, data_root=data_root)
 
 
-def _prepared_alpha_project(tmp_path: Path) -> tuple[Path, Path, Path, dict]:
-    project, data_root, _ = _legacy_render_fixture(
-        tmp_path,
-        deployment_name="home-alpha",
-        identity="home-alpha",
-        channel="alpha",
-        preset_revision="2",
-        profile_revision="2",
-    )
-    output = project / "generated"
-    render_toml_project(project, output, data_root=data_root)
-    return project, data_root, output, load_lock(project, data_root=data_root)
-
-
-def _prepared_current_alpha_project(tmp_path: Path) -> tuple[Path, Path, Path, dict]:
-    project, data_root, _ = _legacy_render_fixture(
-        tmp_path,
-        deployment_name="home-alpha",
-        identity="home-alpha",
-        channel="alpha",
-        preset_revision="2",
-        profile_revision="4",
-    )
-    output = project / "generated"
-    render_toml_project(project, output, data_root=data_root)
-    return project, data_root, output, load_lock(project, data_root=data_root)
-
-
-def _prepared_credential_project(tmp_path: Path) -> tuple[Path, Path, Path, dict]:
-    project, data_root, _ = _legacy_render_fixture(
-        tmp_path,
-        deployment_name="home-alpha",
-        identity="home-alpha",
-        channel="alpha",
-        preset_revision="2",
-        profile_revision="3",
-    )
-    output = project / "generated"
-    render_toml_project(project, output, data_root=data_root)
-    return project, data_root, output, load_lock(project, data_root=data_root)
-
-
-def _prepared_b3_credential_project(
-    tmp_path: Path,
-) -> tuple[Path, Path, Path, dict]:
-    project, data_root, _ = _legacy_render_fixture(
-        tmp_path,
-        deployment_name="home-b3-alpha",
-        identity="home-b3-alpha",
-        channel="alpha",
-        preset_revision="3",
-        profile_revision="3",
-    )
-    output = project / "generated"
-    render_toml_project(project, output, data_root=data_root)
-    return project, data_root, output, load_lock(project, data_root=data_root)
-
-
-def _prepared_b4_persistent_credential_project(
-    tmp_path: Path,
-) -> tuple[Path, Path, Path, dict]:
-    project, data_root, _ = _legacy_render_fixture(
-        tmp_path,
-        deployment_name="home-alpha",
-        identity="home-alpha",
-        channel="alpha",
-        preset_revision="6",
-        profile_revision="3",
-    )
-    output = project / "generated"
-    render_toml_project(project, output, data_root=data_root)
-    return project, data_root, output, load_lock(project, data_root=data_root)
-
-
-def _prepared_public_project(tmp_path: Path) -> tuple[Path, Path, Path, dict]:
-    project, data_root, _ = _legacy_render_fixture(
-        tmp_path,
-        deployment_name="official-public-beta",
-        identity="official-public-beta",
-        profile_name="vps-server",
-        profile_revision="1",
-        exposure="public",
-        bind_address="0.0.0.0",
-    )
-    output = project / "generated"
-    render_toml_project(project, output, data_root=data_root)
-    return project, data_root, output, load_lock(project, data_root=data_root)
-
-
 def test_bootstrap_still_requires_explicit_eula_acceptance(tmp_path: Path) -> None:
-    _project, _data_root, _output, lock = _prepared_public_project(tmp_path)
+    _project, _data_root, _output, lock = _prepared_project(tmp_path)
     lock["agreements"]["minecraft_eula"] = False
 
     with pytest.raises(ApplyContractError) as exc_info:
@@ -206,172 +116,10 @@ def test_bootstrap_still_requires_explicit_eula_acceptance(tmp_path: Path) -> No
 
 
 def test_bootstrap_does_not_require_retired_compatibility_acknowledgement(tmp_path: Path) -> None:
-    _project, _data_root, _output, lock = _prepared_public_project(tmp_path)
+    _project, _data_root, _output, lock = _prepared_project(tmp_path)
     lock["acknowledgements"]["allow_unverified"] = False
 
     _validate_bootstrap_contract(lock, allow_unverified=False, allow_eol=False)
-
-
-def test_b3_credential_alpha_bootstrap_contract_reaches_docker_preflight(
-    tmp_path: Path,
-) -> None:
-    project, data_root, output, lock = _prepared_b3_credential_project(tmp_path)
-    runner = FakeDocker({})
-
-    with pytest.raises(AssertionError, match="docker.*context.*inspect"):
-        apply_toml_project(
-            project,
-            output,
-            expected_lock_identity=lock["lock_identity"],
-            docker_context="default",
-            data_root=data_root,
-            bootstrap=True,
-            confirmed=True,
-            allow_unverified=True,
-            runner=runner,
-        )
-
-
-def test_b4_persistent_credential_bootstrap_contract_reaches_docker_preflight(
-    tmp_path: Path,
-) -> None:
-    project, data_root, output, lock = _prepared_b4_persistent_credential_project(
-        tmp_path
-    )
-    runner = FakeDocker({})
-
-    with pytest.raises(AssertionError, match="docker.*context.*inspect"):
-        apply_toml_project(
-            project,
-            output,
-            expected_lock_identity=lock["lock_identity"],
-            docker_context="default",
-            data_root=data_root,
-            bootstrap=True,
-            confirmed=True,
-            allow_unverified=True,
-            runner=runner,
-        )
-
-
-def test_b3_credential_alpha_reaches_docker_without_compatibility_allowance(
-    tmp_path: Path,
-) -> None:
-    project, data_root, output, lock = _prepared_b3_credential_project(tmp_path)
-    runner = FakeDocker({})
-
-    with pytest.raises(AssertionError, match="docker.*context.*inspect"):
-        apply_toml_project(
-            project,
-            output,
-            expected_lock_identity=lock["lock_identity"],
-            docker_context="default",
-            data_root=data_root,
-            bootstrap=True,
-            confirmed=True,
-            allow_unverified=False,
-            runner=runner,
-        )
-
-    assert runner.calls
-
-
-def test_fresh_credential_volumes_are_initialized_for_pinned_runtime_user() -> None:
-    image = "registry.example/minecraft:fixture-java21@sha256:" + "a" * 64
-    command = _docker(
-        "run",
-        "--rm",
-        "--pull",
-        "never",
-        "--network",
-        "none",
-        "--read-only",
-        "--cap-drop",
-        "ALL",
-        "--cap-add",
-        "CHOWN",
-        "--user",
-        "0:0",
-        "--mount",
-        (
-            "type=volume,source=home-b3-alpha-credential-store,"
-            "target=/credential-store,volume-nocopy"
-        ),
-        "--mount",
-        (
-            "type=volume,source=home-b3-alpha-credential-revocations,"
-            "target=/credential-revocations,volume-nocopy"
-        ),
-        "--entrypoint",
-        "chown",
-        image,
-        "1000:1000",
-        "/credential-store",
-        "/credential-revocations",
-    )
-    runner = FakeDocker({command: [_result(command)]})
-
-    _initialize_created_credential_volumes(
-        runner,
-        ["docker", "--context", "default"],
-        image=image,
-        volume_assignments={
-            "minecraft-data": "home-b3-alpha-minecraft-data",
-            "credential-store": "home-b3-alpha-credential-store",
-            "credential-revocations": "home-b3-alpha-credential-revocations",
-        },
-        created_volumes={
-            "home-b3-alpha-minecraft-data",
-            "home-b3-alpha-credential-store",
-            "home-b3-alpha-credential-revocations",
-        },
-    )
-
-    assert runner.calls == [(command, 120)]
-
-
-def test_credential_volume_initializer_does_not_touch_existing_state() -> None:
-    runner = FakeDocker({})
-
-    _initialize_created_credential_volumes(
-        runner,
-        ["docker", "--context", "default"],
-        image="registry.example/minecraft:fixture-java21@sha256:" + "a" * 64,
-        volume_assignments={
-            "minecraft-data": "home-b3-alpha-minecraft-data",
-            "credential-store": "home-b3-alpha-credential-store",
-            "credential-revocations": "home-b3-alpha-credential-revocations",
-        },
-        created_volumes={"home-b3-alpha-minecraft-data"},
-    )
-
-    assert runner.calls == []
-
-
-def test_credential_volume_initializer_failure_is_fail_closed() -> None:
-    image = "registry.example/minecraft:fixture-java21@sha256:" + "a" * 64
-    calls: list[tuple[tuple[str, ...], int]] = []
-
-    def failing_runner(
-        command: list[str], timeout: int
-    ) -> subprocess.CompletedProcess[str]:
-        calls.append((tuple(command), timeout))
-        return _result(tuple(command), returncode=1, stderr="chown failed\n")
-
-    with pytest.raises(ApplyContractError) as exc_info:
-        _initialize_created_credential_volumes(
-            failing_runner,
-            ["docker", "--context", "default"],
-            image=image,
-            volume_assignments={
-                "credential-store": "home-b3-alpha-credential-store",
-                "credential-revocations": "home-b3-alpha-credential-revocations",
-            },
-            created_volumes={"home-b3-alpha-credential-store"},
-        )
-
-    assert exc_info.value.reason == "bootstrap_volume_initialize_failed"
-    assert all("credential-revocations" not in part for part in calls[0][0])
 
 
 def _compose_base(output: Path) -> tuple[str, ...]:
@@ -637,133 +385,6 @@ def test_bootstrap_apply_is_bound_to_current_lock_and_verified_render(
     )
 
 
-def test_b3_apply_initializes_fresh_credential_volumes_before_compose_up(
-    tmp_path: Path,
-) -> None:
-    project, data_root, output, lock = _prepared_b3_credential_project(tmp_path)
-    base = _compose_base(output)
-    responses = _read_only_responses(output, lock=lock)
-    labels = _managed_volume(lock)["Labels"]
-    volumes = {
-        assignment["role"]: assignment["identity"]
-        for assignment in lock["runtime"]["volumes"]
-    }
-    runtime_component = next(
-        component
-        for component in lock["components"]
-        if component["role"] == "minecraft-runtime"
-    )
-    runtime_artifact = next(
-        artifact
-        for artifact in lock["artifacts"]
-        if artifact["id"] == runtime_component["artifact"]
-    )
-    image = (
-        f"{runtime_artifact['locator']}:{runtime_artifact['version']}"
-        f"@{runtime_artifact['digest']}"
-    )
-    responses[base + ("pull", "--policy", "always", "--quiet", "minecraft")] = [
-        _result(base)
-    ]
-    for volume in volumes.values():
-        create_arguments = ["volume", "create", "--driver", "local"]
-        for key, value in labels.items():
-            create_arguments.extend(["--label", f"{key}={value}"])
-        create_arguments.append(volume)
-        create_command = _docker(*create_arguments)
-        responses[create_command] = [_result(create_command, stdout=f"{volume}\n")]
-        inspect_command = _docker("volume", "inspect", volume)
-        responses[inspect_command] = [
-            _result(
-                inspect_command,
-                stdout=json.dumps([_managed_volume(lock, volume)]) + "\n",
-            )
-        ]
-    initialize_command = _docker(
-        "run",
-        "--rm",
-        "--pull",
-        "never",
-        "--network",
-        "none",
-        "--read-only",
-        "--cap-drop",
-        "ALL",
-        "--cap-add",
-        "CHOWN",
-        "--user",
-        "0:0",
-        "--mount",
-        (
-            f"type=volume,source={volumes['credential-store']},"
-            "target=/credential-store,volume-nocopy"
-        ),
-        "--mount",
-        (
-            f"type=volume,source={volumes['credential-revocations']},"
-            "target=/credential-revocations,volume-nocopy"
-        ),
-        "--entrypoint",
-        "chown",
-        image,
-        "1000:1000",
-        "/credential-store",
-        "/credential-revocations",
-    )
-    responses[initialize_command] = [_result(initialize_command)]
-    up_command = base + (
-        "up",
-        "--detach",
-        "--wait",
-        "--wait-timeout",
-        "300",
-        "--no-build",
-        "--pull",
-        "never",
-        "minecraft",
-    )
-    responses[up_command] = [_result(up_command)]
-    project_ps = _docker(
-        "ps",
-        "--all",
-        "--quiet",
-        "--filter",
-        "label=com.docker.compose.project=home-b3-alpha",
-    )
-    responses[project_ps] = [
-        responses[project_ps][0],
-        _result(project_ps, stdout="container-current\n"),
-    ]
-    inspect_container = _docker("inspect", "container-current")
-    responses[inspect_container] = [
-        _result(
-            inspect_container,
-            stdout=json.dumps([_managed_container(lock, output)]) + "\n",
-        )
-    ]
-    runner = FakeDocker(responses)
-    progress: list[str] = []
-
-    result = apply_toml_project(
-        project,
-        output,
-        expected_lock_identity=lock["lock_identity"],
-        docker_context="default",
-        data_root=data_root,
-        bootstrap=True,
-        confirmed=True,
-        allow_unverified=True,
-        runner=runner,
-        port_probe=lambda _address, _port: None,
-        progress=progress.append,
-    )
-
-    assert result.status == "created"
-    assert "initialize-credential-volumes" in progress
-    commands = [command for command, _timeout in runner.calls]
-    assert commands.index(initialize_command) < commands.index(up_command)
-
-
 @pytest.mark.parametrize(
     ("kwargs", "reason"),
     [
@@ -944,26 +565,6 @@ def test_apply_rejects_remote_docker_context_before_daemon_contact(
 
     assert exc_info.value.reason == "docker_context_not_local"
     assert runner.calls == [(context_command, 30)]
-
-
-def test_current_alpha_bootstrap_contract_reaches_docker_preflight(
-    tmp_path: Path,
-) -> None:
-    project, data_root, output, lock = _prepared_current_alpha_project(tmp_path)
-    runner = FakeDocker({})
-
-    with pytest.raises(AssertionError, match="docker.*context.*inspect"):
-        apply_toml_project(
-            project,
-            output,
-            expected_lock_identity=lock["lock_identity"],
-            docker_context="default",
-            data_root=data_root,
-            bootstrap=True,
-            confirmed=True,
-            allow_unverified=True,
-            runner=runner,
-        )
 
 
 def test_apply_rejects_published_port_collision_before_pull(

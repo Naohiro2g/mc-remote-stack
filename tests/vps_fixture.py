@@ -115,7 +115,7 @@ rejected_fixtures = [
 "fixtures/invalid/unknown-field.json" = "35f1f21562e237cce722f5a1f93723f00d927d07769f8b12174d3ff9f73d5e3d"'''
 
 
-def _preset_source() -> str:
+def _preset_source(mcremote_artifact: str | None = None) -> str:
     name, revision = PRESET.split("@")
     scratch_contract = SCRATCH_CONTRACT
     file_artifacts = "\n\n".join(
@@ -127,7 +127,10 @@ filename = "{filename}"
 sha256 = "{_sha256(content)}"
 origin = "https://example.invalid/{filename}"'''
         for artifact_id, (filename, content) in FILE_ARTIFACTS.items()
+        if not (mcremote_artifact and artifact_id == "mcremote-jar")
     )
+    if mcremote_artifact:
+        file_artifacts += "\n\n" + mcremote_artifact
     return f"""schema_version = 1
 
 [preset]
@@ -290,8 +293,17 @@ class VpsFixture:
         return self.project / "generated"
 
 
-def build_vps_fixture(tmp_path: Path, *, identity: str = "official-vps") -> VpsFixture:
-    """Create one resolved vps-server@12 project with test-owned artifacts."""
+def build_vps_fixture(
+    tmp_path: Path,
+    *,
+    identity: str = "official-vps",
+    mcremote_artifact: str | None = None,
+) -> VpsFixture:
+    """Create one resolved vps-server@12 project with test-owned artifacts.
+
+    ``mcremote_artifact`` replaces the McRemote artifact record, for example with a
+    reviewed git-build record.
+    """
 
     data_root = _data_root(tmp_path, "vps-data")
     profile_name, profile_revision = PROFILE.split("@")
@@ -312,7 +324,7 @@ def build_vps_fixture(tmp_path: Path, *, identity: str = "official-vps") -> VpsF
     preset_name, preset_revision = PRESET.split("@")
     preset_path = data_root / "preset_registry" / preset_name / preset_revision / "preset.toml"
     preset_path.parent.mkdir(parents=True)
-    preset_path.write_text(_preset_source(), encoding="utf-8")
+    preset_path.write_text(_preset_source(mcremote_artifact), encoding="utf-8")
     _write_policy(data_root, [{"ref": PRESET, "status": "active", "available_since": "2026-09-29"}])
     (data_root / "preset_catalog.toml").write_bytes(build_preset_catalog(data_root=data_root))
 

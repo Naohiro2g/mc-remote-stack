@@ -1,5 +1,6 @@
 import hashlib
 import json
+import tomllib
 from pathlib import Path
 from typing import Any
 
@@ -10,7 +11,6 @@ from mc_remote_stack.doctor import (
     DoctorContractError,
     ProtocolHelloResult,
     TomlDoctorResult,
-    _auth_enforcement_required,
     _validate_canonical_composition_mounts,
     _validate_container,
     _validate_volume,
@@ -21,19 +21,14 @@ from mc_remote_stack.doctor import (
     probe_wirescope_public_handoff,
     validate_scratch_runtime_config,
 )
-from mc_remote_stack.preset_registry import load_preset
 from mc_remote_stack.scratch_contract import load_runtime_config_schema
 
 from .test_toml_apply import (
     FakeDocker,
-    _prepared_alpha_project,
-    _prepared_credential_project,
-    _prepared_current_alpha_project,
     _prepared_project,
-    _prepared_public_project,
     _result,
 )
-from .vps_fixture import rendered_containers
+from .vps_fixture import SCRATCH_CONTRACT, rendered_containers
 
 
 def _docker(*arguments: str) -> tuple[str, ...]:
@@ -494,7 +489,7 @@ def test_doctor_rejects_live_scratch_runtime_without_connection_targets() -> Non
 
 
 def test_doctor_rejects_runtime_unknown_field_against_locked_scratch_schema() -> None:
-    contract = load_preset("public-web-paper@9").data["scratch_runtime_contract"]
+    contract = tomllib.loads(SCRATCH_CONTRACT)["scratch_runtime_contract"]
     schema = load_runtime_config_schema(contract)
     runtime = {
         "schema_version": 1,
@@ -653,40 +648,10 @@ def test_doctor_checks_cross_origin_wirescope_headers_and_exact_index(
     )
 
 
-def test_doctor_checks_mounts_then_requires_credential_health_projection(
-    tmp_path: Path,
-) -> None:
-    project, data_root, output, lock = _prepared_credential_project(tmp_path)
-    runner = FakeDocker(_doctor_responses(output, lock))
-
-    with pytest.raises(DoctorContractError) as exc_info:
-        doctor_toml_project(
-            project,
-            output,
-            docker_context="default",
-            data_root=data_root,
-            runner=runner,
-            hello_probe=lambda *_args: pytest.fail("hello probe must not run"),
-        )
-
-    assert exc_info.value.reason == "doctor_credential_health_unsupported"
-    inspected = {
-        command[-1]
-        for command, _timeout in runner.calls
-        if command[-3:-1] == ("volume", "inspect")
-    }
-    assert inspected == {
-        "home-alpha-minecraft-data",
-        "home-alpha-credential-store",
-        "home-alpha-credential-revocations",
-    }
-
-
 def test_doctor_rejects_tokenless_hello_when_auth_enforcement_is_required(
     tmp_path: Path,
 ) -> None:
-    project, data_root, output, lock = _prepared_current_alpha_project(tmp_path)
-    runner = FakeDocker(_doctor_responses(output, lock))
+    project, data_root, output, lock = _prepared_project(tmp_path)
 
     with pytest.raises(DoctorContractError) as exc_info:
         doctor_toml_project(
@@ -694,56 +659,16 @@ def test_doctor_rejects_tokenless_hello_when_auth_enforcement_is_required(
             output,
             docker_context="default",
             data_root=data_root,
-            runner=runner,
+            runner=FakeDocker(_vps_doctor_responses(output, lock)),
             hello_probe=lambda *_args: ProtocolHelloResult(
                 status="ok",
-                protocol="21.0.0",
+                protocol="23.1.0",
                 minecraft_version="1.21.11",
             ),
+            **_vps_public_probes(output),
         )
 
     assert exc_info.value.reason == "doctor_auth_not_enforced"
-
-
-def test_published_b2_artifact_requires_auth_even_in_a_legacy_lock(
-    tmp_path: Path,
-) -> None:
-    _project, _data_root, _output, lock = _prepared_alpha_project(tmp_path)
-    plugin = next(
-        artifact for artifact in lock["artifacts"] if artifact["id"] == "mcremote-jar"
-    )
-    plugin["sha256"] = (
-        "ad2674fa93645cc3c4c0d2b6aa5b37f11a8f9519162f61ac00b8be7122b023c7"
-    )
-
-    assert _auth_enforcement_required(lock) is True
-
-
-def test_doctor_rejects_credential_authority_mounted_under_data(tmp_path: Path) -> None:
-    project, data_root, output, lock = _prepared_credential_project(tmp_path)
-    responses = _doctor_responses(output, lock)
-    container = _managed_container(lock, output)
-    authority = next(
-        mount
-        for mount in container["Mounts"]
-        if mount.get("Name") == "home-alpha-credential-revocations"
-    )
-    authority["Destination"] = "/data/plugins/McRemote/credential-revocations"
-    responses[_docker("inspect", "container-current")] = [
-        _result(("docker",), stdout=json.dumps([container]) + "\n")
-    ]
-
-    with pytest.raises(DoctorContractError) as exc_info:
-        doctor_toml_project(
-            project,
-            output,
-            docker_context="default",
-            data_root=data_root,
-            runner=FakeDocker(responses),
-            hello_probe=lambda *_args: pytest.fail("hello probe must not run"),
-        )
-
-    assert exc_info.value.reason == "doctor_credential_mount_mismatch"
 
 
 def test_doctor_reports_additional_compose_files_without_hiding_health(
@@ -805,120 +730,6 @@ def test_doctor_rejects_additional_compose_that_masks_exact_plugin_artifact(
     assert exc_info.value.reason == "doctor_artifact_mount_mismatch"
 
 
-def test_doctor_reports_public_vps_network_scope(tmp_path: Path) -> None:
-    project, data_root, output, lock = _prepared_public_project(tmp_path)
-    base = _compose_base(output)
-    deployment = "official-public-beta"
-    volume = "official-public-beta-minecraft-data"
-    labels = {
-        "com.docker.compose.project": deployment,
-        "com.docker.compose.service": "minecraft",
-        "com.docker.compose.project.config_files": str(
-            output.resolve() / "compose.yaml"
-        ),
-        "com.docker.compose.project.working_dir": str(output.resolve()),
-        "io.mc-remote.deployment": deployment,
-        "io.mc-remote.environment": deployment,
-        "io.mc-remote.world": "official-public-beta-world",
-        "io.mc-remote.lock": lock["lock_identity"],
-    }
-    runner = FakeDocker(
-        {
-            ("docker", "context", "inspect", "default"): [
-                _result(
-                    ("docker",),
-                    stdout=json.dumps(
-                        [{"Endpoints": {"docker": {"Host": "unix:///var/run/docker.sock"}}}]
-                    )
-                    + "\n",
-                )
-            ],
-            _docker("version", "--format", "{{.Server.Version}}"): [
-                _result(("docker",), stdout="29.1.3\n")
-            ],
-            _docker("compose", "version", "--short"): [
-                _result(("docker",), stdout="2.40.3\n")
-            ],
-            base + ("config", "--quiet"): [_result(base)],
-            _docker(
-                "ps",
-                "--all",
-                "--quiet",
-                "--filter",
-                f"label=com.docker.compose.project={deployment}",
-            ): [_result(("docker",), stdout="container-current\n")],
-            _docker("inspect", "container-current"): [
-                _result(
-                    ("docker",),
-                    stdout=json.dumps(
-                        [
-                            {
-                                "Id": "container-current",
-                                "Config": {"Labels": labels},
-                                    "State": {
-                                        "Running": True,
-                                        "Health": {"Status": "healthy"},
-                                    },
-                                    "Mounts": _managed_container(lock, output)[
-                                        "Mounts"
-                                    ],
-                                    "NetworkSettings": {
-                                    "Ports": {
-                                        "25565/tcp": [
-                                            {"HostIp": "0.0.0.0", "HostPort": "25565"}
-                                        ],
-                                        "25575/tcp": [
-                                            {"HostIp": "0.0.0.0", "HostPort": "25575"}
-                                        ],
-                                    }
-                                },
-                            }
-                        ]
-                    )
-                    + "\n",
-                )
-            ],
-            _docker("volume", "inspect", volume): [
-                _result(
-                    ("docker",),
-                    stdout=json.dumps(
-                        [
-                            {
-                                "Name": volume,
-                                "Driver": "local",
-                                "Labels": {
-                                    "io.mc-remote.owner": "mcrctl",
-                                    "io.mc-remote.deployment": deployment,
-                                    "io.mc-remote.environment": deployment,
-                                    "io.mc-remote.world": "official-public-beta-world",
-                                    "io.mc-remote.created-by-lock": lock["lock_identity"],
-                                },
-                            }
-                        ]
-                    )
-                    + "\n",
-                )
-            ],
-        }
-    )
-
-    result = doctor_toml_project(
-        project,
-        output,
-        docker_context="default",
-        data_root=data_root,
-        hello_probe=lambda *_args: ProtocolHelloResult(
-            status="ok",
-            protocol="21.0.0",
-            minecraft_version="1.21.11",
-        ),
-        runner=runner,
-    )
-
-    assert result.network_scope == "public"
-    assert result.bind_address == "0.0.0.0"
-
-
 def test_doctor_rejects_unhealthy_runtime_before_protocol_probe(tmp_path: Path) -> None:
     project, data_root, output, lock = _prepared_project(tmp_path)
     runner = FakeDocker(_vps_doctor_responses(output, lock, health="unhealthy"))
@@ -958,7 +769,7 @@ def test_doctor_rejects_live_port_drift_before_protocol_probe(tmp_path: Path) ->
     assert exc_info.value.reason == "doctor_network_mismatch"
 
 
-@pytest.mark.parametrize("renderer_revision", ["8", "13"])
+@pytest.mark.parametrize("renderer_revision", ["13"])
 def test_doctor_accepts_public_minecraft_ports_from_public_compose_renderers(
     tmp_path: Path,
     renderer_revision: str,

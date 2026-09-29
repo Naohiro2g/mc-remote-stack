@@ -15,7 +15,8 @@ from .test_preset_registry import (
     _write_preset,
     _write_profile,
 )
-from .test_resolver import _acknowledge, _fixture
+from .test_resolver import _fixture
+from .vps_fixture import PRESET, build_vps_fixture
 
 
 def _catalog_fixture(tmp_path: Path, *, status: str = "active") -> Path:
@@ -147,6 +148,12 @@ def test_cli_resolve_without_compatibility_ack_reports_noop(
     assert "OK resolve status=unchanged lock=sha256:" in unchanged
 
 
+def _vps_project(tmp_path: Path, monkeypatch) -> Path:
+    fixture = build_vps_fixture(tmp_path)
+    monkeypatch.setattr("mc_remote_stack.cli._preset_data_root", lambda: fixture.data_root)
+    return fixture.project
+
+
 def _bundled_home_project(tmp_path: Path) -> Path:
     from mc_remote_stack.toml_project import init_toml_project
 
@@ -200,8 +207,10 @@ def test_cli_toml_accept_eula_requires_yes_and_losslessly_records_once(
 def test_cli_toml_validate_accepts_unresolved_order_but_plan_requires_lock(
     tmp_path: Path,
     capsys,
+    monkeypatch,
 ) -> None:
-    project = _bundled_home_project(tmp_path)
+    project = _vps_project(tmp_path, monkeypatch)
+    (project / "mc-remote.lock.toml").unlink()
 
     assert main(["validate", "--project", str(project)]) == 0
     validate_output = capsys.readouterr().out
@@ -213,32 +222,30 @@ def test_cli_toml_validate_accepts_unresolved_order_but_plan_requires_lock(
     assert not (project / "mc-remote.lock.toml").exists()
 
 
-def test_cli_toml_plan_reports_resolved_home_intent(
+def test_cli_toml_plan_reports_resolved_public_intent(
     tmp_path: Path,
     capsys,
+    monkeypatch,
 ) -> None:
-    project = _bundled_home_project(tmp_path)
-    assert main(["accept-eula", "--project", str(project), "--yes"]) == 0
-    capsys.readouterr()
-    _acknowledge(project, "unverified")
-    assert main(["resolve", "--project", str(project), "--allow-unverified"]) == 0
-    capsys.readouterr()
+    project = _vps_project(tmp_path, monkeypatch)
 
     assert main(["plan", "--project", str(project)]) == 0
 
     output = capsys.readouterr().out
-    assert "PLAN deployment=home environment=home-beta" in output
-    assert "PLAN channel=beta exposure=isolated purpose=integration" in output
-    assert "PLAN profile=home-server@1 content-sha256=" in output
-    assert "PLAN preset=mcremote-paper@1 content-sha256=" in output
+    assert "PLAN deployment=official-vps environment=official-vps" in output
+    assert "PLAN channel=beta exposure=public purpose=integration" in output
+    assert "PLAN profile=vps-server@12 content-sha256=" in output
+    assert f"PLAN preset={PRESET} content-sha256=" in output
     assert "PLAN selection=preset lifecycle=active" in output
-    assert "PLAN artifact-store=/var/lib/mc-remote/artifacts" in output
-    assert "PLAN runtime-volume=minecraft-data:home-beta-minecraft-data" in output
-    assert "PLAN world=home-beta-world" in output
-    assert "PLAN network-bind=127.0.0.1 java-port=25565 mcremote-port=25575" in output
+    assert "PLAN runtime-volume=minecraft-data:official-vps-minecraft-data" in output
+    assert "PLAN world=official-vps-world" in output
+    assert "PLAN network-bind=0.0.0.0 java-port=25565 mcremote-port=25575" in output
     assert "PLAN minecraft-eula=accepted" in output
-    assert "PLAN volume-roles=minecraft-data:world" in output
-    assert "PLAN security-controls=online-mode,rcon-disabled" in output
+    assert (
+        "PLAN volume-roles=minecraft-data:world,caddy-data:runtime-data,"
+        "caddy-config:runtime-data"
+    ) in output
+    assert "mcremote-auth-enforced" in output
     assert "PLAN lock=unchanged identity=sha256:" in output
     assert "compatibility" not in output
 
@@ -246,16 +253,12 @@ def test_cli_toml_plan_reports_resolved_home_intent(
 def test_cli_toml_validate_and_plan_reject_stale_lock(
     tmp_path: Path,
     capsys,
+    monkeypatch,
 ) -> None:
     from mc_remote_stack.toml_project import update_order_scalar
 
-    project = _bundled_home_project(tmp_path)
-    assert main(["accept-eula", "--project", str(project), "--yes"]) == 0
-    capsys.readouterr()
-    _acknowledge(project, "unverified")
-    assert main(["resolve", "--project", str(project), "--allow-unverified"]) == 0
-    capsys.readouterr()
-    update_order_scalar(project, ("deployment", "name"), "renamed-home")
+    project = _vps_project(tmp_path, monkeypatch)
+    update_order_scalar(project, ("deployment", "name"), "renamed-vps")
 
     assert main(["validate", "--project", str(project)]) == 2
     assert "reason=stale_lock" in capsys.readouterr().out
@@ -266,18 +269,14 @@ def test_cli_toml_validate_and_plan_reject_stale_lock(
 def test_cli_toml_validate_and_plan_reject_tampered_lock(
     tmp_path: Path,
     capsys,
+    monkeypatch,
 ) -> None:
-    project = _bundled_home_project(tmp_path)
-    assert main(["accept-eula", "--project", str(project), "--yes"]) == 0
-    capsys.readouterr()
-    _acknowledge(project, "unverified")
-    assert main(["resolve", "--project", str(project), "--allow-unverified"]) == 0
-    capsys.readouterr()
+    project = _vps_project(tmp_path, monkeypatch)
     lock_path = project / "mc-remote.lock.toml"
     lock_path.write_text(
         lock_path.read_text(encoding="utf-8").replace(
-            'name = "home"',
-            'name = "tampered-home"',
+            'name = "official-vps"',
+            'name = "tampered-vps"',
             1,
         ),
         encoding="utf-8",
@@ -287,3 +286,5 @@ def test_cli_toml_validate_and_plan_reject_tampered_lock(
     assert "reason=lock_identity_mismatch" in capsys.readouterr().out
     assert main(["plan", "--project", str(project)]) == 2
     assert "reason=lock_identity_mismatch" in capsys.readouterr().out
+
+

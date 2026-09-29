@@ -21,10 +21,9 @@ from .test_toml_render import (
     PAPER_SHA256,
     PLUGIN_BYTES,
     PLUGIN_SHA256,
-    _legacy_render_fixture,
     _render_fixture,
 )
-from .vps_fixture import FILE_ARTIFACTS
+from .vps_fixture import FILE_ARTIFACTS, build_vps_fixture
 
 
 class _Response(io.BytesIO):
@@ -81,9 +80,9 @@ def _fixture_opener(calls: list[str]):
 
 
 def _git_build_fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
-    return _legacy_render_fixture(
+    fixture = build_vps_fixture(
         tmp_path,
-        mcremote_artifact_source=f'''[[artifacts]]
+        mcremote_artifact=f'''[[artifacts]]
 id = "mcremote-jar"
 kind = "git-build"
 version = "2200.0.0b5"
@@ -98,6 +97,7 @@ build_input_sha256 = "{64 * '4'}"
 output_filename = "mcremote-fixture.jar"
 output_sha256 = "{PLUGIN_SHA256}"''',
     )
+    return fixture.project, fixture.data_root, fixture.artifact_store
 
 
 def test_import_reviewed_artifact_publishes_exact_git_build_bytes_atomically(

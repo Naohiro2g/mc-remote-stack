@@ -24,7 +24,9 @@ from mc_remote_stack.deployment_update import (
     _write_json,
     apply_deployment_update,
 )
-from mc_remote_stack.toml_project import init_toml_project, update_order_scalar
+from mc_remote_stack.toml_project import init_toml_project
+
+from .vps_fixture import PRESET, build_vps_fixture
 
 
 def _public_order(tmp_path: Path) -> Path:
@@ -99,8 +101,16 @@ sandbox = "sb-beta.mc-remote.com"
 def test_candidate_order_upgrades_required_adapter_and_typed_input_without_touching_source(
     tmp_path: Path,
 ) -> None:
-    source = _public_order(tmp_path)
-    before_order = (source / "mc-remote.toml").read_bytes()
+    fixture = build_vps_fixture(tmp_path)
+    source = fixture.project
+    order_path = source / "mc-remote.toml"
+    order_path.write_text(
+        order_path.read_text(encoding="utf-8").replace(
+            'adapter = "connection-targets@3"', 'adapter = "connection-targets@2"'
+        ),
+        encoding="utf-8",
+    )
+    before_order = order_path.read_bytes()
     before_routes = (source / "operator/public-routes/routes.toml").read_bytes()
     candidate = tmp_path / "candidate"
 
@@ -108,12 +118,12 @@ def test_candidate_order_upgrades_required_adapter_and_typed_input_without_touch
         source,
         source / "generated",
         candidate,
-        target_profile="vps-server@9",
-        target_preset="public-web-paper@4",
+        target_profile="vps-server@12",
+        target_preset=PRESET,
         input_overrides={
-            ("public-routes", "wirescope"): "wirescope-beta.mc-remote.com"
+            ("public-routes", "wirescope"): "wirescope-next.mc-remote.example"
         },
-        data_root=files("mc_remote_stack").joinpath("data"),
+        data_root=fixture.data_root,
     )
 
     order = tomllib.loads((candidate / "mc-remote.toml").read_text(encoding="utf-8"))
@@ -121,79 +131,12 @@ def test_candidate_order_upgrades_required_adapter_and_typed_input_without_touch
         (candidate / "operator/public-routes/routes.toml").read_text(encoding="utf-8")
     )
     adapters = {item["role"]: item["adapter"] for item in order["operator_inputs"]}
-    assert order["deployment"]["profile"] == "vps-server@9"
-    assert order["environment"]["preset"] == "public-web-paper@4"
-    assert adapters["public-routes"] == "public-routes@2"
-    assert routes["wirescope"] == "wirescope-beta.mc-remote.com"
-    assert (source / "mc-remote.toml").read_bytes() == before_order
+    assert order["deployment"]["profile"] == "vps-server@12"
+    assert order["environment"]["preset"] == PRESET
+    assert adapters["connection-targets"] == "connection-targets@3"
+    assert routes["wirescope"] == "wirescope-next.mc-remote.example"
+    assert order_path.read_bytes() == before_order
     assert (source / "operator/public-routes/routes.toml").read_bytes() == before_routes
-
-
-def test_candidate_order_adds_notice_without_advancing_artifact_preset(
-    tmp_path: Path,
-) -> None:
-    source = _public_order(tmp_path)
-    update_order_scalar(source, ("deployment", "profile"), "vps-server@10")
-    update_order_scalar(source, ("environment", "preset"), "public-web-paper@4")
-    order_path = source / "mc-remote.toml"
-    order_path.write_text(
-        order_path.read_text(encoding="utf-8")
-        + '''
-[[operator_inputs]]
-role = "minecraft-plugins"
-adapter = "minecraft-plugins@1"
-path = "operator/minecraft-plugins/plugins.toml"
-
-[[operator_inputs]]
-role = "homepage-static"
-adapter = "homepage-static@1"
-path = "operator/homepage-static/homepage.toml"
-
-[[operator_inputs]]
-role = "minecraft-backup"
-adapter = "minecraft-backup@1"
-path = "operator/minecraft-backup/backup.toml"
-''',
-        encoding="utf-8",
-    )
-    for relative in (
-        "operator/minecraft-plugins/plugins.toml",
-        "operator/homepage-static/homepage.toml",
-        "operator/minecraft-backup/backup.toml",
-    ):
-        path = source / relative
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text("placeholder = true\n", encoding="utf-8")
-    candidate = tmp_path / "candidate"
-
-    _prepare_candidate_order(
-        source,
-        source / "generated",
-        candidate,
-        target_profile="vps-server@11",
-        target_preset="public-web-paper@4",
-        input_overrides={
-            ("connection-targets", "notice_heading"): "WireScope beta",
-            ("connection-targets", "notice_body"): "Observe traffic.",
-            ("connection-targets", "notice_href"): (
-                "https://wirescope-beta.mc-remote.com/"
-            ),
-            ("connection-targets", "notice_label"): "Open WireScope",
-        },
-        data_root=files("mc_remote_stack").joinpath("data"),
-    )
-
-    order = tomllib.loads((candidate / "mc-remote.toml").read_text(encoding="utf-8"))
-    targets = tomllib.loads(
-        (candidate / "operator/connection-targets/targets.toml").read_text(
-            encoding="utf-8"
-        )
-    )
-    adapters = {item["role"]: item["adapter"] for item in order["operator_inputs"]}
-    assert order["deployment"]["profile"] == "vps-server@11"
-    assert order["environment"]["preset"] == "public-web-paper@4"
-    assert adapters["connection-targets"] == "connection-targets@2"
-    assert targets["notice_href"] == "https://wirescope-beta.mc-remote.com/"
 
 
 def test_candidate_order_replaces_whole_typed_input_from_reviewed_file(
