@@ -16,7 +16,7 @@ from mc_remote_stack.restore import (
     plan_world_restore,
 )
 
-from .test_toml_apply import _prepared_credential_project, _prepared_project
+from .test_toml_apply import _prepared_project
 
 
 def _world_archive(path: Path, *, unsafe: bool = False) -> str:
@@ -78,36 +78,13 @@ def test_world_restore_plan_is_bound_to_lock_archive_and_world_mapping(
     )
 
     assert result.status == "planned"
-    assert result.volume == "home-beta-minecraft-data"
+    assert result.volume == "official-vps-minecraft-data"
     assert result.world_mapping == (
-        ("world", "home-beta-world"),
-        ("world_nether", "home-beta-world_nether"),
-        ("world_the_end", "home-beta-world_the_end"),
+        ("world", "official-vps-world"),
+        ("world_nether", "official-vps-world_nether"),
+        ("world_the_end", "official-vps-world_the_end"),
     )
     assert result.rollback_name.startswith(".mcrctl-world-restore-rollback-")
-
-
-def test_credential_profile_restore_targets_only_world_volume(
-    tmp_path: Path,
-) -> None:
-    project, data_root, output, lock = _prepared_credential_project(tmp_path)
-    archive = tmp_path / "backup.zip"
-    archive_sha256 = _world_archive(archive)
-
-    result = plan_world_restore(
-        project,
-        output,
-        archive,
-        source_world="world",
-        expected_archive_sha256=archive_sha256,
-        expected_lock_identity=lock["lock_identity"],
-        data_root=data_root,
-    )
-
-    assert result.volume == "home-alpha-minecraft-data"
-    assert result.volume != "home-alpha-credential-store"
-    assert result.volume != "home-alpha-credential-revocations"
-    assert "plugins" not in json.dumps(result.world_mapping)
 
 
 class RestoreDocker:
@@ -147,9 +124,9 @@ class RestoreDocker:
                         "Driver": "local",
                         "Labels": {
                             "io.mc-remote.owner": "mcrctl",
-                            "io.mc-remote.deployment": "home",
-                            "io.mc-remote.environment": "home-beta",
-                            "io.mc-remote.world": "home-beta-world",
+                            "io.mc-remote.deployment": self.lock["deployment"]["name"],
+                            "io.mc-remote.environment": self.lock["environment"]["identity"],
+                            "io.mc-remote.world": self.lock["world"]["identity"],
                             "io.mc-remote.created-by-lock": self.lock[
                                 "lock_identity"
                             ],
@@ -165,7 +142,7 @@ class RestoreDocker:
                     {
                         "Config": {
                             "Labels": {
-                                "com.docker.compose.project": "home",
+                                "com.docker.compose.project": self.lock["deployment"]["name"],
                                 "com.docker.compose.service": "minecraft",
                                 "com.docker.compose.project.config_files": (
                                     f"{self.output / 'compose.yaml'},"
@@ -176,9 +153,9 @@ class RestoreDocker:
                                 "com.docker.compose.project.working_dir": str(
                                     self.output
                                 ),
-                                "io.mc-remote.deployment": "home",
-                                "io.mc-remote.environment": "home-beta",
-                                "io.mc-remote.world": "home-beta-world",
+                                "io.mc-remote.deployment": self.lock["deployment"]["name"],
+                                "io.mc-remote.environment": self.lock["environment"]["identity"],
+                                "io.mc-remote.world": self.lock["world"]["identity"],
                                 "io.mc-remote.lock": self.lock["lock_identity"],
                             }
                         },
@@ -204,7 +181,7 @@ def test_world_restore_apply_stops_cutover_starts_and_doctors(
     archive_sha256 = _world_archive(archive)
     runner = RestoreDocker(
         lock,
-        "home-beta-minecraft-data",
+        "official-vps-minecraft-data",
         output=output,
     )
     doctor_calls = 0
@@ -277,7 +254,7 @@ def test_world_restore_start_failure_rolls_back_and_restarts_prior_world(
     archive_sha256 = _world_archive(archive)
     runner = RestoreDocker(
         lock,
-        "home-beta-minecraft-data",
+        "official-vps-minecraft-data",
         output=output,
         fail_first_start=True,
     )
@@ -310,7 +287,7 @@ def test_world_restore_rejects_runtime_started_with_extra_compose_file(
     archive_sha256 = _world_archive(archive)
     runner = RestoreDocker(
         lock,
-        "home-beta-minecraft-data",
+        "official-vps-minecraft-data",
         output=output,
         extra_compose_file=True,
     )

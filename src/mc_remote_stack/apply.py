@@ -12,8 +12,9 @@ from importlib.resources.abc import Traversable
 from pathlib import Path
 from typing import Any, Protocol
 
+import yaml
+
 from .render import RenderContractError, verify_toml_render_output
-from .runtime_contract import MINECRAFT_RUNTIME_GID, MINECRAFT_RUNTIME_UID
 
 DOCKER_CONTEXT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$")
 ANSI_ESCAPE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
@@ -265,62 +266,6 @@ def _minecraft_runtime_image(lock: dict[str, Any]) -> str:
     return f"{artifact['locator']}:{artifact['version']}@{artifact['digest']}"
 
 
-def _initialize_created_credential_volumes(
-    runner: CommandRunner,
-    docker_prefix: list[str],
-    *,
-    image: str,
-    volume_assignments: dict[str, str],
-    created_volumes: set[str],
-) -> None:
-    mounts: list[tuple[str, str]] = []
-    for role in ("credential-store", "credential-revocations"):
-        identity = volume_assignments.get(role)
-        if identity in created_volumes:
-            mounts.append((identity, f"/{role}"))
-    if not mounts:
-        return
-
-    command = docker_prefix + [
-        "run",
-        "--rm",
-        "--pull",
-        "never",
-        "--network",
-        "none",
-        "--read-only",
-        "--cap-drop",
-        "ALL",
-        "--cap-add",
-        "CHOWN",
-        "--user",
-        "0:0",
-    ]
-    for identity, target in mounts:
-        command.extend(
-            [
-                "--mount",
-                f"type=volume,source={identity},target={target},volume-nocopy",
-            ]
-        )
-    command.extend(
-        [
-            "--entrypoint",
-            "chown",
-            image,
-            f"{MINECRAFT_RUNTIME_UID}:{MINECRAFT_RUNTIME_GID}",
-            *(target for _identity, target in mounts),
-        ]
-    )
-    _run(
-        runner,
-        command,
-        timeout=120,
-        reason="bootstrap_volume_initialize_failed",
-        path="runtime.volumes.credential",
-    )
-
-
 def _expected_volume_labels(lock: dict[str, Any]) -> dict[str, str]:
     return {
         "io.mc-remote.owner": "mcrctl",
@@ -486,27 +431,38 @@ def _volume_exists(
     return names == [volume]
 
 
+def _published_host_ports(output: Path, default_address: str) -> list[tuple[str, int]]:
+    """Host bindings the verified canonical render publishes, in render order."""
+
+    compose = yaml.safe_load((output / "compose.yaml").read_text(encoding="utf-8"))
+    published: list[tuple[str, int]] = []
+    for service in compose["services"].values():
+        for specification in service.get("ports", []):
+            mapping = str(specification).split("/", 1)[0].split(":")
+            if len(mapping) == 3:
+                address, host_port = mapping[0], mapping[1]
+            elif len(mapping) == 2:
+                address, host_port = default_address, mapping[0]
+            else:
+                _fail(
+                    "render_port_unsupported",
+                    output / "compose.yaml",
+                    f"unsupported port publication: {specification!r}",
+                )
+            binding = (address, int(host_port))
+            if binding not in published:
+                published.append(binding)
+    return published
+
+
 def _check_ports(
     runner: CommandRunner,
     docker_prefix: list[str],
     lock: dict[str, Any],
+    output: Path,
     port_probe: PortProbe,
 ) -> None:
-    address = lock["network"]["bind_address"]
-    ports = [lock["network"]["java_port"], lock["network"]["mcremote_port"]]
-    if lock["render_plan"]["adapter_revision"] in {
-        "2",
-        "3",
-        "4",
-        "7",
-        "8",
-        "9",
-        "10",
-        "11",
-        "12",
-    }:
-        ports = [80, 443, *ports]
-    for port in ports:
+    for address, port in _published_host_ports(output, lock["network"]["bind_address"]):
         published = _run(
             runner,
             docker_prefix
@@ -653,10 +609,6 @@ def apply_toml_project(
     compose_project = lock["deployment"]["name"]
     services = _service_ids(lock)
     volumes = _volume_identities(lock)
-    volume_assignments = {
-        assignment["role"]: assignment["identity"]
-        for assignment in lock["runtime"]["volumes"]
-    }
     progress("docker-preflight")
     context = _run(
         runner,
@@ -755,7 +707,7 @@ def apply_toml_project(
         )
 
     progress("check-ports")
-    _check_ports(runner, docker_prefix, lock, port_probe)
+    _check_ports(runner, docker_prefix, lock, output, port_probe)
     progress("pull-images")
     _run(
         runner,
@@ -791,23 +743,6 @@ def apply_toml_project(
         _inspect_managed_volume(runner, docker_prefix, volume, lock)
         created_volumes.add(volume)
         status = "created"
-
-    created_credential_volumes = created_volumes.intersection(
-        {
-            identity
-            for role, identity in volume_assignments.items()
-            if role in {"credential-store", "credential-revocations"}
-        }
-    )
-    if created_credential_volumes:
-        progress("initialize-credential-volumes")
-        _initialize_created_credential_volumes(
-            runner,
-            docker_prefix,
-            image=_minecraft_runtime_image(lock),
-            volume_assignments=volume_assignments,
-            created_volumes=created_credential_volumes,
-        )
 
     try:
         progress(f"start-services-and-wait timeout={wait_timeout}")
