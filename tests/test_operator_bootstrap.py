@@ -34,7 +34,10 @@ def test_ubuntu_operator_bootstrap_is_auditable_and_prepares_real_tools() -> Non
     assert "/usr/local/bin/uv" in script
     assert "readlink -f" in script
     assert "--link" in script
-    assert '"$UV_BIN" sync --extra dev' in script
+    # Hosts get the exact locked runtime set: no test tools, and a stale
+    # uv.lock fails instead of being rewritten inside the trusted checkout.
+    assert '"$UV_BIN" sync --locked' in script
+    assert "--extra dev" not in script
     assert "sudo mcrctl" not in script
     assert "curl -LsSf" not in script or "| sh" not in script
     install_branch = script.split('if [[ "$mode" == install ]]', 1)[1]

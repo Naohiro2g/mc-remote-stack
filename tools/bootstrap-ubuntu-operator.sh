@@ -253,7 +253,7 @@ if [[ "$mode" == install ]]; then
   fi
   (
     cd -- "$repo_root"
-    "$UV_BIN" sync --extra dev
+    "$UV_BIN" sync --locked
   )
   link_operator_commands
 elif [[ ! -x "$MCRCTL_BIN" ]]; then

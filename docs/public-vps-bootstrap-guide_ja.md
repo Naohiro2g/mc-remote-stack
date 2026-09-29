@@ -68,7 +68,7 @@ Stack checkoutがhandoffのcommitであることを確かめ、環境を揃え�
 ```sh
 cd ~/mc-remote-stack
 test "$(git rev-parse HEAD)" = "<handoffのStack commit>"
-uv sync --frozen --extra dev
+uv sync --locked
 tools/bootstrap-ubuntu-operator.sh --check
 ```
 

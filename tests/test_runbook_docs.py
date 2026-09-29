@@ -33,6 +33,8 @@ def test_public_vps_runbook_is_one_positive_canonical_path() -> None:
     assert "mcrctl deployment update plan" in guide
     assert "mcrctl deployment update apply" in guide
     assert "mcrctl doctor" in guide
+    assert "uv sync --locked\n" in guide
+    assert "--extra dev" not in guide
     assert guide.index("mcrctl operator check") < guide.index("mcrctl deployment update plan")
     assert guide.index("mcrctl deployment update plan") < guide.index(
         "mcrctl deployment update apply"
