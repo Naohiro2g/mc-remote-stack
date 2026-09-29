@@ -1,7 +1,6 @@
 # Fresh Ubuntu host bootstrap runbook
 
-このrunbookは、新しいUbuntu hostをMcRemoteのdeployment operator環境へ準備する一回の正準手順である。
-完了後は[public VPS release deployment runbook](public-vps-bootstrap-guide_ja.md)へ進む。
+このrunbookは、新しいUbuntu hostをMcRemoteのdeployment operator環境へ準備する一回の正準手順である。完了後は[public VPS release deployment runbook](public-vps-bootstrap-guide_ja.md)へ進む。
 
 ## 1. bootstrap handoffを受け取る
 
@@ -90,11 +89,7 @@ checkoutに同梱されたbootstrapを実行する。
 ~/mc-remote-stack/tools/bootstrap-ubuntu-operator.sh --install
 ```
 
-bootstrapはUbuntuのsupport対象versionを確認し、固定versionの`uv`を`$HOME/.local/bin/uv`へ配置する。
-続いてDocker Engine、Compose、checkoutの`.venv`（Pythonは`.python-version`の3.12で、UbuntuのPythonを使う）を
-準備し、`uv`と`mcrctl`を`/usr/local/bin`へlinkして、どこからでもcommand名だけで実行できるようにする。
-個人管理者へDocker accessも設定する。`/var/lib/mc-remote`が専用runtime groupで管理される
-hostでは、そのgroup membershipも同時に設定する。
+bootstrapはUbuntuのsupport対象versionを確認し、固定versionの`uv`を`$HOME/.local/bin/uv`へ配置する。続いてDocker Engine、Compose、checkoutの`.venv`（Pythonは`.python-version`の3.12で、UbuntuのPythonを使う）を準備し、`uv`と`mcrctl`を`/usr/local/bin`へlinkして、どこからでもcommand名だけで実行できるようにする。個人管理者へDocker accessも設定する。`/var/lib/mc-remote`が専用runtime groupで管理されるhostでは、そのgroup membershipも同時に設定する。
 
 install完了後に一度logoutし、新しいSSH sessionで確認する。
 
@@ -125,8 +120,7 @@ docker context: default
 operator bootstrap: ready
 ```
 
-この値をpublic VPS deployment handoffへ入れ、
-[public VPS release deployment runbook](public-vps-bootstrap-guide_ja.md)の`mcrctl operator check`から続行する。
+この値をpublic VPS deployment handoffへ入れ、[public VPS release deployment runbook](public-vps-bootstrap-guide_ja.md)の`mcrctl operator check`から続行する。
 
 ## PATHが通っていないとき
 
