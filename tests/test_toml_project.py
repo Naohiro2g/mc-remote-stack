@@ -377,37 +377,6 @@ identity = "home-beta-other-data"
     assert exc_info.value.reason == "order_schema_invalid"
 
 
-@pytest.mark.parametrize(
-    "legacy_name",
-    [
-        "mc-remote.yml",
-        "mc-remote.yaml",
-        "mc-remote.lock.yml",
-        "mc-remote.lock.yaml",
-    ],
-)
-def test_toml_and_exact_legacy_name_fail_closed(tmp_path: Path, legacy_name: str) -> None:
-    root = tmp_path / "home-beta"
-    _write_order(root)
-    (root / legacy_name).write_text("{}\n", encoding="utf-8")
-
-    with pytest.raises(ProjectOrderError) as exc_info:
-        load_order(root)
-
-    assert exc_info.value.reason == "mixed_order_formats"
-
-
-def test_legacy_yaml_only_requires_explicit_conversion(tmp_path: Path) -> None:
-    root = tmp_path / "official-vps"
-    root.mkdir()
-    (root / "mc-remote.yml").write_text("schema_version: 1\n", encoding="utf-8")
-
-    with pytest.raises(ProjectOrderError) as exc_info:
-        load_order(root)
-
-    assert exc_info.value.reason == "legacy_order_requires_explicit_conversion"
-
-
 def test_toml_lock_without_order_is_orphaned(tmp_path: Path) -> None:
     root = tmp_path / "home-beta"
     root.mkdir()

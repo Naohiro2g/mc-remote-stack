@@ -15,17 +15,7 @@ from .archive import inspect_archive
 from .artifacts import (
     ArtifactFetchError,
     fetch_locked_artifacts,
-    import_recovery_archive,
     import_reviewed_artifact,
-)
-from .auth_migration import (
-    AuthMigrationContractError,
-    apply_auth_enforcement_migration,
-    apply_public_b3_upgrade,
-    apply_public_b4_upgrade,
-    plan_auth_enforcement_migration,
-    plan_public_b3_upgrade,
-    plan_public_b4_upgrade,
 )
 from .backup import (
     BackupTransferError,
@@ -36,11 +26,6 @@ from .backup import (
     load_backup_endpoint,
     ready_outbox_archives,
     transfer_archive,
-)
-from .composition import (
-    CompositionContractError,
-    apply_canonical_composition,
-    plan_canonical_composition,
 )
 from .deployment_interface import (
     DeploymentInterfaceError,
@@ -66,10 +51,9 @@ from .preset_registry import (
     load_preset_catalog,
     load_profile,
 )
-from .project import accept_eula, init_project
 from .release_manifest import ReleaseManifestError, parse_release_manifest
-from .render import RenderContractError, RenderError, render_project, render_toml_project
-from .repo_check import check_repository
+from .render import RenderContractError, render_toml_project
+from .repo_check import Issue, check_repository
 from .resolver import ResolutionError, inspect_lock, load_lock, resolve_project
 from .restore import (
     WorldRestoreError,
@@ -85,7 +69,6 @@ from .toml_project import (
     load_order,
     update_order_scalar,
 )
-from .validation import Issue, try_load_project
 
 
 def _print_issues(issues: list[Issue]) -> int:
@@ -108,10 +91,8 @@ def _print_structured_failure(
     exc: (
         ArtifactFetchError
         | ApplyContractError
-        | AuthMigrationContractError
         | DoctorContractError
         | DeploymentUpdateContractError
-        | CompositionContractError
         | OperatorEnvironmentError
         | OperatorInputError
         | PresetDataError
@@ -273,87 +254,9 @@ def _cmd_resolve(args: argparse.Namespace) -> int:
 
 
 def _cmd_init(args: argparse.Namespace) -> int:
-    if args.format == "toml":
-        required_arguments = (
-            ("--deployment-name", args.deployment_name),
-            ("--profile", args.profile),
-            ("--environment-identity", args.environment_identity),
-            ("--channel", args.channel),
-            ("--exposure", args.exposure),
-            ("--purpose", args.purpose),
-            ("--preset", args.preset),
-            ("--artifact-store", args.artifact_store),
-            ("--volume", args.volume),
-            ("--world-identity", args.world_identity),
-            ("--bind-address", args.bind_address),
-            ("--java-port", args.java_port),
-            ("--mcremote-port", args.mcremote_port),
-        )
-        missing = [name for name, value in required_arguments if value is None or value == []]
-        project_path = Path(args.path).resolve()
-        if missing:
-            return _print_reason_failure(
-                "init",
-                "missing_toml_init_argument",
-                project_path,
-                "missing required TOML init arguments: " + ", ".join(missing),
-            )
-
-        runtime_volumes: dict[str, str] = {}
-        for assignment in args.volume:
-            if assignment.count("=") != 1:
-                return _print_reason_failure(
-                    "init",
-                    "invalid_volume_assignment",
-                    project_path,
-                    f"--volume must use ROLE=IDENTITY exactly once: {assignment!r}",
-                )
-            role, identity = assignment.split("=", 1)
-            if not role or not identity:
-                return _print_reason_failure(
-                    "init",
-                    "invalid_volume_assignment",
-                    project_path,
-                    f"--volume requires non-empty ROLE and IDENTITY: {assignment!r}",
-                )
-            if role in runtime_volumes:
-                return _print_reason_failure(
-                    "init",
-                    "duplicate_volume_assignment",
-                    project_path,
-                    f"--volume role is assigned more than once: {role}",
-                )
-            runtime_volumes[role] = identity
-
-        try:
-            paths = init_toml_project(
-                Path(args.path),
-                deployment_name=args.deployment_name,
-                profile=args.profile,
-                environment_identity=args.environment_identity,
-                channel=args.channel,
-                exposure=args.exposure,
-                purpose=args.purpose,
-                preset=args.preset,
-                artifact_store=args.artifact_store,
-                runtime_volumes=runtime_volumes,
-                world_identity=args.world_identity,
-                bind_address=args.bind_address,
-                java_port=args.java_port,
-                mcremote_port=args.mcremote_port,
-            )
-        except ProjectOrderError as exc:
-            return _print_structured_failure("init", exc)
-        except (OSError, ValueError) as exc:
-            print(f"FAIL init: {exc}")
-            return 2
-        print(f"OK initialized format=toml project={paths.root}")
-        print(f"NEXT mcrctl accept-eula --project {paths.root} --yes")
-        print(f"NEXT mcrctl resolve --project {paths.root}")
-        return 0
-
-    toml_only_arguments = (
+    required_arguments = (
         ("--deployment-name", args.deployment_name),
+        ("--profile", args.profile),
         ("--environment-identity", args.environment_identity),
         ("--channel", args.channel),
         ("--exposure", args.exposure),
@@ -366,26 +269,67 @@ def _cmd_init(args: argparse.Namespace) -> int:
         ("--java-port", args.java_port),
         ("--mcremote-port", args.mcremote_port),
     )
-    unexpected = [
-        name
-        for name, value in toml_only_arguments
-        if value is not None and value != []
-    ]
-    if unexpected:
+    missing = [name for name, value in required_arguments if value is None or value == []]
+    project_path = Path(args.path).resolve()
+    if missing:
         return _print_reason_failure(
             "init",
-            "toml_init_argument_requires_format",
-            Path(args.path).resolve(),
-            f"{', '.join(unexpected)} require --format toml",
+            "missing_toml_init_argument",
+            project_path,
+            "missing required TOML init arguments: " + ", ".join(missing),
         )
 
+    runtime_volumes: dict[str, str] = {}
+    for assignment in args.volume:
+        if assignment.count("=") != 1:
+            return _print_reason_failure(
+                "init",
+                "invalid_volume_assignment",
+                project_path,
+                f"--volume must use ROLE=IDENTITY exactly once: {assignment!r}",
+            )
+        role, identity = assignment.split("=", 1)
+        if not role or not identity:
+            return _print_reason_failure(
+                "init",
+                "invalid_volume_assignment",
+                project_path,
+                f"--volume requires non-empty ROLE and IDENTITY: {assignment!r}",
+            )
+        if role in runtime_volumes:
+            return _print_reason_failure(
+                "init",
+                "duplicate_volume_assignment",
+                project_path,
+                f"--volume role is assigned more than once: {role}",
+            )
+        runtime_volumes[role] = identity
+
     try:
-        paths = init_project(Path(args.path), args.profile or "official-vps")
-    except ValueError as exc:
+        paths = init_toml_project(
+            Path(args.path),
+            deployment_name=args.deployment_name,
+            profile=args.profile,
+            environment_identity=args.environment_identity,
+            channel=args.channel,
+            exposure=args.exposure,
+            purpose=args.purpose,
+            preset=args.preset,
+            artifact_store=args.artifact_store,
+            runtime_volumes=runtime_volumes,
+            world_identity=args.world_identity,
+            bind_address=args.bind_address,
+            java_port=args.java_port,
+            mcremote_port=args.mcremote_port,
+        )
+    except ProjectOrderError as exc:
+        return _print_structured_failure("init", exc)
+    except (OSError, ValueError) as exc:
         print(f"FAIL init: {exc}")
         return 2
-    print(f"OK initialized {paths.root}")
-    print("NEXT review mc-remote.yml, set secrets, accept EULA, then resolve immutable artifacts")
+    print(f"OK initialized project={paths.root}")
+    print(f"NEXT mcrctl accept-eula --project {paths.root} --yes")
+    print(f"NEXT mcrctl resolve --project {paths.root}")
     return 0
 
 
@@ -425,12 +369,22 @@ def _cmd_toml_validate(project_path: Path) -> int:
     return 0
 
 
+def _require_toml_project(operation: str, project_path: Path) -> int | None:
+    if _uses_toml_project(project_path):
+        return None
+    return _print_reason_failure(
+        operation,
+        "toml_project_required",
+        project_path.resolve(),
+        "project must contain mc-remote.toml",
+    )
+
+
 def _cmd_validate(args: argparse.Namespace) -> int:
     project_path = Path(args.project)
-    if _uses_toml_project(project_path):
-        return _cmd_toml_validate(project_path)
-    _, issues = try_load_project(project_path)
-    return _print_issues(issues)
+    if (failure := _require_toml_project("validate", project_path)) is not None:
+        return failure
+    return _cmd_toml_validate(project_path)
 
 
 def _cmd_accept_eula(args: argparse.Namespace) -> int:
@@ -438,49 +392,35 @@ def _cmd_accept_eula(args: argparse.Namespace) -> int:
         print("FAIL EULA acceptance requires --yes after reading https://aka.ms/MinecraftEULA")
         return 2
     project_path = Path(args.project)
-    if _uses_toml_project(project_path):
-        try:
-            changed = update_order_scalar(
-                project_path,
-                ("agreements", "minecraft_eula"),
-                True,
-            )
-        except ProjectOrderError as exc:
-            return _print_structured_failure("accept-eula", exc)
-        except (OSError, ValueError) as exc:
-            print(f"FAIL accept-eula: {exc}")
-            return 2
-        status = "recorded" if changed else "already-recorded"
-        print(
-            f"OK {status} explicit EULA acceptance in "
-            f"{project_path.resolve() / 'mc-remote.toml'}"
-        )
-        return 0
+    if (failure := _require_toml_project("accept-eula", project_path)) is not None:
+        return failure
     try:
-        paths = accept_eula(project_path)
+        changed = update_order_scalar(
+            project_path,
+            ("agreements", "minecraft_eula"),
+            True,
+        )
+    except ProjectOrderError as exc:
+        return _print_structured_failure("accept-eula", exc)
     except (OSError, ValueError) as exc:
         print(f"FAIL accept-eula: {exc}")
         return 2
-    print(f"OK recorded explicit EULA acceptance in {paths.config}")
+    status = "recorded" if changed else "already-recorded"
+    print(
+        f"OK {status} explicit EULA acceptance in "
+        f"{project_path.resolve() / 'mc-remote.toml'}"
+    )
     return 0
 
 
 def _deployment_name(project_path: str) -> tuple[str | None, int]:
-    if _uses_toml_project(Path(project_path)):
-        try:
-            order = load_order(Path(project_path))
-        except ProjectOrderError as exc:
-            return None, _print_structured_failure("secret", exc)
-        return order.order["deployment"]["name"], 0
-    project, issues = try_load_project(Path(project_path))
-    load_failures = [issue for issue in issues if issue.path == str(Path(project_path).resolve())]
-    if project is None or load_failures:
-        return None, _print_issues(load_failures or issues)
-    name = project.config.get("deployment", {}).get("name")
-    if not isinstance(name, str):
-        print("FAIL mc-remote.yml:deployment.name must be a string")
-        return None, 2
-    return name, 0
+    if (failure := _require_toml_project("secret", Path(project_path))) is not None:
+        return None, failure
+    try:
+        order = load_order(Path(project_path))
+    except ProjectOrderError as exc:
+        return None, _print_structured_failure("secret", exc)
+    return order.order["deployment"]["name"], 0
 
 
 def _cmd_secret_set(args: argparse.Namespace) -> int:
@@ -648,75 +588,32 @@ def _cmd_toml_plan(project_path: Path) -> int:
 
 def _cmd_plan(args: argparse.Namespace) -> int:
     project_path = Path(args.project)
-    if _uses_toml_project(project_path):
-        return _cmd_toml_plan(project_path)
-    project, issues = try_load_project(project_path)
-    issues.extend(check_repository(project_path))
-    if project is not None:
-        print(f"PLAN deployment={project.config.get('deployment', {}).get('name', 'unknown')}")
-        print(
-            "PLAN services=caddy,scratch-stable,scratch-beta,bridge-stable,bridge-beta,minecraft-stable,minecraft-beta"
-        )
-        print("PLAN public-ports=80/tcp,443/tcp,25565/tcp,25565/udp,25575/tcp")
-        print("PLAN rcon=disabled backup-source=@server backup-output=/backup/outbox")
-        beta = project.config.get("beta", {})
-        if isinstance(beta, dict) and beta.get("enabled") is True:
-            ports = beta.get("minecraft", {})
-            print("PLAN beta=enabled activation=compose-profile:beta default=dormant")
-            print(
-                "PLAN beta-public-ports="
-                f"{ports.get('java_port', 'unknown')}/tcp,"
-                f"{ports.get('bedrock_port', 'unknown')}/udp,"
-                f"{ports.get('mcremote_port', 'unknown')}/tcp"
-            )
-        else:
-            print("PLAN beta=disabled")
-        transport = project.config.get("backup", {}).get("transport")
-        if isinstance(transport, dict):
-            encryption = transport.get("encryption", {})
-            print(
-                f"PLAN backup-transport={transport.get('type', 'unknown')} "
-                f"backup-encryption={encryption.get('type', 'unknown')} "
-                f"backup-remote={transport.get('host', 'unknown')}:{transport.get('remote_directory', 'unknown')}"
-            )
-        else:
-            print(f"PLAN backup-transport={transport}")
-    return _print_issues(issues)
+    if (failure := _require_toml_project("plan", project_path)) is not None:
+        return failure
+    return _cmd_toml_plan(project_path)
 
 
 def _cmd_render(args: argparse.Namespace) -> int:
     project_path = Path(args.project)
-    if _uses_toml_project(project_path):
-        try:
-            result = render_toml_project(
-                project_path,
-                Path(args.output),
-                data_root=_preset_data_root(),
-            )
-        except (PresetDataError, ProjectOrderError, RenderContractError, ResolutionError) as exc:
-            return _print_structured_failure("render", exc)
-        except OSError as exc:
-            print(f"FAIL render: {exc}")
-            return 2
-        print(
-            f"OK render status={result.status} "
-            f"adapter={result.adapter}@{result.adapter_revision} "
-            f"lock={result.lock_identity} output={result.output}"
-        )
-        return 0
-
-    project, issues = try_load_project(project_path)
-    failures = [issue for issue in issues if issue.severity == "FAIL"]
-    if project is None or failures:
-        return _print_issues(issues)
+    if (failure := _require_toml_project("render", project_path)) is not None:
+        return failure
     try:
-        paths = render_project(project, Path(args.output))
-    except (OSError, RenderError) as exc:
+        result = render_toml_project(
+            project_path,
+            Path(args.output),
+            data_root=_preset_data_root(),
+        )
+    except (PresetDataError, ProjectOrderError, RenderContractError, ResolutionError) as exc:
+        return _print_structured_failure("render", exc)
+    except OSError as exc:
         print(f"FAIL render: {exc}")
         return 2
-    for path in paths:
-        print(f"OK rendered {path}")
-    return 1 if issues else 0
+    print(
+        f"OK render status={result.status} "
+        f"adapter={result.adapter}@{result.adapter_revision} "
+        f"lock={result.lock_identity} output={result.output}"
+    )
+    return 0
 
 
 def _cmd_apply(args: argparse.Namespace) -> int:
@@ -945,492 +842,6 @@ def _cmd_homepage_sync(args: argparse.Namespace) -> int:
     return 0
 
 
-def _cmd_deployment_composition_plan(args: argparse.Namespace) -> int:
-    project = Path(args.project)
-    output = Path(args.output) if args.output else project / "generated"
-    try:
-        check_operator_environment(project, docker_context=args.docker_context)
-        overrides = _deployment_update_input_overrides(args.set_input)
-        result = plan_canonical_composition(
-            project,
-            output,
-            target_profile=args.to_profile,
-            target_preset=args.to_preset,
-            input_overrides=overrides,
-            docker_context=args.docker_context,
-            data_root=_preset_data_root(),
-        )
-    except (
-        ArtifactFetchError,
-        CompositionContractError,
-        DeploymentUpdateContractError,
-        DoctorContractError,
-        OperatorEnvironmentError,
-        PresetDataError,
-        ProjectOrderError,
-        RenderContractError,
-        ResolutionError,
-        RuntimeContentError,
-    ) as exc:
-        return _print_structured_failure("deployment composition plan", exc)
-    except OSError as exc:
-        print(f"FAIL deployment composition plan: {exc}")
-        return 2
-    plan = result.transaction
-    print(
-        f"PLAN deployment-composition id={plan.plan_id} "
-        f"deployment={plan.deployment} context={plan.docker_context}"
-    )
-    print(
-        f"PLAN profile={plan.source_profile}->{plan.target_profile} "
-        f"preset={plan.source_preset}->{plan.target_preset}"
-    )
-    print(
-        f"PLAN adopt plugins={result.plugin_count} "
-        f"homepage-tree={result.homepage_tree_sha256} backup=preserved"
-    )
-    print(
-        f"PLAN remove-additional-compose files={len(plan.preserved_compose_files)} "
-        "target-render=canonical"
-    )
-    print(
-        "PLAN failure-policy=restore-source-projection-with-reviewed-overlays; "
-        "world/session/pairing-state-not-rolled-back"
-    )
-    print(
-        f"NEXT mcrctl deployment composition apply --project {plan.project_root} "
-        f"--plan-id {plan.plan_id} --yes"
-    )
-    return 0
-
-
-def _cmd_deployment_composition_apply(args: argparse.Namespace) -> int:
-    project = Path(args.project)
-    try:
-        plan = load_deployment_update_plan(project, args.plan_id)
-        check_operator_environment(project, docker_context=plan.docker_context)
-        result = apply_canonical_composition(
-            project,
-            plan_id=args.plan_id,
-            confirmed=args.yes,
-            data_root=_preset_data_root(),
-            wait_timeout=args.wait_timeout,
-            progress=lambda step: print(
-                f"PROGRESS deployment-composition step={step}",
-                flush=True,
-            ),
-        )
-    except (
-        CompositionContractError,
-        DeploymentUpdateContractError,
-        DoctorContractError,
-        OperatorEnvironmentError,
-        PresetDataError,
-        ProjectOrderError,
-        RenderContractError,
-        ResolutionError,
-        RuntimeContentError,
-    ) as exc:
-        return _print_structured_failure("deployment composition apply", exc)
-    except OSError as exc:
-        print(f"FAIL deployment composition apply: {exc}")
-        return 2
-    print(
-        f"OK deployment-composition status={result.status} plan={result.plan_id} "
-        f"source-lock={result.source_lock_identity} "
-        f"target-lock={result.target_lock_identity} phase={result.phase}"
-    )
-    return 0
-
-
-def _migration_target_volumes(
-    assignments: list[str],
-    *,
-    operation: str,
-    project: Path,
-) -> tuple[dict[str, str] | None, int]:
-    volumes: dict[str, str] = {}
-    for assignment in assignments:
-        if assignment.count("=") != 1:
-            return None, _print_reason_failure(
-                operation,
-                "invalid_volume_assignment",
-                project,
-                f"--target-volume must use ROLE=IDENTITY exactly once: {assignment!r}",
-            )
-        role, identity = assignment.split("=", 1)
-        if not role or not identity:
-            return None, _print_reason_failure(
-                operation,
-                "invalid_volume_assignment",
-                project,
-                f"--target-volume requires non-empty ROLE and IDENTITY: {assignment!r}",
-            )
-        if role in volumes:
-            return None, _print_reason_failure(
-                operation,
-                "duplicate_volume_assignment",
-                project,
-                f"--target-volume role is assigned more than once: {role}",
-            )
-        volumes[role] = identity
-    return volumes, 0
-
-
-def _print_auth_migration_plan(plan) -> None:
-    print(
-        f"PLAN migration=auth-enforcement deployment={plan.deployment} "
-        f"environment={plan.environment} context={plan.docker_context}"
-    )
-    print(
-        f"PLAN source-profile={plan.source_profile} "
-        f"source-lock={plan.source_lock_identity}"
-    )
-    print(
-        f"PLAN target-profile={plan.target_profile} "
-        f"target-lock={plan.target_lock_identity}"
-    )
-    for role, source, target in plan.volume_migrations:
-        print(f"PLAN volume={role}:{source}->{target}")
-    for path, sha256 in zip(
-        plan.preserved_compose_files,
-        plan.preserved_compose_sha256,
-        strict=True,
-    ):
-        print(f"PLAN preserve-compose={path} sha256={sha256}")
-    if plan.auth_config_root is not None:
-        print(f"PLAN auth-config-root={plan.auth_config_root}")
-        print(
-            "PLAN preserved-composition="
-            f"{plan.preserved_composition_identity}"
-        )
-    print("PLAN failure-policy=retain-phase-and-resume-target no-source-runtime-rollback")
-
-
-def _cmd_auth_migration_plan(args: argparse.Namespace) -> int:
-    project = Path(args.project)
-    volumes, status = _migration_target_volumes(
-        args.target_volume,
-        operation="migration auth-enforcement plan",
-        project=project.resolve(),
-    )
-    if volumes is None:
-        return status
-    try:
-        plan = plan_auth_enforcement_migration(
-            project,
-            Path(args.output),
-            docker_context=args.docker_context,
-            target_volumes=volumes,
-            preserved_compose_files=tuple(Path(path) for path in args.preserve_compose_file),
-            auth_config_root=(Path(args.auth_config_root) if args.auth_config_root else None),
-            data_root=_preset_data_root(),
-            allow_unverified=args.allow_unverified,
-            allow_eol=args.allow_eol,
-        )
-    except (
-        AuthMigrationContractError,
-        PresetDataError,
-        ProjectOrderError,
-        RenderContractError,
-        ResolutionError,
-    ) as exc:
-        return _print_structured_failure("migration auth-enforcement plan", exc)
-    except OSError as exc:
-        print(f"FAIL migration auth-enforcement plan: {exc}")
-        return 2
-    _print_auth_migration_plan(plan)
-    return 0
-
-
-def _cmd_auth_migration_apply(args: argparse.Namespace) -> int:
-    project = Path(args.project)
-    volumes, status = _migration_target_volumes(
-        args.target_volume,
-        operation="migration auth-enforcement apply",
-        project=project.resolve(),
-    )
-    if volumes is None:
-        return status
-    try:
-        result = apply_auth_enforcement_migration(
-            project,
-            Path(args.output),
-            docker_context=args.docker_context,
-            target_volumes=volumes,
-            preserved_compose_files=tuple(Path(path) for path in args.preserve_compose_file),
-            auth_config_root=(Path(args.auth_config_root) if args.auth_config_root else None),
-            expected_source_lock_identity=args.expected_source_lock_identity,
-            expected_target_lock_identity=args.expected_target_lock_identity,
-            expected_preserved_composition_identity=(
-                args.expected_preserved_composition_identity
-            ),
-            data_root=_preset_data_root(),
-            confirmed=args.yes,
-            allow_unverified=args.allow_unverified,
-            allow_eol=args.allow_eol,
-            wait_timeout=args.wait_timeout,
-            progress=lambda step: print(
-                f"PROGRESS migration auth-enforcement step={step}",
-                flush=True,
-            ),
-        )
-    except (
-        AuthMigrationContractError,
-        PresetDataError,
-        ProjectOrderError,
-        RenderContractError,
-        ResolutionError,
-    ) as exc:
-        return _print_structured_failure("migration auth-enforcement apply", exc)
-    except OSError as exc:
-        print(f"FAIL migration auth-enforcement apply: {exc}")
-        return 2
-    print(
-        f"OK migration auth-enforcement status={result.status} "
-        f"source-lock={result.source_lock_identity} "
-        f"target-lock={result.target_lock_identity} phase={result.phase}"
-    )
-    return 0
-
-
-def _print_public_b3_plan(plan) -> None:
-    print(
-        f"PLAN migration=public-b3 deployment={plan.deployment} "
-        f"environment={plan.environment} context={plan.docker_context}"
-    )
-    print(
-        f"PLAN source-profile={plan.source_profile} source-lock={plan.source_lock_identity}"
-    )
-    print(
-        f"PLAN target-profile={plan.target_profile} target-lock={plan.target_lock_identity}"
-    )
-    print("PLAN release=public-web-paper@1->public-web-paper@2")
-    for role, source, target in plan.volume_migrations:
-        print(f"PLAN volume={role}:{source}->{target}")
-    for path, sha256 in zip(
-        plan.preserved_compose_files,
-        plan.preserved_compose_sha256,
-        strict=True,
-    ):
-        print(f"PLAN preserve-compose={path} sha256={sha256}")
-    if plan.auth_config_root is not None:
-        print(f"PLAN auth-config-root={plan.auth_config_root}")
-        print(f"PLAN preserved-composition={plan.preserved_composition_identity}")
-    print("PLAN failure-policy=retain-source-volumes-and-resume-target")
-
-
-def _cmd_public_b3_plan(args: argparse.Namespace) -> int:
-    project = Path(args.project)
-    volumes, status = _migration_target_volumes(
-        args.target_volume,
-        operation="migration public-b3 plan",
-        project=project.resolve(),
-    )
-    if volumes is None:
-        return status
-    try:
-        plan = plan_public_b3_upgrade(
-            project,
-            Path(args.output),
-            docker_context=args.docker_context,
-            target_volumes=volumes,
-            preserved_compose_files=tuple(Path(path) for path in args.preserve_compose_file),
-            auth_config_root=(Path(args.auth_config_root) if args.auth_config_root else None),
-            data_root=_preset_data_root(),
-            allow_unverified=args.allow_unverified,
-            allow_eol=args.allow_eol,
-        )
-    except (
-        AuthMigrationContractError,
-        PresetDataError,
-        ProjectOrderError,
-        RenderContractError,
-        ResolutionError,
-    ) as exc:
-        return _print_structured_failure("migration public-b3 plan", exc)
-    except OSError as exc:
-        print(f"FAIL migration public-b3 plan: {exc}")
-        return 2
-    _print_public_b3_plan(plan)
-    return 0
-
-
-def _cmd_public_b3_apply(args: argparse.Namespace) -> int:
-    project = Path(args.project)
-    volumes, status = _migration_target_volumes(
-        args.target_volume,
-        operation="migration public-b3 apply",
-        project=project.resolve(),
-    )
-    if volumes is None:
-        return status
-    try:
-        result = apply_public_b3_upgrade(
-            project,
-            Path(args.output),
-            docker_context=args.docker_context,
-            target_volumes=volumes,
-            preserved_compose_files=tuple(Path(path) for path in args.preserve_compose_file),
-            auth_config_root=(Path(args.auth_config_root) if args.auth_config_root else None),
-            expected_source_lock_identity=args.expected_source_lock_identity,
-            expected_target_lock_identity=args.expected_target_lock_identity,
-            expected_preserved_composition_identity=(
-                args.expected_preserved_composition_identity
-            ),
-            data_root=_preset_data_root(),
-            confirmed=args.yes,
-            allow_unverified=args.allow_unverified,
-            allow_eol=args.allow_eol,
-            wait_timeout=args.wait_timeout,
-            progress=lambda step: print(
-                f"PROGRESS migration public-b3 step={step}",
-                flush=True,
-            ),
-        )
-    except (
-        AuthMigrationContractError,
-        PresetDataError,
-        ProjectOrderError,
-        RenderContractError,
-        ResolutionError,
-    ) as exc:
-        return _print_structured_failure("migration public-b3 apply", exc)
-    except OSError as exc:
-        print(f"FAIL migration public-b3 apply: {exc}")
-        return 2
-    print(
-        f"OK migration public-b3 status={result.status} "
-        f"source-lock={result.source_lock_identity} "
-        f"target-lock={result.target_lock_identity} phase={result.phase}"
-    )
-    return 0
-
-
-def _print_public_b4_plan(plan) -> None:
-    print(
-        f"PLAN migration=public-b4 deployment={plan.deployment} "
-        f"environment={plan.environment} context={plan.docker_context}"
-    )
-    print(
-        f"PLAN source-profile={plan.source_profile} source-lock={plan.source_lock_identity}"
-    )
-    print(
-        f"PLAN target-profile={plan.target_profile} target-lock={plan.target_lock_identity}"
-    )
-    print("PLAN release=public-web-paper@2->public-web-paper@3")
-    for role, source, target in plan.volume_migrations:
-        print(f"PLAN volume={role}:{source}->{target}")
-    for path, sha256 in zip(
-        plan.preserved_compose_files,
-        plan.preserved_compose_sha256,
-        strict=True,
-    ):
-        print(f"PLAN preserve-compose={path} sha256={sha256}")
-    if plan.auth_config_root is not None:
-        print(f"PLAN auth-config-root={plan.auth_config_root}")
-        print(f"PLAN preserved-composition={plan.preserved_composition_identity}")
-    print("PLAN failure-policy=retain-source-volumes-and-resume-target")
-
-
-def _cmd_public_b4_plan(args: argparse.Namespace) -> int:
-    project = Path(args.project)
-    volumes, status = _migration_target_volumes(
-        args.target_volume,
-        operation="migration public-b4 plan",
-        project=project.resolve(),
-    )
-    if volumes is None:
-        return status
-    try:
-        plan = plan_public_b4_upgrade(
-            project,
-            Path(args.output),
-            docker_context=args.docker_context,
-            target_volumes=volumes,
-            preserved_compose_files=tuple(
-                Path(path) for path in args.preserve_compose_file
-            ),
-            auth_config_root=(
-                Path(args.auth_config_root) if args.auth_config_root else None
-            ),
-            data_root=_preset_data_root(),
-            allow_unverified=args.allow_unverified,
-            allow_eol=args.allow_eol,
-        )
-    except (
-        AuthMigrationContractError,
-        PresetDataError,
-        ProjectOrderError,
-        RenderContractError,
-        ResolutionError,
-    ) as exc:
-        return _print_structured_failure("migration public-b4 plan", exc)
-    except OSError as exc:
-        print(f"FAIL migration public-b4 plan: {exc}")
-        return 2
-    _print_public_b4_plan(plan)
-    return 0
-
-
-def _cmd_public_b4_apply(args: argparse.Namespace) -> int:
-    project = Path(args.project)
-    volumes, status = _migration_target_volumes(
-        args.target_volume,
-        operation="migration public-b4 apply",
-        project=project.resolve(),
-    )
-    if volumes is None:
-        return status
-    try:
-        result = apply_public_b4_upgrade(
-            project,
-            Path(args.output),
-            docker_context=args.docker_context,
-            target_volumes=volumes,
-            preserved_compose_files=tuple(
-                Path(path) for path in args.preserve_compose_file
-            ),
-            auth_config_root=(
-                Path(args.auth_config_root) if args.auth_config_root else None
-            ),
-            expected_source_lock_identity=args.expected_source_lock_identity,
-            expected_target_lock_identity=args.expected_target_lock_identity,
-            expected_preserved_composition_identity=(
-                args.expected_preserved_composition_identity
-            ),
-            data_root=_preset_data_root(),
-            confirmed=args.yes,
-            allow_unverified=args.allow_unverified,
-            allow_eol=args.allow_eol,
-            wait_timeout=args.wait_timeout,
-            acknowledge_credential_health=args.acknowledge_credential_health,
-            progress=lambda step: print(
-                f"PROGRESS migration public-b4 step={step}",
-                flush=True,
-            ),
-        )
-    except (
-        AuthMigrationContractError,
-        PresetDataError,
-        ProjectOrderError,
-        RenderContractError,
-        ResolutionError,
-    ) as exc:
-        return _print_structured_failure("migration public-b4 apply", exc)
-    except OSError as exc:
-        print(f"FAIL migration public-b4 apply: {exc}")
-        return 2
-    print(
-        f"OK migration public-b4 status={result.status} "
-        f"source-lock={result.source_lock_identity} "
-        f"target-lock={result.target_lock_identity} phase={result.phase}"
-    )
-    if args.acknowledge_credential_health:
-        print("WARN migration used the one-shot credential health acknowledgement")
-    return 0
-
-
 def _cmd_doctor(args: argparse.Namespace) -> int:
     if args.deployment is not None:
         try:
@@ -1653,24 +1064,6 @@ def _cmd_runtime_audit_log(args: argparse.Namespace) -> int:
     return 0
 
 
-def _cmd_artifact_import_archive(args: argparse.Namespace) -> int:
-    try:
-        imported = import_recovery_archive(
-            Path(args.project),
-            Path(args.archive),
-            Path(args.store) if args.store else None,
-        )
-    except (OSError, ValueError, zipfile.BadZipFile) as exc:
-        print(f"FAIL artifact import-archive: {exc}")
-        return 2
-    for artifact in imported:
-        print(
-            f"OK artifact {artifact.status} name={artifact.name} filename={artifact.filename} "
-            f"sha256={artifact.sha256} path={artifact.path}"
-        )
-    return 0
-
-
 def _cmd_artifact_fetch(args: argparse.Namespace) -> int:
     try:
         fetched = fetch_locked_artifacts(
@@ -1818,28 +1211,24 @@ def _load_backup_project(
     transport_config: str | None,
 ):
     path = Path(project_path)
-    if _uses_toml_project(path):
-        if transport_config is None:
-            print(
-                "FAIL backup: TOML deployment requires --transport-config "
-                "pointing to a private mode-0600 file"
-            )
-            return None, 2
-        try:
-            order = load_order(path)
-            endpoint = load_backup_endpoint(
-                Path(transport_config),
-                deployment_name=order.order["deployment"]["name"],
-            )
-        except (BackupTransferError, ProjectOrderError, OSError) as exc:
-            print(f"FAIL backup: {exc}")
-            return None, 2
-        return endpoint, 0
-    project, issues = try_load_project(path)
-    failures = [issue for issue in issues if issue.severity == "FAIL"]
-    if project is None or failures:
-        return None, _print_issues(issues)
-    return project, 0
+    if (failure := _require_toml_project("backup", path)) is not None:
+        return None, failure
+    if transport_config is None:
+        print(
+            "FAIL backup: --transport-config must point to a private "
+            "mode-0600 file"
+        )
+        return None, 2
+    try:
+        order = load_order(path)
+        endpoint = load_backup_endpoint(
+            Path(transport_config),
+            deployment_name=order.order["deployment"]["name"],
+        )
+    except (BackupTransferError, ProjectOrderError, OSError) as exc:
+        print(f"FAIL backup: {exc}")
+        return None, 2
+    return endpoint, 0
 
 
 def _cmd_backup_list(args: argparse.Namespace) -> int:
@@ -1942,11 +1331,6 @@ def build_parser() -> argparse.ArgumentParser:
 
     init_parser = subparsers.add_parser("init", help="create a deployment project")
     init_parser.add_argument("path")
-    init_parser.add_argument(
-        "--format",
-        choices=("legacy-yaml", "toml"),
-        default="legacy-yaml",
-    )
     init_parser.add_argument("--deployment-name")
     init_parser.add_argument("--profile")
     init_parser.add_argument("--environment-identity")
@@ -2117,159 +1501,6 @@ def build_parser() -> argparse.ArgumentParser:
     homepage_sync_parser.add_argument("--project", required=True)
     homepage_sync_parser.set_defaults(handler=_cmd_homepage_sync)
 
-    deployment_composition_parser = deployment_subparsers.add_parser(
-        "composition",
-        help="replace reviewed runtime overlays with canonical typed inputs",
-    )
-    deployment_composition_subparsers = deployment_composition_parser.add_subparsers(
-        dest="deployment_composition_command",
-        required=True,
-    )
-    deployment_composition_plan_parser = deployment_composition_subparsers.add_parser(
-        "plan",
-        help="discover and prepare one exact overlay canonicalization",
-    )
-    deployment_composition_plan_parser.add_argument("--project", required=True)
-    deployment_composition_plan_parser.add_argument("--output")
-    deployment_composition_plan_parser.add_argument("--docker-context", default="default")
-    deployment_composition_plan_parser.add_argument(
-        "--to-profile",
-        default="vps-server@10",
-    )
-    deployment_composition_plan_parser.add_argument("--to-preset", required=True)
-    deployment_composition_plan_parser.add_argument(
-        "--set-input", action="append", default=[]
-    )
-    deployment_composition_plan_parser.set_defaults(
-        handler=_cmd_deployment_composition_plan
-    )
-    deployment_composition_apply_parser = deployment_composition_subparsers.add_parser(
-        "apply",
-        help="apply or retry one exact canonicalization plan",
-    )
-    deployment_composition_apply_parser.add_argument("--project", required=True)
-    deployment_composition_apply_parser.add_argument("--plan-id", required=True)
-    deployment_composition_apply_parser.add_argument(
-        "--wait-timeout", type=int, default=300
-    )
-    deployment_composition_apply_parser.add_argument("--yes", action="store_true")
-    deployment_composition_apply_parser.set_defaults(
-        handler=_cmd_deployment_composition_apply
-    )
-
-    migration_parser = subparsers.add_parser(
-        "migration",
-        help="durable deployed-state migrations",
-    )
-    migration_subparsers = migration_parser.add_subparsers(
-        dest="migration_command",
-        required=True,
-    )
-    auth_migration_parser = migration_subparsers.add_parser(
-        "auth-enforcement",
-        help="migrate a running b2 deployment to enforced authentication",
-    )
-    auth_migration_subparsers = auth_migration_parser.add_subparsers(
-        dest="auth_migration_command",
-        required=True,
-    )
-    for action in ("plan", "apply"):
-        action_parser = auth_migration_subparsers.add_parser(
-            action,
-            help=f"{action} the auth-enforcement deployed-state migration",
-        )
-        action_parser.add_argument("--project", required=True)
-        action_parser.add_argument("--output", required=True)
-        action_parser.add_argument("--docker-context", required=True)
-        action_parser.add_argument("--target-volume", action="append", required=True)
-        action_parser.add_argument("--preserve-compose-file", action="append", default=[])
-        action_parser.add_argument("--auth-config-root")
-        action_parser.add_argument("--allow-unverified", action="store_true", help=argparse.SUPPRESS)
-        action_parser.add_argument("--allow-eol", action="store_true")
-        if action == "apply":
-            action_parser.add_argument(
-                "--expected-source-lock-identity",
-                required=True,
-            )
-            action_parser.add_argument(
-                "--expected-target-lock-identity",
-                required=True,
-            )
-            action_parser.add_argument(
-                "--expected-preserved-composition-identity",
-            )
-            action_parser.add_argument("--wait-timeout", type=int, default=300)
-            action_parser.add_argument("--yes", action="store_true")
-            action_parser.set_defaults(handler=_cmd_auth_migration_apply)
-        else:
-            action_parser.set_defaults(handler=_cmd_auth_migration_plan)
-
-    public_b3_parser = migration_subparsers.add_parser(
-        "public-b3",
-        help="upgrade the exact public b2 deployment to the b3 compatibility set",
-    )
-    public_b3_subparsers = public_b3_parser.add_subparsers(
-        dest="public_b3_command",
-        required=True,
-    )
-    for action in ("plan", "apply"):
-        action_parser = public_b3_subparsers.add_parser(
-            action,
-            help=f"{action} the exact public b2-to-b3 deployed-state migration",
-        )
-        action_parser.add_argument("--project", required=True)
-        action_parser.add_argument("--output", required=True)
-        action_parser.add_argument("--docker-context", required=True)
-        action_parser.add_argument("--target-volume", action="append", required=True)
-        action_parser.add_argument("--preserve-compose-file", action="append", default=[])
-        action_parser.add_argument("--auth-config-root")
-        action_parser.add_argument("--allow-unverified", action="store_true", help=argparse.SUPPRESS)
-        action_parser.add_argument("--allow-eol", action="store_true")
-        if action == "apply":
-            action_parser.add_argument("--expected-source-lock-identity", required=True)
-            action_parser.add_argument("--expected-target-lock-identity", required=True)
-            action_parser.add_argument("--expected-preserved-composition-identity")
-            action_parser.add_argument("--wait-timeout", type=int, default=300)
-            action_parser.add_argument("--yes", action="store_true")
-            action_parser.set_defaults(handler=_cmd_public_b3_apply)
-        else:
-            action_parser.set_defaults(handler=_cmd_public_b3_plan)
-
-    public_b4_parser = migration_subparsers.add_parser(
-        "public-b4",
-        help="upgrade the exact public b3 deployment to the b4 compatibility set",
-    )
-    public_b4_subparsers = public_b4_parser.add_subparsers(
-        dest="public_b4_command",
-        required=True,
-    )
-    for action in ("plan", "apply"):
-        action_parser = public_b4_subparsers.add_parser(
-            action,
-            help=f"{action} the exact public b3-to-b4 deployed-state migration",
-        )
-        action_parser.add_argument("--project", required=True)
-        action_parser.add_argument("--output", required=True)
-        action_parser.add_argument("--docker-context", required=True)
-        action_parser.add_argument("--target-volume", action="append", required=True)
-        action_parser.add_argument("--preserve-compose-file", action="append", default=[])
-        action_parser.add_argument("--auth-config-root")
-        action_parser.add_argument("--allow-unverified", action="store_true", help=argparse.SUPPRESS)
-        action_parser.add_argument("--allow-eol", action="store_true")
-        if action == "apply":
-            action_parser.add_argument("--expected-source-lock-identity", required=True)
-            action_parser.add_argument("--expected-target-lock-identity", required=True)
-            action_parser.add_argument("--expected-preserved-composition-identity")
-            action_parser.add_argument("--wait-timeout", type=int, default=300)
-            action_parser.add_argument(
-                "--acknowledge-credential-health",
-                action="store_true",
-            )
-            action_parser.add_argument("--yes", action="store_true")
-            action_parser.set_defaults(handler=_cmd_public_b4_apply)
-        else:
-            action_parser.set_defaults(handler=_cmd_public_b4_plan)
-
     doctor_parser = subparsers.add_parser(
         "doctor",
         help="read-only check of one current TOML Docker runtime and protocol",
@@ -2359,15 +1590,6 @@ def build_parser() -> argparse.ArgumentParser:
     import_reviewed_parser.add_argument("--artifact-id", required=True)
     import_reviewed_parser.add_argument("--expected-sha256", required=True)
     import_reviewed_parser.set_defaults(handler=_cmd_artifact_import_reviewed)
-    import_archive_parser = artifact_subparsers.add_parser(
-        "import-archive",
-        help="import only lock-named JARs from a recovery ZIP",
-    )
-    import_archive_parser.add_argument("archive")
-    import_archive_parser.add_argument("--project", required=True)
-    import_archive_parser.add_argument("--store")
-    import_archive_parser.set_defaults(handler=_cmd_artifact_import_archive)
-
     backup_parser = subparsers.add_parser("backup", help="encrypted backup transfer operations")
     backup_subparsers = backup_parser.add_subparsers(dest="backup_command", required=True)
     transfer_parser = backup_subparsers.add_parser(

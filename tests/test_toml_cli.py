@@ -147,20 +147,6 @@ def test_cli_resolve_without_compatibility_ack_reports_noop(
     assert "OK resolve status=unchanged lock=sha256:" in unchanged
 
 
-def test_cli_resolve_fails_closed_on_mixed_yaml_and_toml(
-    tmp_path: Path,
-    monkeypatch,
-    capsys,
-) -> None:
-    project, data_root = _fixture(tmp_path)
-    (project / "mc-remote.yml").write_text("deployment: {}\n", encoding="utf-8")
-    monkeypatch.setattr("mc_remote_stack.cli._preset_data_root", lambda: data_root)
-
-    assert main(["resolve", "--project", str(project), "--allow-unverified"]) == 2
-
-    assert "reason=mixed_order_formats" in capsys.readouterr().out
-
-
 def _bundled_home_project(tmp_path: Path) -> Path:
     from mc_remote_stack.toml_project import init_toml_project
 
