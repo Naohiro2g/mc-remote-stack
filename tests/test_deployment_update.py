@@ -56,7 +56,7 @@ def _public_order(tmp_path: Path) -> Path:
             '''
 [[operator_inputs]]
 role = "public-routes"
-adapter = "public-routes@1"
+adapter = "public-routes@2"
 path = "operator/public-routes/routes.toml"
 
 [[operator_inputs]]
@@ -66,7 +66,7 @@ path = "operator/minecraft-server/server.toml"
 
 [[operator_inputs]]
 role = "connection-targets"
-adapter = "connection-targets@1"
+adapter = "connection-targets@3"
 path = "operator/connection-targets/targets.toml"
 '''
         )
