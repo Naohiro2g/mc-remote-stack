@@ -3,7 +3,7 @@ schema_version = 1
 [preset_catalog]
 generator = "mcrctl-preset-catalog-v1"
 canonicalization = "jcs-rfc8785-v1"
-source_sha256 = "c3a12fb018ef2597750c93cd2145ab86432c904a7b7455e8e088ff341ee7a0f1"
+source_sha256 = "57cde283f28c150c44f1245871ab90e265d70fafeb7f1538c9443a5f10ddaee6"
 
 [[preset_catalog.presets]]
 ref = "classroom@1"
@@ -21,6 +21,15 @@ description = "home private alpha full stack (Caddy/Scratch/Bridge/Minecraft): M
 status = "active"
 available_since = "2026-08-29"
 required_profile_capabilities = ["compose", "mcremote-auth-enforced", "paper", "persistent-world", "scratch-runtime", "websocket-bridge"]
+allowed_channels = ["alpha"]
+
+[[preset_catalog.presets]]
+ref = "home-alpha-full@2"
+content_sha256 = "54c3818c814372c8746de766f42e165dc6fca5e496b7fc0a97ecb7636fc59f9a"
+description = "b7.post2 のホーム4サービス構成。host の HTTPS/WSS 転送を使い、通常 apply/doctor で扱う。"
+status = "active"
+available_since = "2026-10-02"
+required_profile_capabilities = ["compose", "mcremote-auth-enforced", "mcremote-session-only", "paper", "persistent-world", "scratch-runtime", "websocket-bridge"]
 allowed_channels = ["alpha"]
 
 [[preset_catalog.presets]]

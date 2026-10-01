@@ -14,3 +14,8 @@ available_since = "2026-08-29"
 ref = "classroom@1"
 status = "active"
 available_since = "2026-09-04"
+
+[[presets]]
+ref = "home-alpha-full@2"
+status = "active"
+available_since = "2026-10-02"
