@@ -618,6 +618,7 @@ def _docker_runner(
     minecraft_healthy: bool = True,
 ):
     calls: list[list[str]] = []
+    started = False
     if volume_exists is None:
         volume_exists = existing
     if images is None:
@@ -628,13 +629,16 @@ def _docker_runner(
         }
 
     def run(command: list[str], timeout: int) -> subprocess.CompletedProcess[str]:
+        nonlocal started
         calls.append(command)
+        if "up" in command:
+            started = True
         if command[1:4] == ["context", "inspect", "default"]:
             stdout = '[{"Endpoints":{"docker":{"Host":"unix:///var/run/docker.sock"}}}]'
         elif command[-3:-1] == ["volume", "inspect"]:
             return subprocess.CompletedProcess(command, 0 if volume_exists else 1, "[]", "")
         elif "ps" in command and "--quiet" in command:
-            stdout = "scratch-id\nbridge-id\nminecraft-id\n" if existing else ""
+            stdout = "scratch-id\nbridge-id\nminecraft-id\n" if existing or started else ""
         elif "inspect" in command and command[-1].endswith("-id"):
             container_id = command[-1]
             service = container_id.removesuffix("-id")
@@ -709,7 +713,7 @@ default = true
         service: config["image"]
         for service, config in prepared.compose["services"].items()
     }
-    runner, _calls = _docker_runner(existing=False, volume_exists=False)
+    runner, _calls = _docker_runner(existing=False, volume_exists=False, images=images)
 
     applied = apply_interface_order(
         order,

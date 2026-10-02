@@ -14,6 +14,8 @@ operatorが編集する入力は`mc-remote.toml`一つである。`apply <mc-rem
 
 生成したlockとrenderはoperator入力ではなく、既定では`$XDG_STATE_HOME/mc-remote/deployments/<deployment>/`へ置く。`MC_REMOTE_STATE_HOME`を指定した場合は、そのdirectoryの`deployments/`以下を使う。artifact storeは既存のcontent-addressed cache契約を使う。
 
+Scratch runtime JSONとCaddy設定はcontainerから読める`0644`、lock／current等は`0600`で保存する。同じ内容のファイルはinodeを維持し、権限だけを補正できるため、既存のbind mountにも補正が反映される。applyはCompose起動後の`verify`で管理container集合、image、稼働、port、Minecraft healthを再取得して確認し、成功してからcurrentを記録する。applyとdoctorは`Running=true`でも`Restarting=true`なら`deployment_runtime_restarting`で停止する。実際の配信設定・接続先・認証の確認はdoctorで行う。
+
 ## Scratch contract handoffの取込
 
 Stackへの正式入力は、Scratch GitHub Releaseへ添付された`manifest.json`と`contracts.tar.gz`である。manifestがrole別に確定するsource commit、Scratch／Bridge image digestを個別のテキスト票として会話やhandoffから聞き出す運用はしない（`00-hub/deployment-interface-design_ja.md`§4）。

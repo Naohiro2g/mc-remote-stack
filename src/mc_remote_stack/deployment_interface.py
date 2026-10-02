@@ -8,6 +8,7 @@ import json
 import os
 import re
 import socket
+import stat
 import subprocess
 import tempfile
 import tomllib
@@ -770,8 +771,7 @@ def write_interface_preview(prepared: PreparedDeployment, output: Path) -> Path:
     output = output.expanduser().resolve()
     if output.exists() and (not output.is_dir() or any(output.iterdir())):
         _fail("preview_output_not_empty", output, "choose an empty preview directory")
-    for relative, content in prepared.files.items():
-        _atomic_write(output / PurePosixPath(relative), content.encode("utf-8"))
+    _write_render_files(prepared, output)
     _atomic_write(
         output / "mc-remote.lock.json",
         (json.dumps(prepared.lock, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode(),
@@ -817,25 +817,39 @@ def detect_apply_mode(
     return "update"
 
 
-def _atomic_write(path: Path, content: bytes) -> None:
+def _atomic_write(path: Path, content: bytes, *, mode: int = 0o600) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+    # Preserve the inode already bind-mounted by a container when only its
+    # permissions need repair, or an unchanged order is applied again.
+    if path.is_file() and not path.is_symlink() and path.read_bytes() == content:
+        if stat.S_IMODE(path.stat().st_mode) != mode:
+            path.chmod(mode)
+        return
     descriptor, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
     temporary = Path(temporary_name)
     try:
         with os.fdopen(descriptor, "wb") as stream:
             stream.write(content)
             stream.flush()
+            os.fchmod(stream.fileno(), mode)
             os.fsync(stream.fileno())
         os.replace(temporary, path)
     finally:
         temporary.unlink(missing_ok=True)
 
 
+def _write_render_files(prepared: PreparedDeployment, root: Path) -> None:
+    for relative, content in prepared.files.items():
+        # These files contain public routing/runtime configuration and must be
+        # readable by Caddy without DAC capabilities and Scratch's UID 101.
+        mode = 0o644 if relative in {"Caddyfile", "runtime/scratch.json"} else 0o600
+        _atomic_write(root / PurePosixPath(relative), content.encode("utf-8"), mode=mode)
+
+
 def _publish_render(prepared: PreparedDeployment, state_root: Path) -> Path:
     lock_suffix = prepared.lock["lock_identity"].removeprefix("sha256:")
     render_root = state_root / prepared.lock["deployment"] / "renders" / lock_suffix
-    for relative, content in prepared.files.items():
-        _atomic_write(render_root / PurePosixPath(relative), content.encode("utf-8"))
+    _write_render_files(prepared, render_root)
     _atomic_write(
         render_root / "mc-remote.lock.json",
         (json.dumps(prepared.lock, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode(),
@@ -1108,6 +1122,11 @@ def apply_interface_order(
         600,
         "deployment_apply_failed",
     )
+    report("verify")
+    _validate_interface_containers(
+        _container_records(runner, docker_context, prepared.lock["deployment"]),
+        prepared.lock,
+    )
     report("record")
     current = {
         "schema_version": 1,
@@ -1194,6 +1213,16 @@ def _validate_interface_containers(
 ) -> None:
     images = _expected_interface_images(lock)
     ports = _expected_interface_ports(lock)
+    if (
+        len(containers) != len(images)
+        or {container["service"] for container in containers} != set(images)
+        or any(container.get("managed") is not True for container in containers)
+    ):
+        _fail(
+            "deployment_runtime_unmanaged",
+            lock["deployment"],
+            "live containers do not exactly match the preset services",
+        )
     for container in containers:
         service = container["service"]
         record = container.get("record")
@@ -1209,6 +1238,11 @@ def _validate_interface_containers(
         state = record.get("State")
         if not isinstance(state, dict) or state.get("Running") is not True:
             _fail("deployment_runtime_not_running", service, "container is not running")
+        if state.get("Restarting") is True:
+            _fail(
+                "deployment_runtime_restarting", service,
+                "container is restarting; inspect the service logs",
+            )
         if service == "minecraft":
             health = state.get("Health")
             if not isinstance(health, dict) or health.get("Status") != "healthy":

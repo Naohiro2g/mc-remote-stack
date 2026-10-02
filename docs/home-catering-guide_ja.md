@@ -72,7 +72,9 @@ mcrctl apply ./mc-remote.toml
 mcrctl doctor home-trial
 ```
 
-apply は `prepare → preflight → render → artifacts → compose-check → pull → start → record` を表示します。各表示はその操作に入る時点を示します。`OK apply` は Compose の起動完了、`OK doctor` は exact image、container 稼働、port、配信 runtime schema、Bridge target と McRemote 到達、認証強制の検査成功です。
+apply は `prepare → preflight → render → artifacts → compose-check → pull → start → verify → record` を表示します。各表示はその操作に入る時点を示します。`verify` は起動後の4サービスを再取得し、再起動中でないこと、exact image、port、Minecraft healthを確認します。`OK apply` はこの確認とcurrent記録の完了、`OK doctor` は配信 runtime schema、Bridge target と McRemote 到達、認証強制を含む検査成功です。
+
+Scratch runtime JSONとCaddy設定はコンテナから読める `0644` で生成します。lock／currentなどは `0600` で保持します。同じ内容のファイルはinodeを保ち、必要なら権限を補正するため、既存のbind mountにも補正が届きます。`deployment_runtime_restarting` が出た場合は、そのサービスのlogで起動失敗の原因を確認します。
 
 world と credential state は `<deployment>-minecraft-data`、Caddy state は `<deployment>-caddy-data` と `<deployment>-caddy-config` に保持します。world directory は `<deployment>-world` です。通常 apply は同じ deployment の停止済み container があっても既存 world の更新として扱います。生成した確認用 directory は起動時には使わず、実際の配置は Stack の state directory に保存します。
 

@@ -1,5 +1,7 @@
 import copy
 import json
+import os
+import stat
 import subprocess
 from pathlib import Path
 from types import SimpleNamespace
@@ -40,6 +42,7 @@ default = true
 
 def _runner(prepared, *, existing=False, volume_exists=False, mutation=None):
     calls = []
+    started = False
     ports = {
         "caddy": {
             "8443/tcp": [{"HostIp": "127.0.0.1", "HostPort": "8443"}],
@@ -53,13 +56,16 @@ def _runner(prepared, *, existing=False, volume_exists=False, mutation=None):
     }
 
     def run(command, timeout):
+        nonlocal started
         calls.append(command)
+        if "up" in command:
+            started = True
         if command[1:4] == ["context", "inspect", "default"]:
             stdout = '[{"Endpoints":{"docker":{"Host":"unix:///var/run/docker.sock"}}}]'
         elif command[-3:-1] == ["volume", "inspect"]:
             return subprocess.CompletedProcess(command, 0 if volume_exists else 1, "[]", "")
         elif "ps" in command:
-            stdout = "caddy-id\nscratch-id\nbridge-id\nminecraft-id\n" if existing else ""
+            stdout = "caddy-id\nscratch-id\nbridge-id\nminecraft-id\n" if existing or started else ""
         elif "inspect" in command and command[-1].endswith("-id"):
             service = command[-1].removesuffix("-id")
             record = {
@@ -257,3 +263,99 @@ def test_docker_error_includes_a_bounded_diagnostic():
         interface_module._run(runner, ["docker", "compose", "up"], 30, "deployment_apply_failed")
     assert "address already in use" in str(failure.value)
     assert len(str(failure.value)) < 2200
+
+
+@pytest.mark.parametrize("preview", [False, True])
+def test_container_readable_public_configs_and_private_state_modes(tmp_path, preview):
+    prepared = prepare_interface_deployment(_order(tmp_path))
+    old_umask = os.umask(0o077)
+    try:
+        if preview:
+            root = interface_module.write_interface_preview(prepared, tmp_path / "preview")
+        else:
+            root = interface_module._publish_render(prepared, tmp_path / "state")
+    finally:
+        os.umask(old_umask)
+    for relative in ("Caddyfile", "runtime/scratch.json"):
+        assert stat.S_IMODE((root / relative).stat().st_mode) == 0o644
+    for relative in ("mc-remote.lock.json", "runtime/minecraft/plugins/McRemote/config.yml"):
+        assert stat.S_IMODE((root / relative).stat().st_mode) == 0o600
+
+
+@pytest.mark.parametrize("relative", ["Caddyfile", "runtime/scratch.json"])
+def test_same_content_permission_repair_reaches_an_existing_bind_mount(tmp_path, relative):
+    prepared = prepare_interface_deployment(_order(tmp_path))
+    root = interface_module._publish_render(prepared, tmp_path / "state")
+    path = root / relative
+    path.chmod(0o600)
+    with path.open("rb") as mounted_inode:
+        inode = os.fstat(mounted_inode.fileno()).st_ino
+        interface_module._publish_render(prepared, tmp_path / "state")
+        assert path.stat().st_ino == inode
+        assert stat.S_IMODE(os.fstat(mounted_inode.fileno()).st_mode) == 0o644
+        assert mounted_inode.read() == path.read_bytes()
+
+
+def _restarting_caddy(service, record):
+    if service == "caddy":
+        # Docker reports Running=True even while a restart-policy container restarts.
+        record["State"]["Restarting"] = True
+        record["NetworkSettings"]["Ports"] = {}
+
+
+def test_doctor_names_a_restart_loop_before_the_missing_ports(tmp_path):
+    prepared, _ = _applied(tmp_path)
+    runner, _ = _runner(prepared, existing=True, volume_exists=True, mutation=_restarting_caddy)
+    with pytest.raises(DeploymentInterfaceError, match="deployment_runtime_restarting.*caddy"):
+        doctor_interface_deployment("home-trial", state_root=tmp_path / "state", runner=runner)
+
+
+def test_apply_rechecks_the_started_containers_before_recording_success(tmp_path):
+    order = _order(tmp_path)
+    prepared = prepare_interface_deployment(order)
+    runner, calls = _runner(prepared, mutation=_restarting_caddy)
+    stages = []
+    with pytest.raises(DeploymentInterfaceError, match="deployment_runtime_restarting.*caddy"):
+        apply_interface_order(
+            order, state_root=tmp_path / "state", runner=runner,
+            artifact_fetcher=lambda _: None, port_probe=lambda *_: True, progress=stages.append,
+        )
+    assert any("up" in command for command in calls)
+    assert stages[-1] == "verify" and "record" not in stages
+    assert not (tmp_path / "state/home-trial/current.json").exists()
+
+
+@pytest.mark.parametrize("container_ids", ["", "scratch-id\nbridge-id\nminecraft-id\n"])
+def test_apply_rejects_missing_services_after_compose_reports_success(tmp_path, container_ids):
+    order = _order(tmp_path)
+    prepared = prepare_interface_deployment(order)
+    base_runner, _ = _runner(prepared)
+
+    def runner(command, timeout):
+        result = base_runner(command, timeout)
+        if "ps" in command:
+            return subprocess.CompletedProcess(command, 0, container_ids if result.stdout else "", "")
+        return result
+
+    with pytest.raises(DeploymentInterfaceError, match="deployment_runtime_unmanaged"):
+        apply_interface_order(
+            order, state_root=tmp_path / "state", runner=runner,
+            artifact_fetcher=lambda _: None, port_probe=lambda *_: True,
+        )
+    assert not (tmp_path / "state/home-trial/current.json").exists()
+
+
+def test_failed_update_preserves_the_previous_current_record(tmp_path):
+    prepared, _ = _applied(tmp_path)
+    current = tmp_path / "state/home-trial/current.json"
+    previous = current.read_bytes()
+    with prepared.order_path.open("a") as order:
+        order.write('\n[[notices]]\nheading="Changed"\nbody="New notice"\n')
+    desired = prepare_interface_deployment(prepared.order_path, artifact_store=tmp_path / "artifacts")
+    runner, _ = _runner(desired, existing=True, volume_exists=True, mutation=_restarting_caddy)
+    with pytest.raises(DeploymentInterfaceError, match="deployment_runtime_restarting"):
+        apply_interface_order(
+            prepared.order_path, artifact_store=tmp_path / "artifacts", state_root=tmp_path / "state",
+            runner=runner, artifact_fetcher=lambda _: None, port_probe=lambda *_: True,
+        )
+    assert current.read_bytes() == previous
