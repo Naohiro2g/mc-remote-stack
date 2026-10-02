@@ -4,6 +4,7 @@ import io
 import json
 import os
 import shutil
+import socket
 import stat
 import subprocess
 import zipfile
@@ -64,6 +65,10 @@ def _runner(prepared, *, existing=False, volume_exists=False, mutation=None):
     }
     if "wirescope_port" in prepared.lock["network"]:
         ports["caddy"]["8445/tcp"] = [{"HostIp": "127.0.0.1", "HostPort": "8445"}]
+    if "bedrock_port" in prepared.lock["network"]:
+        ports["minecraft"]["19132/udp"] = [{
+            "HostIp": prepared.lock["network"]["bedrock_bind_address"], "HostPort": "19132",
+        }]
 
     def run(command, timeout):
         nonlocal started
@@ -529,3 +534,136 @@ def test_home_doctor_checks_wirescope_public_content_and_handoff_headers(tmp_pat
         assert doctor().wirescope_status == "current"
     assert calls == [("https://home.example.org:8443/", "https://home.example.org:8445/",
                       {"expected_index_sha256": hashlib.sha256(assets["index.html"]).hexdigest(), "timeout": 5})]
+
+
+def _standard_order(order):
+    order.write_text(order.read_text().replace("home-alpha-full@3", "home-alpha-full@4").replace(
+        '[surfaces]', '[surfaces]\nbedrock_bind_address = "192.0.2.30"',
+    ))
+    return order
+
+
+def _standard_fixture(tmp_path):
+    order, data_root, assets = _wirescope_fixture(tmp_path)
+    resource = data_root / "preset_registry/home-alpha-full/4/preset.toml"
+    preset = tomlkit.parse(resource.read_text())
+    old = tomlkit.parse((data_root / "preset_registry/home-alpha-full/3/preset.toml").read_text())
+    for artifact in preset["artifacts"]:
+        if artifact["id"] in {"wirescope-zip", "wirescope-manifest"}:
+            artifact["sha256"] = next(a["sha256"] for a in old["artifacts"] if a["id"] == artifact["id"])
+    resource.write_text(tomlkit.dumps(preset))
+    return _standard_order(order), data_root, assets
+
+
+def _standard_runner(prepared, *, plugin_failure=None, existing=False, mutation=None):
+    base, calls = _runner(prepared, existing=existing, volume_exists=existing, mutation=mutation)
+    artifacts = {a["filename"]: a for a in prepared.lock["artifacts"] if a["kind"] == "https-file"}
+
+    def run(command, timeout):
+        if "sha256sum" in command:
+            calls.append(command)
+            name = Path(command[-1]).name
+            if plugin_failure == "missing":
+                return subprocess.CompletedProcess(command, 1, "", "No such file")
+            digest = "0" * 64 if plugin_failure == "changed" else artifacts[name]["sha256"]
+            return subprocess.CompletedProcess(command, 0, f"{digest}  {command[-1]}\n", "")
+        return base(command, timeout)
+
+    return run, calls
+
+
+def test_home_standard_set_pins_and_mounts_all_five_plugins_in_the_written_compose(tmp_path):
+    prepared = prepare_interface_deployment(_standard_order(_wirescope_order(tmp_path)))
+    previous = prepare_interface_deployment(_wirescope_order(tmp_path))
+    assert prepared.compose["volumes"] == previous.compose["volumes"]
+    assert set(prepared.compose["services"]) == {"caddy", "scratch", "bridge", "minecraft"}
+    compose = yaml.safe_load(prepared.files["compose.yaml"])
+    minecraft = compose["services"]["minecraft"]
+    assert "192.0.2.30:19132:19132/udp" in minecraft["ports"]
+    roles = {c["role"]: c for c in prepared.lock["components"]}
+    for role in ("luckperms-plugin", "geyser-plugin", "floodgate-plugin", "viaversion-plugin", "viabackwards-plugin"):
+        artifact = next(a for a in prepared.lock["artifacts"] if a["id"] == roles[role]["artifact"])
+        assert "/latest/" not in artifact["origin"]
+        assert any(m["target"] == f"/plugins/{artifact['filename']}" and m["read_only"]
+                   and m["source"].endswith(artifact["sha256"]) for m in minecraft["volumes"])
+
+
+def test_standard_set_requires_the_explicit_bedrock_host_interface(tmp_path):
+    order = _wirescope_order(tmp_path)
+    order.write_text(order.read_text().replace("home-alpha-full@3", "home-alpha-full@4"))
+    with pytest.raises(DeploymentInterfaceError, match="bedrock_bind_address_required"):
+        prepare_interface_deployment(order)
+
+
+def test_standard_set_requires_luckperms_in_its_preset(tmp_path):
+    order, data_root, _ = _standard_fixture(tmp_path)
+    resource = data_root / "preset_registry/home-alpha-full/4/preset.toml"
+    preset = tomlkit.parse(resource.read_text())
+    preset["components"] = [c for c in preset["components"] if c["role"] != "luckperms-plugin"]
+    resource.write_text(tomlkit.dumps(preset))
+    with pytest.raises(DeploymentInterfaceError, match="preset_component_invalid.*luckperms-plugin"):
+        prepare_interface_deployment(order, data_root=data_root)
+
+
+@pytest.mark.parametrize("failure", ["missing", "changed"])
+def test_standard_plugin_verification_failure_preserves_the_previous_current(tmp_path, failure):
+    _, previous = _applied(tmp_path)
+    current = tmp_path / "state/home-trial/current.json"
+    saved = current.read_bytes()
+    order, data_root, _ = _standard_fixture(tmp_path)
+    prepared = prepare_interface_deployment(order, data_root=data_root, artifact_store=tmp_path / "artifacts")
+    runner, _ = _standard_runner(prepared, existing=True, plugin_failure=failure)
+    stages = []
+    with pytest.raises(DeploymentInterfaceError, match="deployment_plugin_(missing|mismatch)"):
+        apply_interface_order(
+            order, data_root=data_root, artifact_store=tmp_path / "artifacts", state_root=tmp_path / "state",
+            runner=runner, artifact_fetcher=lambda _: None, port_probe=lambda *_: True,
+            udp_port_probe=lambda *_: True, progress=stages.append,
+        )
+    assert stages[-1] == "verify" and "record" not in stages
+    assert current.read_bytes() == saved
+    assert previous.mode == "create"
+
+
+def test_standard_doctor_reports_plugin_hashes_without_claiming_account_permissions(tmp_path):
+    order, data_root, _ = _standard_fixture(tmp_path)
+    prepared = prepare_interface_deployment(order, data_root=data_root, artifact_store=tmp_path / "artifacts")
+    runner, _ = _standard_runner(prepared)
+    apply_interface_order(
+        order, data_root=data_root, artifact_store=tmp_path / "artifacts", state_root=tmp_path / "state",
+        runner=runner, artifact_fetcher=lambda _: None, port_probe=lambda *_: True, udp_port_probe=lambda *_: True,
+    )
+    runner, _ = _standard_runner(prepared, existing=True)
+    result = doctor_interface_deployment(
+        "home-trial", data_root=data_root, state_root=tmp_path / "state", runner=runner,
+        runtime_probe=lambda *_: prepared.lock["runtime_config"], bridge_upstream_probe=lambda *_: None,
+        hello_probe=lambda *_: SimpleNamespace(status="auth-required"), wirescope_probe=lambda *_a, **_k: None,
+    )
+    assert result.plugins_status == "current"
+
+
+def test_standard_udp_preflight_does_not_treat_an_owned_tcp_port_as_udp(tmp_path):
+    _applied(tmp_path)
+    order = _standard_order(_wirescope_order(tmp_path))
+    prepared = prepare_interface_deployment(order)
+
+    def mutate(service, record):
+        if service == "minecraft":
+            record["NetworkSettings"]["Ports"].pop("19132/udp")
+            record["NetworkSettings"]["Ports"]["19132/tcp"] = [{"HostIp": "192.0.2.30", "HostPort": "19132"}]
+
+    runner, calls = _standard_runner(prepared, existing=True, mutation=mutate)
+    with pytest.raises(DeploymentInterfaceError, match="deployment_port_in_use.*19132/udp"):
+        apply_interface_order(
+            order, runner=runner, port_probe=lambda *_: True, udp_port_probe=lambda *_: False,
+            state_root=tmp_path / "state", artifact_fetcher=lambda _: pytest.fail("must stop before fetch"),
+        )
+    assert not any("up" in command for command in calls)
+
+
+def test_udp_port_probe_detects_an_existing_udp_listener_even_when_tcp_is_free():
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as listener:
+        listener.bind(("127.0.0.1", 0))
+        port = listener.getsockname()[1]
+        assert interface_module._default_port_probe("127.0.0.1", port)
+        assert not interface_module._default_udp_port_probe("127.0.0.1", port)

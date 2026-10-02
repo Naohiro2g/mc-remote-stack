@@ -3,7 +3,7 @@ schema_version = 1
 [preset_catalog]
 generator = "mcrctl-preset-catalog-v1"
 canonicalization = "jcs-rfc8785-v1"
-source_sha256 = "c755d68c8f0dfebd256aec8ebb9d680877247c45a6585dac4db6a1236d224976"
+source_sha256 = "e68dcedf7f2f145cefa25a03157795594587a58eee4234ff1ee1053988dab9a5"
 
 [[preset_catalog.presets]]
 ref = "classroom@1"
@@ -38,6 +38,15 @@ content_sha256 = "51a465d209fd446453d6eac53660f441ad1ad4052e48c46b1a3b7979c70f9c
 description = "b7.post2 のホーム構成。CaddyでWireScopeも配信し、hostのHTTPS/WSS転送と通常apply/doctorを使う。"
 status = "active"
 available_since = "2026-10-02"
+required_profile_capabilities = ["compose", "mcremote-auth-enforced", "mcremote-session-only", "paper", "persistent-world", "scratch-runtime", "websocket-bridge", "wirescope-browser"]
+allowed_channels = ["alpha"]
+
+[[preset_catalog.presets]]
+ref = "home-alpha-full@4"
+content_sha256 = "dd13d1aade1adfc1e51fe4515372fcb3ed2fb398ed42985a6362d026df38aaaf"
+description = "b7.post2のホーム構成。LuckPerms・Geyser/Floodgate・ViaVersion/ViaBackwardsを含み、Java版と統合版を受け入れる。"
+status = "active"
+available_since = "2026-10-03"
 required_profile_capabilities = ["compose", "mcremote-auth-enforced", "mcremote-session-only", "paper", "persistent-world", "scratch-runtime", "websocket-bridge", "wirescope-browser"]
 allowed_channels = ["alpha"]
 

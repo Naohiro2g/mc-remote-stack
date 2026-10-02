@@ -518,6 +518,7 @@ def test_bundled_registry_offers_only_current_profiles_and_presets() -> None:
         "home-alpha-full@1",
         "home-alpha-full@2",
         "home-alpha-full@3",
+        "home-alpha-full@4",
         "public-web-paper@11",
     ]
     assert public.data["renderer"] == {"name": "compose", "revision": "13"}
