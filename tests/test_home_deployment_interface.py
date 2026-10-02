@@ -13,6 +13,7 @@ from types import SimpleNamespace
 
 import pytest
 import tomlkit
+import yaml
 
 import mc_remote_stack.cli as cli_module
 import mc_remote_stack.deployment_interface as interface_module
@@ -422,6 +423,15 @@ def test_home_wirescope_revision_locks_the_same_release_and_separate_origin(tmp_
     )
     assert 'Referrer-Policy "strict-origin-when-cross-origin"' in prepared.files["Caddyfile"]
     assert 'Cross-Origin-Opener-Policy "unsafe-none"' in prepared.files["Caddyfile"]
+
+
+def test_home_wirescope_compose_file_publishes_the_port_and_static_directory(tmp_path):
+    prepared = prepare_interface_deployment(_wirescope_order(tmp_path))
+    deployed = yaml.safe_load(prepared.files["compose.yaml"])
+    assert "127.0.0.1:8445:8445/tcp" in deployed["services"]["caddy"]["ports"]
+    assert {"type": "bind", "source": "./wirescope", "target": "/srv/wirescope", "read_only": True} in (
+        deployed["services"]["caddy"]["volumes"]
+    )
 
 
 @pytest.mark.parametrize("url", [None, "https://home.example.org:8443/"])

@@ -722,7 +722,6 @@ def _render(
         "runtime/minecraft/plugins/McRemote/config.yml": _mcremote_runtime_config(
             paper_component["minecraft_version"]
         ),
-        "compose.yaml": yaml.safe_dump(compose, sort_keys=False),
     }
     if config.get("edge") == "caddy":
         rendered["Caddyfile"] = (
@@ -750,6 +749,7 @@ def _render(
                 f'        Content-Security-Policy "{WIRESCOPE_CSP}"\n'
                 "    }\n    file_server\n}\n"
             )
+    rendered["compose.yaml"] = yaml.safe_dump(compose, sort_keys=False)
     return compose, rendered
 
 
