@@ -78,6 +78,6 @@ Scratch runtime JSONとCaddy設定はコンテナから読める `0644` で生�
 
 world と credential state は `<deployment>-minecraft-data`、Caddy state は `<deployment>-caddy-data` と `<deployment>-caddy-config` に保持します。world directory は `<deployment>-world` です。通常 apply は同じ deployment の停止済み container があっても既存 world の更新として扱います。生成した確認用 directory は起動時には使わず、実際の配置は Stack の state directory に保存します。
 
-browser で Scratch の target と運用者 Notice を確認し、Minecraft client で接続します。pairing とブロック操作は別に確認します。b7.post2 の Scratch は設定不正でも Editor を開きますが、画面の接続無効案内だけでは意図的な無効設定と区別できません。設定不正は browser console の warning と doctor の配信設定検査で確認します。doctor の成功だけでは人間が行うこれらの操作まで確認したことにはなりません。
+browser で Scratch の target と運用者 Notice を確認し、Minecraft client で接続します。pairing とブロック操作は別に確認します。b7.post2 の Scratch は設定不正でも Editor を開きますが、画面の接続無効案内だけでは意図的な無効設定と区別できません。設定不正は browser console の warning と doctor の配信設定検査で確認します。doctor は browser から Bridge への WSS upgrade を直接検査しません。doctor の成功だけでは人間が行うこれらの操作まで確認したことにはなりません。
 
 失敗した場合は最後の進行段階、`FAIL` の reason、表示された Docker のエラーから確認します。port 衝突は listener の所有者、artifact 取得失敗は取得先と SHA、起動失敗は lock が指す Compose と container log、doctor の runtime 不一致は order と実際に配信される設定を照合します。修正後の再実行範囲は、残った container・volume・current state を観測して決めます。
