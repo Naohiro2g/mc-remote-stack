@@ -78,6 +78,7 @@ class InterfaceDoctorResult:
     network_status: str
     bridge_upstream_status: str
     auth_status: str
+    wirescope_status: str = "not-configured"
 
 
 CommandRunner = Callable[[list[str], int], subprocess.CompletedProcess[str]]
@@ -552,6 +553,18 @@ def _render(
         for target in order["targets"]
     ]
     default = next(target for target in order["targets"] if target["default"])
+    if "wirescope_port" in preset["deployment_interface"]:
+        scratch_origin = urlsplit(order["surfaces"]["scratch_url"])
+        wirescope_url = order["surfaces"].get("wirescope_url")
+        if wirescope_url is None:
+            _fail("wirescope_surface_invalid", "surfaces.wirescope_url", "WireScope requires its HTTPS URL")
+        wirescope_origin = urlsplit(wirescope_url)
+        if (scratch_origin.scheme, scratch_origin.hostname, scratch_origin.port or 443) == (
+            wirescope_origin.scheme, wirescope_origin.hostname, wirescope_origin.port or 443
+        ):
+            _fail("wirescope_surface_invalid", "surfaces.wirescope_url", "Scratch handoff requires a separate origin")
+        _file_artifact(preset, "wirescope-app")
+        _file_artifact(preset, "wirescope-manifest")
     runtime: dict[str, Any] = {
         "schema_version": 1,
         "connection_enabled": True,
@@ -716,6 +729,27 @@ def _render(
             f":{config['scratch_port']} {{\n    reverse_proxy scratch:8080\n}}\n\n"
             f":{config['bridge_port']} {{\n    reverse_proxy bridge:8080\n}}\n"
         )
+        if "wirescope_port" in config:
+            from .render import WIRESCOPE_CSP  # noqa: PLC0415
+
+            port = config["wirescope_port"]
+            compose["services"]["caddy"]["ports"].append(f"{config['bind_address']}:{port}:{port}/tcp")
+            compose["services"]["caddy"]["volumes"].append({
+                "type": "bind", "source": "./wirescope", "target": "/srv/wirescope", "read_only": True,
+            })
+            rendered["Caddyfile"] = (
+                f":{config['scratch_port']} {{\n"
+                '    header Referrer-Policy "strict-origin-when-cross-origin"\n'
+                "    reverse_proxy scratch:8080\n}\n\n"
+                f":{config['bridge_port']} {{\n    reverse_proxy bridge:8080\n}}\n\n"
+                f":{port} {{\n    root * /srv/wirescope\n    header {{\n"
+                '        Cross-Origin-Opener-Policy "unsafe-none"\n'
+                '        Referrer-Policy "no-referrer"\n'
+                '        X-Content-Type-Options "nosniff"\n'
+                '        Cache-Control "no-store"\n'
+                f'        Content-Security-Policy "{WIRESCOPE_CSP}"\n'
+                "    }\n    file_server\n}\n"
+            )
     return compose, rendered
 
 
@@ -761,6 +795,8 @@ def prepare_interface_deployment(
     }
     if "edge" in preset["deployment_interface"]:
         lock["renderer"]["edge"] = preset["deployment_interface"]["edge"]
+    if "wirescope_port" in preset["deployment_interface"]:
+        lock["network"]["wirescope_port"] = preset["deployment_interface"]["wirescope_port"]
     lock["lock_identity"] = f"sha256:{semantic_sha256(lock)}"
     return PreparedDeployment(order_path.resolve(), lock, compose, rendered, schema)
 
@@ -1048,6 +1084,32 @@ def _fetch_interface_artifacts(prepared: PreparedDeployment) -> None:
             )
 
 
+def _interface_wirescope_assets(lock: dict[str, Any]) -> tuple[list[tuple[str, bytes]], bytes]:
+    from .render import RenderContractError, _verified_wirescope_assets  # noqa: PLC0415
+
+    try:
+        return _verified_wirescope_assets({
+            "components": lock["components"], "artifacts": lock["artifacts"],
+            "runtime": {"artifact_store": lock["artifact_store"]},
+        })
+    except RenderContractError as exc:
+        _fail(exc.reason, exc.path, str(exc))
+
+
+def _publish_interface_wirescope(lock: dict[str, Any], root: Path) -> None:
+    if "wirescope_port" not in lock["network"]:
+        return
+    assets, manifest = _interface_wirescope_assets(lock)
+    for name, content in [*assets, ("wirescope-app.manifest.json", manifest)]:
+        path = root / "wirescope" / PurePosixPath(name)
+        _atomic_write(path, content, mode=0o644)
+        # The directory itself is mounted into Caddy, which drops DAC capabilities.
+        for directory in (path.parent, *path.parent.parents):
+            if directory == root:
+                break
+            directory.chmod(0o755)
+
+
 def apply_interface_order(
     order_path: Path,
     *,
@@ -1099,6 +1161,9 @@ def apply_interface_order(
     render_root = _publish_render(prepared, resolved_state_root)
     report("artifacts")
     artifact_fetcher(prepared)
+    if "wirescope_port" in prepared.lock["network"]:
+        report("wirescope")
+        _publish_interface_wirescope(prepared.lock, render_root)
     compose = [
         "docker",
         "--context",
@@ -1205,6 +1270,9 @@ def _expected_interface_ports(lock: dict[str, Any]) -> dict[str, dict[str, list[
             f"{network[key]}/tcp": [{"HostIp": address, "HostPort": str(network[key])}]
             for key in ("scratch_port", "bridge_port")
         }
+        if "wirescope_port" in network:
+            port = network["wirescope_port"]
+            ports["caddy"][f"{port}/tcp"] = [{"HostIp": address, "HostPort": str(port)}]
     return ports
 
 
@@ -1326,6 +1394,7 @@ def doctor_interface_deployment(
     bridge_environment_probe: Callable[[str, CommandRunner], dict[str, str]] | None = None,
     bridge_upstream_probe: BridgeUpstreamProbe = _default_bridge_upstream_probe,
     hello_probe: HelloProbe = _default_hello_probe,
+    wirescope_probe: Callable[..., None] | None = None,
 ) -> InterfaceDoctorResult:
     """Check the compact deployment's exact runtime, routing, and auth contract."""
 
@@ -1427,6 +1496,20 @@ def doctor_interface_deployment(
             "protocol.hello",
             "token-free hello must be rejected with auth_required",
         )
+    wirescope_status = "not-configured"
+    if "wirescope_port" in network:
+        from .doctor import DoctorContractError, probe_wirescope_public_handoff  # noqa: PLC0415
+
+        assets, _manifest = _interface_wirescope_assets(lock)
+        index_source = dict(assets)["index.html"]
+        try:
+            (wirescope_probe or probe_wirescope_public_handoff)(
+                lock["surfaces"]["scratch_url"], lock["surfaces"]["wirescope_url"],
+                expected_index_sha256=hashlib.sha256(index_source).hexdigest(), timeout=timeout,
+            )
+        except DoctorContractError as exc:
+            _fail(exc.reason, exc.path, str(exc))
+        wirescope_status = "current"
     return InterfaceDoctorResult(
         deployment=deployment,
         lock_identity=expected_identity,
@@ -1437,4 +1520,5 @@ def doctor_interface_deployment(
         network_status="current",
         bridge_upstream_status="reachable",
         auth_status="enforced",
+        wirescope_status=wirescope_status,
     )

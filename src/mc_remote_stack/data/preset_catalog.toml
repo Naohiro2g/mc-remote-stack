@@ -3,7 +3,7 @@ schema_version = 1
 [preset_catalog]
 generator = "mcrctl-preset-catalog-v1"
 canonicalization = "jcs-rfc8785-v1"
-source_sha256 = "57cde283f28c150c44f1245871ab90e265d70fafeb7f1538c9443a5f10ddaee6"
+source_sha256 = "c755d68c8f0dfebd256aec8ebb9d680877247c45a6585dac4db6a1236d224976"
 
 [[preset_catalog.presets]]
 ref = "classroom@1"
@@ -30,6 +30,15 @@ description = "b7.post2 のホーム4サービス構成。host の HTTPS/WSS 転
 status = "active"
 available_since = "2026-10-02"
 required_profile_capabilities = ["compose", "mcremote-auth-enforced", "mcremote-session-only", "paper", "persistent-world", "scratch-runtime", "websocket-bridge"]
+allowed_channels = ["alpha"]
+
+[[preset_catalog.presets]]
+ref = "home-alpha-full@3"
+content_sha256 = "51a465d209fd446453d6eac53660f441ad1ad4052e48c46b1a3b7979c70f9cc9"
+description = "b7.post2 のホーム構成。CaddyでWireScopeも配信し、hostのHTTPS/WSS転送と通常apply/doctorを使う。"
+status = "active"
+available_since = "2026-10-02"
+required_profile_capabilities = ["compose", "mcremote-auth-enforced", "mcremote-session-only", "paper", "persistent-world", "scratch-runtime", "websocket-bridge", "wirescope-browser"]
 allowed_channels = ["alpha"]
 
 [[preset_catalog.presets]]
