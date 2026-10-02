@@ -107,7 +107,11 @@ def _run(runner: CommandRunner, command: list[str], timeout: int, reason: str) -
     except (FileNotFoundError, OSError, subprocess.TimeoutExpired) as exc:
         _fail(reason, command[0], str(exc))
     if result.returncode != 0:
-        _fail(reason, " ".join(command[:4]), f"exit status {result.returncode}")
+        diagnostic = result.stderr.strip()[-2000:]
+        detail = f"exit status {result.returncode}"
+        if diagnostic:
+            detail += f"\n{diagnostic}"
+        _fail(reason, " ".join(command[:4]), detail)
     return result.stdout
 
 
@@ -667,6 +671,38 @@ def _render(
             "minecraft-data": {"name": f"{order['deployment']}-minecraft-data"}
         },
     }
+    if config.get("edge") == "caddy":
+        # TLS belongs to the host ingress. This edge forwards only loopback HTTP.
+        compose["services"]["scratch"].pop("ports")
+        compose["services"]["bridge"].pop("ports")
+        compose["services"]["caddy"] = {
+            "image": _oci_image(preset, "caddy-edge"),
+            "restart": "unless-stopped",
+            "cap_drop": ["ALL"],
+            "cap_add": ["NET_BIND_SERVICE"],
+            "ports": [
+                f"{config['bind_address']}:{config['scratch_port']}:{config['scratch_port']}/tcp",
+                f"{config['bind_address']}:{config['bridge_port']}:{config['bridge_port']}/tcp",
+            ],
+            "volumes": [
+                {"type": "bind", "source": "./Caddyfile", "target": "/etc/caddy/Caddyfile", "read_only": True},
+                {"type": "volume", "source": "caddy-data", "target": "/data"},
+                {"type": "volume", "source": "caddy-config", "target": "/config"},
+            ],
+            "networks": ["edge", "app"],
+            "labels": labels,
+        }
+        compose["volumes"].update({
+            role: {"name": f"{order['deployment']}-{role}"}
+            for role in ("caddy-data", "caddy-config")
+        })
+        compose["networks"] = {
+            "app": {"internal": True, "enable_ipv6": False},
+            "edge": {"internal": False, "enable_ipv6": False},
+            "egress": {"internal": False, "enable_ipv6": False},
+        }
+        compose["services"]["minecraft"]["networks"]["egress"] = {"gw_priority": 1}
+        compose["services"]["minecraft"]["environment"]["LEVEL"] = f"{order['deployment']}-world"
     rendered = {
         "runtime/scratch.json": json.dumps(runtime, ensure_ascii=False, indent=2) + "\n",
         "runtime/minecraft/plugins/McRemote/config.yml": _mcremote_runtime_config(
@@ -674,6 +710,11 @@ def _render(
         ),
         "compose.yaml": yaml.safe_dump(compose, sort_keys=False),
     }
+    if config.get("edge") == "caddy":
+        rendered["Caddyfile"] = (
+            f":{config['scratch_port']} {{\n    reverse_proxy scratch:8080\n}}\n\n"
+            f":{config['bridge_port']} {{\n    reverse_proxy bridge:8080\n}}\n"
+        )
     return compose, rendered
 
 
@@ -717,8 +758,25 @@ def prepare_interface_deployment(
             "revision": preset["deployment_interface"]["renderer_revision"],
         },
     }
+    if "edge" in preset["deployment_interface"]:
+        lock["renderer"]["edge"] = preset["deployment_interface"]["edge"]
     lock["lock_identity"] = f"sha256:{semantic_sha256(lock)}"
     return PreparedDeployment(order_path.resolve(), lock, compose, rendered, schema)
+
+
+def write_interface_preview(prepared: PreparedDeployment, output: Path) -> Path:
+    """Export a review copy without fetching artifacts, touching Docker or current state."""
+
+    output = output.expanduser().resolve()
+    if output.exists() and (not output.is_dir() or any(output.iterdir())):
+        _fail("preview_output_not_empty", output, "choose an empty preview directory")
+    for relative, content in prepared.files.items():
+        _atomic_write(output / PurePosixPath(relative), content.encode("utf-8"))
+    _atomic_write(
+        output / "mc-remote.lock.json",
+        (json.dumps(prepared.lock, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode(),
+    )
+    return output
 
 
 def detect_apply_mode(
@@ -986,15 +1044,22 @@ def apply_interface_order(
     runner: CommandRunner = _default_runner,
     artifact_fetcher: Callable[[PreparedDeployment], None] = _fetch_interface_artifacts,
     port_probe: PortProbe = _default_port_probe,
+    progress: Callable[[str], None] | None = None,
 ) -> InterfaceApplyResult:
     """Resolve, lock, render, and create/update one deployment from one order."""
 
+    def report(step: str) -> None:
+        if progress is not None:
+            progress(step)
+
+    report("prepare")
     prepared = prepare_interface_deployment(
         order_path,
         data_root=data_root,
         artifact_store=artifact_store,
     )
     resolved_state_root = (state_root or default_interface_state_root()).resolve()
+    report("preflight")
     _docker_context(runner, docker_context)
 
     expected_services = set(prepared.compose["services"])
@@ -1016,7 +1081,9 @@ def apply_interface_order(
         _validate_stateful_transition(previous_lock, prepared.lock)
     _preflight_host_ports(prepared.compose, containers, port_probe)
 
+    report("render")
     render_root = _publish_render(prepared, resolved_state_root)
+    report("artifacts")
     artifact_fetcher(prepared)
     compose = [
         "docker",
@@ -1030,14 +1097,18 @@ def apply_interface_order(
         "--file",
         str(render_root / "compose.yaml"),
     ]
+    report("compose-check")
     _run(runner, compose + ["config", "--quiet"], 60, "compose_config_invalid")
+    report("pull")
     _run(runner, compose + ["pull", "--quiet"], 600, "artifact_pull_failed")
+    report("start")
     _run(
         runner,
         compose + ["up", "--detach", "--remove-orphans", "--wait"],
         600,
         "deployment_apply_failed",
     )
+    report("record")
     current = {
         "schema_version": 1,
         "deployment": prepared.lock["deployment"],
@@ -1079,11 +1150,14 @@ def _bridge_environment(
 
 
 def _expected_interface_images(lock: dict[str, Any]) -> dict[str, str]:
-    return {
+    images = {
         "scratch": _oci_image(lock, "scratch-runtime"),
         "bridge": _oci_image(lock, "websocket-bridge"),
         "minecraft": _oci_image(lock, "minecraft-runtime"),
     }
+    if lock["renderer"].get("edge") == "caddy":
+        images["caddy"] = _oci_image(lock, "caddy-edge")
+    return images
 
 
 def _expected_interface_ports(lock: dict[str, Any]) -> dict[str, dict[str, list[dict[str, str]]]]:
@@ -1091,7 +1165,7 @@ def _expected_interface_ports(lock: dict[str, Any]) -> dict[str, dict[str, list[
     if not isinstance(network, dict):
         _fail("deployment_lock_invalid", "lock.network", "network projection is missing")
     address = network["bind_address"]
-    return {
+    ports = {
         "scratch": {
             "8080/tcp": [{"HostIp": address, "HostPort": str(network["scratch_port"])}]
         },
@@ -1105,6 +1179,14 @@ def _expected_interface_ports(lock: dict[str, Any]) -> dict[str, dict[str, list[
             ],
         },
     }
+    if lock["renderer"].get("edge") == "caddy":
+        ports["scratch"] = {}
+        ports["bridge"] = {}
+        ports["caddy"] = {
+            f"{network[key]}/tcp": [{"HostIp": address, "HostPort": str(network[key])}]
+            for key in ("scratch_port", "bridge_port")
+        }
+    return ports
 
 
 def _validate_interface_containers(
@@ -1230,7 +1312,7 @@ def doctor_interface_deployment(
     volume = f"{deployment}-minecraft-data"
     detect_apply_mode(
         containers,
-        expected_services={"scratch", "bridge", "minecraft"},
+        expected_services=set(_expected_interface_images(lock)),
         state_exists=True,
         volume_exists=_volume_exists(runner, docker_context, volume),
     )

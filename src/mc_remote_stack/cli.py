@@ -31,6 +31,8 @@ from .deployment_interface import (
     DeploymentInterfaceError,
     apply_interface_order,
     doctor_interface_deployment,
+    prepare_interface_deployment,
+    write_interface_preview,
 )
 from .deployment_update import (
     DeploymentUpdateContractError,
@@ -634,11 +636,30 @@ def _cmd_render(args: argparse.Namespace) -> int:
 
 
 def _cmd_apply(args: argparse.Namespace) -> int:
+    if args.dry_run and args.order is None:
+        return _print_reason_failure(
+            "apply", "apply_order_required", "mc-remote.toml",
+            "pass one mc-remote.toml path for --dry-run",
+        )
     if args.order is not None:
         try:
+            if args.dry_run:
+                if args.output is None:
+                    return _print_reason_failure(
+                        "apply", "preview_output_required", "apply.output",
+                        "pass --output for the review copy",
+                    )
+                prepared = prepare_interface_deployment(Path(args.order))
+                output = write_interface_preview(prepared, Path(args.output))
+                print(
+                    f"PLAN apply deployment={prepared.lock['deployment']} "
+                    f"lock={prepared.lock['lock_identity']} output={output}"
+                )
+                return 0
             result = apply_interface_order(
                 Path(args.order),
                 docker_context=args.docker_context or "default",
+                progress=lambda step: print(f"PROGRESS apply step={step}", flush=True),
             )
         except DeploymentInterfaceError as exc:
             return _print_structured_failure("apply", exc)
@@ -1454,8 +1475,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="create or update one deployment from mc-remote.toml",
     )
     apply_parser.add_argument("order", nargs="?", help="compact mc-remote.toml order")
+    apply_parser.add_argument(
+        "--dry-run", action="store_true", help="export settings for review without Docker or downloads"
+    )
     apply_parser.add_argument("--project", help=argparse.SUPPRESS)
-    apply_parser.add_argument("--output", help=argparse.SUPPRESS)
+    apply_parser.add_argument("--output", help="empty directory for --dry-run output")
     apply_parser.add_argument("--expected-lock-identity", help=argparse.SUPPRESS)
     apply_parser.add_argument("--docker-context")
     apply_parser.add_argument("--bootstrap", action="store_true", help=argparse.SUPPRESS)

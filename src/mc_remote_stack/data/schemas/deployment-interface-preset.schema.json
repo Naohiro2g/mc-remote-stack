@@ -31,6 +31,7 @@
       "required": ["renderer_revision", "bind_address", "scratch_port", "bridge_port", "java_port", "mcremote_port", "scratch_contract"],
       "properties": {
         "renderer_revision": {"type": "string", "pattern": "^[1-9][0-9]*$"},
+        "edge": {"const": "caddy"},
         "bind_address": {"type": "string", "format": "ipv4"},
         "scratch_port": {"$ref": "#/$defs/port"},
         "bridge_port": {"$ref": "#/$defs/port"},
@@ -77,7 +78,15 @@
             }
           }
         }
-      }
+      },
+      "allOf": [{
+        "if": {"required": ["edge"]},
+        "then": {"properties": {
+          "renderer_revision": {"const": "2"},
+          "bind_address": {"const": "127.0.0.1"}
+        }},
+        "else": {"properties": {"renderer_revision": {"const": "1"}}}
+      }]
     },
     "components": {
       "type": "array",
