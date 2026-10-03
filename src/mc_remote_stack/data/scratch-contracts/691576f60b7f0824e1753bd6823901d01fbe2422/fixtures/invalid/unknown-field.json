@@ -1,0 +1,5 @@
+{
+  "schema_version": 1,
+  "connection_enabled": false,
+  "release_identity": "must-not-be-deployment-owned"
+}

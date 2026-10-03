@@ -20,7 +20,7 @@ cd "$MC_REMOTE_STACK"
 test "$(git rev-parse --show-toplevel)" = "$MC_REMOTE_STACK"
 ```
 
-## 2. manifest.jsonを持つcomponent（Scratch）をReleaseから一括収集する
+## 2. manifest.jsonを持つcomponentをReleaseから一括収集する
 
 対象repoのReleaseへ`manifest.json`が添付されていれば、それが正式入力である。手作業でcommitやOCI digestを推論・転記しない。Scratch／BridgeのOCI imageはGHCR（`ghcr.io/naohiro2g/mc-remote-scratch`等）にあり、manifestが直接`locator`と`digest`を示す。
 
@@ -65,13 +65,13 @@ tar -xzf "$SCRATCH_REVIEW_DIR/contracts.tar.gz" -C "$SCRATCH_CONTRACT_DEST" \
 src/mc_remote_stack/data/scratch-contracts/<SCRATCH_SOURCE_COMMIT>/
 ```
 
-## 3. manifest.jsonが未対応のcomponent（McRemote・Python client）をGitHub Releasesで照合する
+## 3. McRemote・Python clientの配布物を照合する
 
-まだ`manifest.json`を添付していないcomponentは、GitHub APIが返すasset単位のSHA-256をそのまま期待値にする。このsectionはcomponentがmanifest.jsonを添付し次第、§2の手順へ統合し削除する（`2026-09-06-02`）。
+b8ではMcRemoteとPython clientもGitHub Releasesに`manifest.json`を添付しています。§2と同じくmanifestを検査し、tag、source commit、artifactのfile／SHA-256を配布物へ照合します。GitHub APIのasset digestも照合できます。manifestがない以前のreleaseを扱う場合は、このAPIのSHA-256を期待値にします。
 
 ```sh
-MC_REMOTE_TAG="v1.21.11-2301.0.0b7"
-MC_REMOTE_ASSET="mc-remote-1.21.11-2301.0.0b7.jar"
+MC_REMOTE_TAG="v1.21.11-2320.0.0b8"
+MC_REMOTE_ASSET="mc-remote-1.21.11-2320.0.0b8.jar"
 
 gh api "repos/Naohiro2g/McRemote/releases/tags/$MC_REMOTE_TAG" \
   --jq '{tag_name,target_commitish,draft,prerelease,assets:[.assets[]|{name,browser_download_url,digest}]}'
@@ -83,13 +83,21 @@ MC_REMOTE_EXPECTED_SHA256="${MC_REMOTE_PROVIDER_DIGEST#sha256:}"
 ARTIFACT_REVIEW_DIR="$(mktemp -d)"
 gh release download "$MC_REMOTE_TAG" \
   --repo Naohiro2g/McRemote \
+  --pattern "manifest.json" \
   --pattern "$MC_REMOTE_ASSET" \
   --dir "$ARTIFACT_REVIEW_DIR"
+uv run mcrctl release-manifest verify "$ARTIFACT_REVIEW_DIR/manifest.json"
+MC_REMOTE_MANIFEST_SHA256="$(python3 -c '
+import json, sys
+manifest = json.load(open(sys.argv[1]))
+print(next(a["sha256"] for a in manifest["artifacts"] if a["role"] == "jar"))
+' "$ARTIFACT_REVIEW_DIR/manifest.json")"
+test "$MC_REMOTE_MANIFEST_SHA256" = "$MC_REMOTE_EXPECTED_SHA256"
 test "$(sha256sum "$ARTIFACT_REVIEW_DIR/$MC_REMOTE_ASSET" | awk '{print $1}')" = \
   "$MC_REMOTE_EXPECTED_SHA256"
 ```
 
-presetには、このtagのasset URL、filename、version、確認したSHA-256を記録する。
+presetには、このtagのasset URL、filename、version、確認したSHA-256を記録します。Python clientも対象tagの`Naohiro2g/minecraft-remote-api` Releaseからmanifest、wheel、sdistを取得し、`wheel`／`sdist`の各SHA-256を実物へ一致させます。以前のmanifestがないreleaseでは、downloadのmanifest指定・verify・manifestとの比較を省き、APIと実物を照合します。
 
 ## 4. foundation artifactを公式配布元で照合する
 
