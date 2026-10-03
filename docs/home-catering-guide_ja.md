@@ -134,7 +134,21 @@ docker logs --since 1m home-trial-minecraft-1
 
 Geyserの設定は`/data/plugins/Geyser-Spigot/config.yml`、LuckPermsの設定とDBは`/data/plugins/LuckPerms/`に保存されます。これらはMinecraftのdata volumeに属します。GeyserのUDP portが19132、Java接続の認証方式がFloodgateになっていることを確認します。設定の見方は[Geyser](https://geysermc.org/wiki/geyser/setup/)と[Floodgate](https://geysermc.org/wiki/floodgate/setup/)の公式手順も参照できます。
 
+このpresetのGeyserは初回起動で`java.auth-type: online`の設定を作成します。`online`はJavaアカウントで認証する方式です。Floodgateで統合版アカウントを受け入れるため、元の設定を保存して`floodgate`へ変更します。次は初期設定の`  auth-type: online`が一箇所ある場合の操作です。既に編集した設定では、現在の内容と保存済みの設定を確認してから変更します。
+
+```sh
+docker exec --user 1000:1000 home-trial-minecraft-1 cp /data/plugins/Geyser-Spigot/config.yml /data/plugins/Geyser-Spigot/config.before-floodgate.yml
+docker exec --user 1000:1000 home-trial-minecraft-1 sed -i 's/^  auth-type: online$/  auth-type: floodgate/' /data/plugins/Geyser-Spigot/config.yml
+docker restart home-trial-minecraft-1
+mcrctl apply ./mc-remote.toml
+mcrctl doctor home-trial
+```
+
+再起動後のapplyは同じorderを使い、起動と配置の確認を待ちます。起動logとGeyserの設定でFloodgateを使う状態になったことを確認します。
+
 新しいLuckPermsには、このアカウントのMcRemote権限はまだ付与していません。既存tokenを持っていても、必要なpermissionがなければ再接続時のhelloは`permission_denied`になります。未付与時の拒否を確認してから、対象アカウントと付与内容を運用者と確認します。
+
+tokenの寿命が切れている場合は先に`token_expired`になります。その場合は新しくペアリングし、その後のhelloで権限を確認します。認証tokenの取得と、LuckPermsによる操作許可は別の段階です。
 
 次は、検証アカウントにonline・offlineの両方と範囲1000を付ける例です。`PLAYER_UUID`を対象のUUID、`home-trial`をdeployment名へ置き換えます。Minecraftへの参加中だけ使う場合はonline、未参加でも継続稼働する作品にはofflineを選びます。二つは独立した権限です。
 
