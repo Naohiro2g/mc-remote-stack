@@ -75,12 +75,15 @@ tar -C /source -cpf "/backup/$VOLUME_ROLE.tar" .
 chmod 600 "/backup/$VOLUME_ROLE.tar"
 chown "$OPERATOR_UID:$OPERATOR_GID" "/backup/$VOLUME_ROLE.tar"
 cp -a /source/. /target/
-diff -qr /source /target
+cd /source
+find . -type f -print0 | while IFS= read -r -d "" copied_file; do
+  cmp -- "$copied_file" "/target/$copied_file"
+done
 sha256sum "/backup/$VOLUME_ROLE.tar"
 '
 ```
 
-worldの全dimension、LuckPerms DB、周辺pluginの設定と秘密鍵、McRemoteのsnapshotとauthorityを揃えて引き継ぎます。認証backendが健全な既存セットでは、引き継ぎのために再初期化する操作は不要です。全ファイルの内容一致とバックアップの読取りを確認し、roleごとにコピー元・先・結果を記録します。
+worldの全dimension、LuckPerms DB、周辺pluginの設定と秘密鍵、McRemoteのsnapshotとauthorityを揃えて引き継ぎます。認証backendが健全な既存セットでは、引き継ぎのために再初期化する操作は不要です。元の全ファイルの内容一致とバックアップの読取りを確認し、roleごとにコピー元・先・結果を記録します。次volumeにだけある準備用ファイルは別に確認します。たとえば新releaseのJARを配置済みなら、コピー直後には旧JARとともに存在し、起動時に固定plugin集合へ同期されます。
 
 ## 4. 初期設定の同期と持込設定を照合する
 
@@ -132,6 +135,8 @@ docker compose --project-name "$NEXT_DEPLOYMENT" \
 - 公開HTTPS、認証付きScratchのペアリング／hello／chat、WireScopeでの応答、notice表示
 - JavaのTCPと統合版のUDPを別々に、VPS外の端末から確認
 - 新しいbackup保存先と、既存の暗号化・転送・予約実行の参照先
+
+project名を変えると`secret://`の参照先namespaceも変わります。backup等が使う秘密情報は、値を表示せずに新projectのsecret storeへ引き継ぎ、実バックアップの転送recordが`download-verified`になることまで確認します。元namespaceの保存は旧セットの再開計画と合わせて扱います。
 
 UDP status応答とゲームへの参加、配信JSONの一致と画面表示はそれぞれ別の確認です。未確認の項目も記録します。通常の`mcrctl`が使うStack checkoutを今回のpresetへ対応させ、次projectでoperator checkとdoctorを再確認します。
 
