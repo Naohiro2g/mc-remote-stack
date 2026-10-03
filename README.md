@@ -37,6 +37,8 @@
 
 稼働中の公開VPS（beta）は、次の順で扱います。
 
+release待ちの間に、別のセットを用意する場合は[公開VPSの構築準備](docs/public-vps-preparation-guide_ja.md)を進められます。稼働中セットを維持したまま、設定とファイル配置を実機で確認します。
+
 1. [新しいUbuntu hostを準備する](docs/fresh-host-bootstrap-guide_ja.md)（hostを新しく用意したときだけ）
 2. [releaseからpresetを作る](docs/release-preset-preparation-guide_ja.md)
 3. [VPSを新しいpresetへ更新する](docs/public-vps-bootstrap-guide_ja.md)
