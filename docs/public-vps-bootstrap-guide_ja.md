@@ -34,7 +34,7 @@ operator向けの実行手順は、このrunbookを正本とする。
 preset収集（`release artifact／preset準備runbook`）が終わった直後、typed operator inputへ進む前に、人間へ次を提示しrequestを聞く。Stack担当はこれらを会話で確認せずに、既存project内の値や他projectの値をそのまま複製・推測して進めない。
 
 - preset: 収集で確定したexact preset refをそのまま採用するか、追加のrequestがあるか
-- notice: 対象releaseの製品側notice（あれば）と、既存projectの運用者notice（文言・リンク先を含む）を提示し、継承／編集／追加／削除のいずれかを選ばせる（過去のreview用ファイルや他environmentのnoticeをそのまま採用しない）
+- notice: 対象releaseの製品側notice（あれば）と、既存projectの運用者notice（文言・リンク先を含む）を提示し、運用者noticeの継承／編集／追加／削除を確認する。製品noticeは別に表示される。編集範囲と一時ファイルの手順は[Scratchのお知らせ編集](scratch-notice-guide_ja.md)を参照する。
 - 引き継ぐworld内のplugin設定／DB（LuckPermsの権限設定等）を変更する必要が無いか
 - maintenance開始、停止許容時間
 
@@ -74,6 +74,8 @@ mcrctl deployment update plan \
   --to-preset "<handoffのexact preset>"
 ```
 
+noticeを編集した場合は、上のplanへ`--replace-input "connection-targets=$NOTICE_REVIEW/targets.toml"`を追加する。[お知らせ編集手順](scratch-notice-guide_ja.md#3-vpsの設定入力へ収容する)で一時ファイルの差分と候補runtimeを確認してから適用する。
+
 planは現在のdeploymentをdoctorで確認し、更新先presetを解決し、必要なartifactをdigestで取得し、target renderとsame-volume更新内容を生成する。出力の`PLAN deployment-update id=sha256:...`が次の手順で使うplan IDである。
 
 ## 5. planを適用する
@@ -100,6 +102,8 @@ mcrctl doctor
 - Bridge allowlistとScratch target集合が一致
 - McRemote protocolがresponsiveで認証を要求
 - homepageとWireScopeの配信内容がcurrent
+
+最後に、今回のScratch URLで[お知らせペインの表示確認](scratch-notice-guide_ja.md#5-適用後に配信とお知らせペインを確認する)を行う。doctorとは別に、文面・削除／追加したトピック・リンク先を確認し、結果を残す。
 
 ## 7. handoffを完了する
 
