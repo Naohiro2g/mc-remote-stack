@@ -73,6 +73,8 @@ cp -a "$SOURCE_PROJECT/operator" "$NEXT_PROJECT/operator"
 | plugin入力 | 引き継ぐJARのfilename、origin、SHA-256。周辺pluginの更新は必要なものを選ぶ |
 | backup入力 | 次セット専用の、存在するhost directory |
 
+noticeは[Scratchのお知らせ編集手順](scratch-notice-guide_ja.md)で一時ファイルを編集し、まだ稼働していない次セットの入力へ収容します。運用者noticeと製品noticeの表示を合わせて確認します。画面での確認は切替後です。
+
 旧セットのデータを保持することと、新しいvolumeに引き継ぐことは別です。コピーする対象をここで記録し、権限DBや認証データが未反映なら、その状態も残します。
 
 ## 4. 設定と配布物を確認する
