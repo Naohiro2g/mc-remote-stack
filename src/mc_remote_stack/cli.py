@@ -899,6 +899,7 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
             f"bridge-upstream={result.bridge_upstream_status} "
             f"auth={result.auth_status} "
             f"wirescope={getattr(result, 'wirescope_status', 'not-configured')} "
+            f"plugins={getattr(result, 'plugins_status', 'not-configured')} "
             f"lock={result.lock_identity}"
         )
         return 0

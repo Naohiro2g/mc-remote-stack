@@ -24,3 +24,8 @@ available_since = "2026-10-02"
 ref = "home-alpha-full@3"
 status = "active"
 available_since = "2026-10-02"
+
+[[presets]]
+ref = "home-alpha-full@4"
+status = "active"
+available_since = "2026-10-03"

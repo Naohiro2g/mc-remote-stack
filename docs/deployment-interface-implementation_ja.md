@@ -4,7 +4,7 @@
 
 ## 通常経路
 
-`classroom@1`はScratch／Bridge／Minecraftの3サービス、`home-alpha-full@2`は同じ設定生成・contract検査へCaddyのloopback HTTP転送を加えた4サービスである。`home-alpha-full@3`は同じ4サービスでWireScopeを別HTTP portから静的配信し、ZIP／manifest照合とhandoff headerを通常apply／doctorへ加える。ホーム用のHTTPS／WSSはhost側の転送が終端する。ホーム用の起動前確認は[`ホーム用ケータリング手順`](home-catering-guide_ja.md)を参照する。
+`classroom@1`はScratch／Bridge／Minecraftの3サービス、`home-alpha-full@2`は同じ設定生成・contract検査へCaddyのloopback HTTP転送を加えた4サービスである。`home-alpha-full@3`は同じ4サービスでWireScopeを別HTTP portから静的配信し、ZIP／manifest照合とhandoff headerを通常apply／doctorへ加える。`home-alpha-full@4`はLuckPerms・Geyser/Floodgate・ViaVersion/ViaBackwardsを同じMinecraftサービスに配置する。orderの`surfaces.bedrock_bind_address`でhostのIPv4を選び、統合版のUDP 19132を公開する。apply／doctorは配置された5つのJARのSHAをlockと照合し、起動logとアカウント権限は手順で別に確認する。ホーム用のHTTPS／WSSはhost側の転送が終端する。ホーム用の起動前確認は[`ホーム用ケータリング手順`](home-catering-guide_ja.md)を参照する。
 
 `apply <mc-remote.toml> --dry-run --output <empty-directory>`はorderからexact lock、Compose、runtime設定を生成する。artifact取得、Docker操作、current deployment stateの更新は行わない。portの空きやHTTPS入口の到達性はこの操作では未確認であり、hostの観測と起動後のdoctorで確認する。通常applyは進行段階を表示し、Docker command失敗時はexit statusとstderr末尾を返す。
 

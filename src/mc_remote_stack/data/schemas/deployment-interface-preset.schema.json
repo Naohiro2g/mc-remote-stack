@@ -38,6 +38,7 @@
         "java_port": {"$ref": "#/$defs/port"},
         "mcremote_port": {"$ref": "#/$defs/port"},
         "wirescope_port": {"$ref": "#/$defs/port"},
+        "bedrock_port": {"$ref": "#/$defs/port"},
         "scratch_contract": {
           "type": "object",
           "additionalProperties": false,
@@ -83,7 +84,7 @@
       "allOf": [{
         "if": {"required": ["edge"]},
         "then": {"properties": {
-          "renderer_revision": {"enum": ["2", "3"]},
+          "renderer_revision": {"enum": ["2", "3", "4"]},
           "bind_address": {"const": "127.0.0.1"}
         }},
         "else": {"properties": {"renderer_revision": {"const": "1"}}}
@@ -91,9 +92,16 @@
         "if": {"required": ["wirescope_port"]},
         "then": {
           "required": ["edge"],
-          "properties": {"renderer_revision": {"const": "3"}}
+          "properties": {"renderer_revision": {"enum": ["3", "4"]}}
         },
         "else": {"properties": {"renderer_revision": {"enum": ["1", "2"]}}}
+      }, {
+        "if": {"required": ["bedrock_port"]},
+        "then": {
+          "required": ["edge", "wirescope_port"],
+          "properties": {"renderer_revision": {"const": "4"}}
+        },
+        "else": {"properties": {"renderer_revision": {"enum": ["1", "2", "3"]}}}
       }]
     },
     "components": {
