@@ -15,7 +15,7 @@ releaseのpresetを決めた後、配備するお知らせを一時ファイル�
 
 表示順は運用者notice、製品noticeです。運用者noticeを変更しても製品noticeは残ります。[開発元noticeの既存決定（2026-09-05-02）](https://github.com/Naohiro2g/mc-remote-knowledge/blob/main/00-hub/DECISIONS_ja.md)も、表示する版と実際のbuildのずれ、同じ告知の重複表示を解消するため、開発元noticeをScratchのproduct-configへ一本化しています。
 
-**開発元のお知らせを、削除・編集できるテンプレートとして収容する運用は、現行の分離定義では表現されていません。** 製品noticeの削除・置換を指定するoperator入力はありません。以下は、運用者noticeを編集・追加・削除する現行手順です。
+製品noticeはScratchのreleaseで提供され、配備するイメージから内容を確認できます。サーバーごとの案内や追加トピックは運用者noticeに収容します。以下では、その運用者noticeを一時ファイルで編集・追加・削除してから配備します。
 
 対象host上で、operator環境を確認済みのdeployment projectへ入ります。別セットを準備する場合は、まだ稼働していない次セットのprojectを使います。
 
