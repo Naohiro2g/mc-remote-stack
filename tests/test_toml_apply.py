@@ -601,6 +601,30 @@ def test_apply_rejects_published_port_collision_before_pull(
     assert all("pull" not in command for command, _ in runner.calls)
 
 
+def test_apply_distinguishes_port_probe_permission_from_port_collision(tmp_path: Path) -> None:
+    project, data_root, output, lock = _prepared_project(tmp_path)
+    runner = FakeDocker(_read_only_responses(output, lock=lock))
+
+    def denied(_address: str, _port: int) -> None:
+        raise PermissionError(13, "Permission denied")
+
+    with pytest.raises(ApplyContractError) as exc_info:
+        apply_toml_project(
+            project,
+            output,
+            expected_lock_identity=lock["lock_identity"],
+            docker_context="default",
+            data_root=data_root,
+            bootstrap=True,
+            confirmed=True,
+            runner=runner,
+            port_probe=denied,
+        )
+
+    assert exc_info.value.reason == "host_port_probe_permission_denied"
+    assert all("pull" not in command and "up" not in command for command, _ in runner.calls)
+
+
 def test_failed_compose_up_rolls_back_containers_but_retains_world_volume(
     tmp_path: Path,
 ) -> None:
@@ -776,6 +800,37 @@ def test_cli_apply_passes_explicit_bootstrap_and_lock_acknowledgements(
     )
     assert "OK apply status=created bootstrap=true" in output_text
     assert "unverified" not in output_text
+
+
+@pytest.mark.parametrize("omitted", ["output", "docker-context", "both"])
+def test_cli_bootstrap_apply_defaults_to_project_render_and_local_context(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    omitted: str,
+) -> None:
+    project, data_root, output, lock = _prepared_project(tmp_path)
+
+    def fake_apply(project_root: Path, render_output: Path, **kwargs: object) -> TomlApplyResult:
+        assert project_root == project
+        assert render_output == output
+        assert kwargs["docker_context"] == "default"
+        return TomlApplyResult(
+            status="created",
+            lock_identity=lock["lock_identity"],
+            compose_project="home",
+            service="minecraft",
+            volume="home-beta-minecraft-data",
+        )
+
+    monkeypatch.setattr("mc_remote_stack.cli._preset_data_root", lambda: data_root)
+    monkeypatch.setattr("mc_remote_stack.cli.apply_toml_project", fake_apply)
+    args = ["apply", "--project", str(project), "--bootstrap", "--yes"]
+    if omitted not in ("output", "both"):
+        args += ["--output", str(output)]
+    if omitted not in ("docker-context", "both"):
+        args += ["--docker-context", "default"]
+
+    assert main(args) == 0
 
 
 def test_cli_apply_reports_stable_failure_reason(
