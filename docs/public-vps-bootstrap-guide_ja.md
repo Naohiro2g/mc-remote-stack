@@ -2,6 +2,8 @@
 
 このrunbookは、review済みのMcRemote release setで、同一world volumeを継承する既存deploymentを更新する現行手順である。current canonical TOML stateを入力に、`deployment update plan`、`deployment update apply`、`doctor`の三段階で完了する。
 
+別のセットを新規構築して切り替える場合は、[公開VPSの構築準備](public-vps-preparation-guide_ja.md)で次セットを用意する。同じVPSでbetaを新releaseへ置き換える目的でも、同一volumeを使う更新に限らない。
+
 新しいUbuntu hostのoperator環境は、先に[`fresh host bootstrap`](fresh-host-bootstrap-guide_ja.md)で準備する。このrunbookは、Stack担当がbackstage inventoryを読み、対象host、Stack checkout、既存deployment projectを一組にした地点から始める。読み取りaccessが無い場合は、Stack担当がhuman operatorへ申請する。
 
 ## 1. deployment handoffを受け取る
