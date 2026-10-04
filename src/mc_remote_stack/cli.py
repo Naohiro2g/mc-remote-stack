@@ -686,9 +686,9 @@ def _cmd_apply(args: argparse.Namespace) -> int:
     try:
         result = apply_toml_project(
             project_path,
-            Path(args.output),
+            _generated_output(args),
             expected_lock_identity=args.expected_lock_identity,
-            docker_context=args.docker_context,
+            docker_context=args.docker_context or "default",
             data_root=_preset_data_root(),
             bootstrap=args.bootstrap,
             confirmed=args.yes,

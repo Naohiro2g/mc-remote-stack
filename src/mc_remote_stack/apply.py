@@ -485,6 +485,12 @@ def _check_ports(
             )
         try:
             port_probe(address, port)
+        except PermissionError as exc:
+            _fail(
+                "host_port_probe_permission_denied",
+                f"{address}:{port}",
+                f"operator cannot perform host bind preflight: {exc}",
+            )
         except OSError as exc:
             _fail(
                 "host_port_in_use",

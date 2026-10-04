@@ -20,14 +20,22 @@ cd "$MC_REMOTE_STACK"
 test "$(git rev-parse --show-toplevel)" = "$MC_REMOTE_STACK"
 ```
 
-## 2. manifest.jsonを持つcomponent（Scratch）をReleaseから一括収集する
+今回収集する組合せは、対象リリースのrelease gateが示すexact tagを使います。コメントには、記入する値がわかるよう過去の公開値を例示しています。`MC_REMOTE_ASSET`には、対象tagのmanifestが示すJARの`file`名を記入します。
+
+```sh
+SCRATCH_TAG="<今回のexact tag>"       # 過去の公開値の例：v2301.0.0b7-post1
+MC_REMOTE_TAG="<今回のexact tag>"     # 過去の公開値の例：v1.21.11-2320.0.0b8
+MC_REMOTE_ASSET="<manifestのfile名>"  # 過去の公開値の例：mc-remote-1.21.11-2320.0.0b8.jar
+PYTHON_TAG="<今回のexact tag>"        # 過去の公開値の例：v2320.0.0b8
+```
+
+以降のコマンドは、この変数を設定した同じシェルで実行します。tagの表記方針は[versioning設計 §10.5](https://github.com/Naohiro2g/mc-remote-knowledge/blob/main/10-protocol/versioning-design_ja.md#105-接尾辞と表記)を参照してください。
+
+## 2. manifest.jsonを持つcomponentをReleaseから一括収集する
 
 対象repoのReleaseへ`manifest.json`が添付されていれば、それが正式入力である。手作業でcommitやOCI digestを推論・転記しない。Scratch／BridgeのOCI imageはGHCR（`ghcr.io/naohiro2g/mc-remote-scratch`等）にあり、manifestが直接`locator`と`digest`を示す。
 
-下のtagはmanifest.json導入時の最初のpost-release例であり、ハイフン区切り（`-post1`）のまま公開済みのため差し替えない。post2以降のpost-release接尾辞はPEP 440の正準形に合わせ`.postN`（ドット区切り、例`v2301.0.0b7.post2`）を使う。この例のハイフンをそのまま次のpost releaseへ転用しない（`2026-09-07-03`、`10-protocol/versioning-design_ja.md`§10.5）。
-
 ```sh
-SCRATCH_TAG="v2301.0.0b7-post1"
 SCRATCH_REVIEW_DIR="$(mktemp -d)"
 
 gh release download "$SCRATCH_TAG" \
@@ -65,14 +73,11 @@ tar -xzf "$SCRATCH_REVIEW_DIR/contracts.tar.gz" -C "$SCRATCH_CONTRACT_DEST" \
 src/mc_remote_stack/data/scratch-contracts/<SCRATCH_SOURCE_COMMIT>/
 ```
 
-## 3. manifest.jsonが未対応のcomponent（McRemote・Python client）をGitHub Releasesで照合する
+## 3. McRemote・Python clientの配布物を照合する
 
-まだ`manifest.json`を添付していないcomponentは、GitHub APIが返すasset単位のSHA-256をそのまま期待値にする。このsectionはcomponentがmanifest.jsonを添付し次第、§2の手順へ統合し削除する（`2026-09-06-02`）。
+McRemoteとPython clientもGitHub Releasesの`manifest.json`を検査し、tag、source commit、artifactのfile／SHA-256を配布物へ照合します。GitHub APIのasset digestも照合できます。manifestがない以前のreleaseを扱う場合は、このAPIのSHA-256を期待値にします。
 
 ```sh
-MC_REMOTE_TAG="v1.21.11-2301.0.0b7"
-MC_REMOTE_ASSET="mc-remote-1.21.11-2301.0.0b7.jar"
-
 gh api "repos/Naohiro2g/McRemote/releases/tags/$MC_REMOTE_TAG" \
   --jq '{tag_name,target_commitish,draft,prerelease,assets:[.assets[]|{name,browser_download_url,digest}]}'
 MC_REMOTE_PROVIDER_DIGEST="$(gh api \
@@ -83,13 +88,35 @@ MC_REMOTE_EXPECTED_SHA256="${MC_REMOTE_PROVIDER_DIGEST#sha256:}"
 ARTIFACT_REVIEW_DIR="$(mktemp -d)"
 gh release download "$MC_REMOTE_TAG" \
   --repo Naohiro2g/McRemote \
+  --pattern "manifest.json" \
   --pattern "$MC_REMOTE_ASSET" \
   --dir "$ARTIFACT_REVIEW_DIR"
+uv run mcrctl release-manifest verify "$ARTIFACT_REVIEW_DIR/manifest.json"
+MC_REMOTE_MANIFEST_SHA256="$(python3 -c '
+import json, sys
+manifest = json.load(open(sys.argv[1]))
+print(next(a["sha256"] for a in manifest["artifacts"] if a["role"] == "jar"))
+' "$ARTIFACT_REVIEW_DIR/manifest.json")"
+test "$MC_REMOTE_MANIFEST_SHA256" = "$MC_REMOTE_EXPECTED_SHA256"
 test "$(sha256sum "$ARTIFACT_REVIEW_DIR/$MC_REMOTE_ASSET" | awk '{print $1}')" = \
   "$MC_REMOTE_EXPECTED_SHA256"
 ```
 
-presetには、このtagのasset URL、filename、version、確認したSHA-256を記録する。
+presetには、このtagのasset URL、filename、version、確認したSHA-256を記録します。Python clientは、冒頭で設定した`PYTHON_TAG`のReleaseからmanifest、wheel、sdistを取得します。
+
+```sh
+PYTHON_REVIEW_DIR="$(mktemp -d)"
+gh release download "$PYTHON_TAG" \
+  --repo Naohiro2g/minecraft-remote-api \
+  --pattern "manifest.json" \
+  --pattern "*.whl" \
+  --pattern "*.tar.gz" \
+  --dir "$PYTHON_REVIEW_DIR"
+uv run mcrctl release-manifest verify "$PYTHON_REVIEW_DIR/manifest.json"
+sha256sum "$PYTHON_REVIEW_DIR"/*.whl "$PYTHON_REVIEW_DIR"/*.tar.gz
+```
+
+`wheel`／`sdist`の各`ARTIFACT`行のfile／SHA-256を、ダウンロードした実物の名前と`sha256sum`の出力へ照合します。以前のmanifestがないreleaseでは、downloadのmanifest指定・verify・manifestとの比較を省き、APIと実物を照合します。
 
 ## 4. foundation artifactを公式配布元で照合する
 
