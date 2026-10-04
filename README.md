@@ -56,7 +56,7 @@ release待ちの間に、別のセットを用意する場合は[公開VPSの構
 
 今との差は次のとおりです。
 
-- この形のコード（`mcrctl apply ./mc-remote.toml`）は、Scratch、Bridge、Minecraftの3サービスと、ホーム用のCaddyを含む4サービスを扱います。ホーム用はhost側のHTTPS／WSS転送を使います。ホームページ、backup、追加プラグインの取込はこの入口にはまだありません。ホーム構成の実サービス起動・browser接続は未検証です。実装の範囲は[deployment interface実装境界](docs/deployment-interface-implementation_ja.md)にあります。
+- この形のコード（`mcrctl apply ./mc-remote.toml`）は、Scratch、Bridge、Minecraftの3サービスと、ホーム用のCaddyを含む4サービスを扱います。ホーム用はhost側のHTTPS／WSS転送を使います。ホームページ、backup、追加プラグインの取込はこの入口にはまだありません。ホーム構成は実機でサービス起動とdoctor通過を確認しました。browser／Minecraft clientの接続確認は残っています。実装の範囲は[deployment interface実装境界](docs/deployment-interface-implementation_ja.md)にあります。
 - そのため公開VPSは、上の「今の手順」で動かしています。こちらはprofileとpresetを指定したproject（`mc-remote.toml`＋`mc-remote.lock.toml`＋`operator/`以下の入力）を、`mcrctl deployment update`で更新する方式です。
 - 二つの方式は、設定ファイル名がどちらも`mc-remote.toml`ですが、書き方が違います。
 - 次の環境の仕組みは、まだStackにありません: 公式stable（Minecraft部分はXServer GAMEs）、devサーバーのalpha／beta、Dockerを使わない構成、ケータリングPCでの検証、private opsリポの立ち上げ。

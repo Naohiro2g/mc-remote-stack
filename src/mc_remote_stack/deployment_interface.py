@@ -8,6 +8,7 @@ import json
 import os
 import re
 import socket
+import stat
 import subprocess
 import tempfile
 import tomllib
@@ -77,6 +78,7 @@ class InterfaceDoctorResult:
     network_status: str
     bridge_upstream_status: str
     auth_status: str
+    wirescope_status: str = "not-configured"
 
 
 CommandRunner = Callable[[list[str], int], subprocess.CompletedProcess[str]]
@@ -551,6 +553,18 @@ def _render(
         for target in order["targets"]
     ]
     default = next(target for target in order["targets"] if target["default"])
+    if "wirescope_port" in preset["deployment_interface"]:
+        scratch_origin = urlsplit(order["surfaces"]["scratch_url"])
+        wirescope_url = order["surfaces"].get("wirescope_url")
+        if wirescope_url is None:
+            _fail("wirescope_surface_invalid", "surfaces.wirescope_url", "WireScope requires its HTTPS URL")
+        wirescope_origin = urlsplit(wirescope_url)
+        if (scratch_origin.scheme, scratch_origin.hostname, scratch_origin.port or 443) == (
+            wirescope_origin.scheme, wirescope_origin.hostname, wirescope_origin.port or 443
+        ):
+            _fail("wirescope_surface_invalid", "surfaces.wirescope_url", "Scratch handoff requires a separate origin")
+        _file_artifact(preset, "wirescope-app")
+        _file_artifact(preset, "wirescope-manifest")
     runtime: dict[str, Any] = {
         "schema_version": 1,
         "connection_enabled": True,
@@ -708,13 +722,34 @@ def _render(
         "runtime/minecraft/plugins/McRemote/config.yml": _mcremote_runtime_config(
             paper_component["minecraft_version"]
         ),
-        "compose.yaml": yaml.safe_dump(compose, sort_keys=False),
     }
     if config.get("edge") == "caddy":
         rendered["Caddyfile"] = (
             f":{config['scratch_port']} {{\n    reverse_proxy scratch:8080\n}}\n\n"
             f":{config['bridge_port']} {{\n    reverse_proxy bridge:8080\n}}\n"
         )
+        if "wirescope_port" in config:
+            from .render import WIRESCOPE_CSP  # noqa: PLC0415
+
+            port = config["wirescope_port"]
+            compose["services"]["caddy"]["ports"].append(f"{config['bind_address']}:{port}:{port}/tcp")
+            compose["services"]["caddy"]["volumes"].append({
+                "type": "bind", "source": "./wirescope", "target": "/srv/wirescope", "read_only": True,
+            })
+            rendered["Caddyfile"] = (
+                f":{config['scratch_port']} {{\n"
+                '    header Referrer-Policy "strict-origin-when-cross-origin"\n'
+                "    reverse_proxy scratch:8080\n}\n\n"
+                f":{config['bridge_port']} {{\n    reverse_proxy bridge:8080\n}}\n\n"
+                f":{port} {{\n    root * /srv/wirescope\n    header {{\n"
+                '        Cross-Origin-Opener-Policy "unsafe-none"\n'
+                '        Referrer-Policy "no-referrer"\n'
+                '        X-Content-Type-Options "nosniff"\n'
+                '        Cache-Control "no-store"\n'
+                f'        Content-Security-Policy "{WIRESCOPE_CSP}"\n'
+                "    }\n    file_server\n}\n"
+            )
+    rendered["compose.yaml"] = yaml.safe_dump(compose, sort_keys=False)
     return compose, rendered
 
 
@@ -760,6 +795,8 @@ def prepare_interface_deployment(
     }
     if "edge" in preset["deployment_interface"]:
         lock["renderer"]["edge"] = preset["deployment_interface"]["edge"]
+    if "wirescope_port" in preset["deployment_interface"]:
+        lock["network"]["wirescope_port"] = preset["deployment_interface"]["wirescope_port"]
     lock["lock_identity"] = f"sha256:{semantic_sha256(lock)}"
     return PreparedDeployment(order_path.resolve(), lock, compose, rendered, schema)
 
@@ -770,8 +807,7 @@ def write_interface_preview(prepared: PreparedDeployment, output: Path) -> Path:
     output = output.expanduser().resolve()
     if output.exists() and (not output.is_dir() or any(output.iterdir())):
         _fail("preview_output_not_empty", output, "choose an empty preview directory")
-    for relative, content in prepared.files.items():
-        _atomic_write(output / PurePosixPath(relative), content.encode("utf-8"))
+    _write_render_files(prepared, output)
     _atomic_write(
         output / "mc-remote.lock.json",
         (json.dumps(prepared.lock, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode(),
@@ -817,25 +853,39 @@ def detect_apply_mode(
     return "update"
 
 
-def _atomic_write(path: Path, content: bytes) -> None:
+def _atomic_write(path: Path, content: bytes, *, mode: int = 0o600) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+    # Preserve the inode already bind-mounted by a container when only its
+    # permissions need repair, or an unchanged order is applied again.
+    if path.is_file() and not path.is_symlink() and path.read_bytes() == content:
+        if stat.S_IMODE(path.stat().st_mode) != mode:
+            path.chmod(mode)
+        return
     descriptor, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
     temporary = Path(temporary_name)
     try:
         with os.fdopen(descriptor, "wb") as stream:
             stream.write(content)
             stream.flush()
+            os.fchmod(stream.fileno(), mode)
             os.fsync(stream.fileno())
         os.replace(temporary, path)
     finally:
         temporary.unlink(missing_ok=True)
 
 
+def _write_render_files(prepared: PreparedDeployment, root: Path) -> None:
+    for relative, content in prepared.files.items():
+        # These files contain public routing/runtime configuration and must be
+        # readable by Caddy without DAC capabilities and Scratch's UID 101.
+        mode = 0o644 if relative in {"Caddyfile", "runtime/scratch.json"} else 0o600
+        _atomic_write(root / PurePosixPath(relative), content.encode("utf-8"), mode=mode)
+
+
 def _publish_render(prepared: PreparedDeployment, state_root: Path) -> Path:
     lock_suffix = prepared.lock["lock_identity"].removeprefix("sha256:")
     render_root = state_root / prepared.lock["deployment"] / "renders" / lock_suffix
-    for relative, content in prepared.files.items():
-        _atomic_write(render_root / PurePosixPath(relative), content.encode("utf-8"))
+    _write_render_files(prepared, render_root)
     _atomic_write(
         render_root / "mc-remote.lock.json",
         (json.dumps(prepared.lock, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode(),
@@ -1034,6 +1084,32 @@ def _fetch_interface_artifacts(prepared: PreparedDeployment) -> None:
             )
 
 
+def _interface_wirescope_assets(lock: dict[str, Any]) -> tuple[list[tuple[str, bytes]], bytes]:
+    from .render import RenderContractError, _verified_wirescope_assets  # noqa: PLC0415
+
+    try:
+        return _verified_wirescope_assets({
+            "components": lock["components"], "artifacts": lock["artifacts"],
+            "runtime": {"artifact_store": lock["artifact_store"]},
+        })
+    except RenderContractError as exc:
+        _fail(exc.reason, exc.path, str(exc))
+
+
+def _publish_interface_wirescope(lock: dict[str, Any], root: Path) -> None:
+    if "wirescope_port" not in lock["network"]:
+        return
+    assets, manifest = _interface_wirescope_assets(lock)
+    for name, content in [*assets, ("wirescope-app.manifest.json", manifest)]:
+        path = root / "wirescope" / PurePosixPath(name)
+        _atomic_write(path, content, mode=0o644)
+        # The directory itself is mounted into Caddy, which drops DAC capabilities.
+        for directory in (path.parent, *path.parent.parents):
+            if directory == root:
+                break
+            directory.chmod(0o755)
+
+
 def apply_interface_order(
     order_path: Path,
     *,
@@ -1085,6 +1161,9 @@ def apply_interface_order(
     render_root = _publish_render(prepared, resolved_state_root)
     report("artifacts")
     artifact_fetcher(prepared)
+    if "wirescope_port" in prepared.lock["network"]:
+        report("wirescope")
+        _publish_interface_wirescope(prepared.lock, render_root)
     compose = [
         "docker",
         "--context",
@@ -1107,6 +1186,11 @@ def apply_interface_order(
         compose + ["up", "--detach", "--remove-orphans", "--wait"],
         600,
         "deployment_apply_failed",
+    )
+    report("verify")
+    _validate_interface_containers(
+        _container_records(runner, docker_context, prepared.lock["deployment"]),
+        prepared.lock,
     )
     report("record")
     current = {
@@ -1186,6 +1270,9 @@ def _expected_interface_ports(lock: dict[str, Any]) -> dict[str, dict[str, list[
             f"{network[key]}/tcp": [{"HostIp": address, "HostPort": str(network[key])}]
             for key in ("scratch_port", "bridge_port")
         }
+        if "wirescope_port" in network:
+            port = network["wirescope_port"]
+            ports["caddy"][f"{port}/tcp"] = [{"HostIp": address, "HostPort": str(port)}]
     return ports
 
 
@@ -1194,6 +1281,16 @@ def _validate_interface_containers(
 ) -> None:
     images = _expected_interface_images(lock)
     ports = _expected_interface_ports(lock)
+    if (
+        len(containers) != len(images)
+        or {container["service"] for container in containers} != set(images)
+        or any(container.get("managed") is not True for container in containers)
+    ):
+        _fail(
+            "deployment_runtime_unmanaged",
+            lock["deployment"],
+            "live containers do not exactly match the preset services",
+        )
     for container in containers:
         service = container["service"]
         record = container.get("record")
@@ -1209,6 +1306,11 @@ def _validate_interface_containers(
         state = record.get("State")
         if not isinstance(state, dict) or state.get("Running") is not True:
             _fail("deployment_runtime_not_running", service, "container is not running")
+        if state.get("Restarting") is True:
+            _fail(
+                "deployment_runtime_restarting", service,
+                "container is restarting; inspect the service logs",
+            )
         if service == "minecraft":
             health = state.get("Health")
             if not isinstance(health, dict) or health.get("Status") != "healthy":
@@ -1292,6 +1394,7 @@ def doctor_interface_deployment(
     bridge_environment_probe: Callable[[str, CommandRunner], dict[str, str]] | None = None,
     bridge_upstream_probe: BridgeUpstreamProbe = _default_bridge_upstream_probe,
     hello_probe: HelloProbe = _default_hello_probe,
+    wirescope_probe: Callable[..., None] | None = None,
 ) -> InterfaceDoctorResult:
     """Check the compact deployment's exact runtime, routing, and auth contract."""
 
@@ -1393,6 +1496,20 @@ def doctor_interface_deployment(
             "protocol.hello",
             "token-free hello must be rejected with auth_required",
         )
+    wirescope_status = "not-configured"
+    if "wirescope_port" in network:
+        from .doctor import DoctorContractError, probe_wirescope_public_handoff  # noqa: PLC0415
+
+        assets, _manifest = _interface_wirescope_assets(lock)
+        index_source = dict(assets)["index.html"]
+        try:
+            (wirescope_probe or probe_wirescope_public_handoff)(
+                lock["surfaces"]["scratch_url"], lock["surfaces"]["wirescope_url"],
+                expected_index_sha256=hashlib.sha256(index_source).hexdigest(), timeout=timeout,
+            )
+        except DoctorContractError as exc:
+            _fail(exc.reason, exc.path, str(exc))
+        wirescope_status = "current"
     return InterfaceDoctorResult(
         deployment=deployment,
         lock_identity=expected_identity,
@@ -1403,4 +1520,5 @@ def doctor_interface_deployment(
         network_status="current",
         bridge_upstream_status="reachable",
         auth_status="enforced",
+        wirescope_status=wirescope_status,
     )
