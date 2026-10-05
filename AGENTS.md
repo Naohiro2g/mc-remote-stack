@@ -39,6 +39,9 @@ SSOT にアクセスできるまで、McRemote 固有文脈に依存する設計
 
 ## このリポ固有の指示
 
+「ホームページを更新して」という依頼には、Scratchの生成済みAPIページの確認・取り込みも含める。
+[`ホームページ更新手順`](docs/homepage-sync-guide_ja.md)に従い、取り込み結果をknowledgeのホームページ正本へ反映してから配信を更新する。
+
 Add tests before fixing bugs.
 
 変更を提出する前に、次を実行してください。
