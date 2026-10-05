@@ -81,14 +81,14 @@ noticeは[Scratchのお知らせ編集手順](scratch-notice-guide_ja.md)で一�
 
 ```sh
 "$MCRCTL" operator check --project "$NEXT_PROJECT"
-"$MCRCTL" validate --project "$NEXT_PROJECT"
 "$MCRCTL" resolve --project "$NEXT_PROJECT"
+"$MCRCTL" validate --project "$NEXT_PROJECT"
 "$MCRCTL" artifact fetch --project "$NEXT_PROJECT"
 "$MCRCTL" render --project "$NEXT_PROJECT"
 "$MCRCTL" plan --project "$NEXT_PROJECT"
 ```
 
-lockのrelease、volume名、world名、public routes、plugin一覧を確認します。生成されたComposeも、次セットのproject・新volume・所定のmountになっていることを確認します。
+lockのrelease、volume名、world名、public routes、plugin一覧を確認します。準備済み入力を変更した場合は、旧lockとの不一致をresolveで更新してからvalidateします。生成されたComposeも、次セットのproject・新volume・所定のmountになっていることを確認します。
 
 公開前のreleaseを待つ場合は、公開済みreleaseでこの経路を確認できます。そのlockを待っているreleaseの配備結果とは扱わず、準備用に使ったreleaseを明記します。正式配布物が揃った後、新しいimmutable presetを作り、次セットのorderからlockと生成物を作り直します。
 
@@ -148,6 +148,8 @@ Minecraft data volume内の`/data/plugins/*.jar`のSHA-256を、lockとplugin入
 最後に、一時containerが終了・削除されていることと、稼働中セットのdoctorが引き続き正常であることを確認します。
 
 ## 7. 切替へ渡す情報
+
+正式releaseと次セットの準備が揃ったら、[別セットへの切替手順](public-vps-cutover-guide_ja.md)へ進みます。
 
 準備結果には、Stack commit、準備に使ったrelease／lock、次セットのpath・volume、Caddy検査、JAR照合、現行セットの稼働確認を残します。
 
