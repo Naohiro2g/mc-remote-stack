@@ -23,6 +23,8 @@ releaseの収集は[release artifact／preset準備手順](release-preset-prepar
 公式運用の実値はBackstageへ、OSS利用者は自分のprivate opsリポへ記録します。公開側には共通手順を残します。
 既に会話や管理情報で決まっている条件を使い、未確認の点や今回変わる点を対話で補います。
 
+今回のrelease／presetが確定したら、次projectの入力を作る前に[収集直後のrequest確認](public-vps-bootstrap-guide_ja.md#2-収集直後のrequest確認)を行います。対象releaseの製品noticeと引継ぎ元の運用者noticeを文面・リンク先とともに人間へ提示し、運用者noticeの継承／編集／追加／削除を確認します。一時ファイルでの編集と収容は[お知らせ編集手順](scratch-notice-guide_ja.md)へ進みます。
+
 次セットのデータ領域を分けても、引き継ぐworldの名前は維持します。公開VPSのrendererは`world.identity`をMinecraftの`LEVEL`へ使うため、名前を変えると別のworldを選びます。
 
 ## 2. 対象hostを読み取り確認する
@@ -72,6 +74,8 @@ cp -a "$SOURCE_PROJECT/operator" "$NEXT_PROJECT/operator"
 | Minecraft設定／connection targets／notice | 今回の利用条件に合う内容 |
 | plugin入力 | 引き継ぐJARのfilename、origin、SHA-256。周辺pluginの更新は必要なものを選ぶ |
 | backup入力 | 次セット専用の、存在するhost directory |
+
+noticeは[Scratchのお知らせ編集手順](scratch-notice-guide_ja.md)で一時ファイルを編集し、まだ稼働していない次セットの入力へ収容します。運用者noticeと製品noticeの表示を合わせて確認します。画面での確認は切替後です。
 
 旧セットのデータを保持することと、新しいvolumeに引き継ぐことは別です。コピーする対象をここで記録し、権限DBや認証データが未反映なら、その状態も残します。
 
@@ -142,6 +146,8 @@ docker compose --project-name "$NEXT_DEPLOYMENT" \
 Composeの`run`は、このcommandではserviceの公開portを割り当てません。Caddyは設定を検査し、Minecraft imageはPaper・plugin・設定を配置して、ゲームサーバーの起動前に終了します。`SETUP_ONLY`の意味は[imageの公式説明](https://docker-minecraft-server.readthedocs.io/en/latest/configuration/misc-options/)も参照できます。
 
 Minecraft data volume内の`/data/plugins/*.jar`のSHA-256を、lockとplugin入力へ照合します。LuckPerms、Geyser、Floodgate、ViaVersion、ViaBackwardsが揃うことも確認します。これはファイル配置の確認であり、pluginの起動や権限判定の確認は初回起動後に行います。
+
+準備が終わったら、会話で「次セットの準備が完了し、旧セットは稼働中」と伝えます。ゲームサーバーと公開入口の切替は、次の切替手順で進めます。
 
 最後に、一時containerが終了・削除されていることと、稼働中セットのdoctorが引き続き正常であることを確認します。
 

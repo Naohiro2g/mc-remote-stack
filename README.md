@@ -45,6 +45,7 @@ release待ちの間に、別のセットを用意する場合は[公開VPSの構
 
 日々の運用は次のページにあります。
 
+- [Scratchのお知らせを編集する](docs/scratch-notice-guide_ja.md)（配備前の編集と適用後の表示確認）
 - [ホームページを更新する](docs/homepage-sync-guide_ja.md)
 - [backupを転送する・復元する](docs/backup-and-restore-guide_ja.md)
 

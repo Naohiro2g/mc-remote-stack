@@ -29,6 +29,8 @@ Scratch の入口は loopback 8443、Bridge の入口は loopback 8444 へ転送
 
 次は例です。URL、hostname、deployment 名を自分の構成へ置き換えます。operator Notice を付ける場合は `[[notices]]` を一件追加できます。
 
+文面の編集・削除と一時ファイルからの収容は[Scratchのお知らせ編集](scratch-notice-guide_ja.md#4-ホーム用のコンパクトorderを使う場合)を参照します。製品noticeは別に表示されるため、起動後に両方を確認します。
+
 ```toml
 schema_version = 1
 deployment = "home-trial"
