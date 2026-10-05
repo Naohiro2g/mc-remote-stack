@@ -14,6 +14,8 @@
 
 運用者noticeは一時ファイルで内容を確認・編集し、未稼働の次projectの入力へ収容してから生成します。旧セットからコピーした案内も、今回のreleaseと用途に合う内容へ編集します。Scratchイメージに含まれる製品noticeは、そのreleaseの配布内容を確認します。
 
+この選択は[構築準備のrequest確認](public-vps-preparation-guide_ja.md#1-今回の条件を残す)で人間へ提示・確認した内容を使います。未確認なら停止前に済ませます。切替後の配信JSONや画面表示の一致は、文面の事前選択とは別の確認です。
+
 ```sh
 SOURCE_PROJECT="$HOME/mc-remote-deployments/<旧セット>"
 NEXT_PROJECT="$HOME/mc-remote-deployments/<次セット>"
@@ -36,6 +38,8 @@ sysctl net.ipv4.ip_unprivileged_port_start
 
 ## 2. 旧セットを停止する
 
+合意済みの停止条件で進めます。command実行前に、会話で「準備完了、旧セットは稼働中。これから旧セットを停止する」と伝えます。
+
 ```sh
 docker compose --project-name "$SOURCE_DEPLOYMENT" \
   --project-directory "$SOURCE_PROJECT/generated" \
@@ -44,6 +48,8 @@ docker ps --filter "label=com.docker.compose.project=$SOURCE_DEPLOYMENT"
 ```
 
 world等の書き込みが止まってからコピーします。このcommandは旧volumeを保持します。停止時刻を記録し、旧volumeを使う別containerも稼働していないことを確認します。
+
+停止を確認したら「旧セットの停止を確認した。これから保存とコピーを行う」と伝えます。停止要求時刻と、停止を確認した時刻を区別して記録します。
 
 ## 3. 停止時点を保存し、各volumeをコピーする
 
@@ -107,6 +113,8 @@ sha256sum /data/plugins/McRemote/config.yml
 
 ## 5. 次セットを起動する
 
+実行直前に「保存とコピーの確認が完了した。これから次セットの起動処理を開始する」と伝えます。この時刻は起動要求であり、全serviceの起動成功を確認した時刻とは区別します。
+
 一般ユーザーのport検査が可能なhostでは、準備済みのlockと生成物でbootstrap applyを実行します。
 
 ```sh
@@ -136,7 +144,11 @@ docker compose --project-name "$NEXT_DEPLOYMENT" \
 - JavaのTCPと統合版のUDPを別々に、VPS外の端末から確認
 - 新しいbackup保存先と、既存の暗号化・転送・予約実行の参照先
 
+起動後のdoctorが正常であることを確認した時点で、その結果と時刻を伝えます。外部端末での接続や実backup転送がまだなら、それらは確認中として報告します。
+
 project名を変えると`secret://`の参照先namespaceも変わります。backup等が使う秘密情報は、値を表示せずに新projectのsecret storeへ引き継ぎ、実バックアップの転送recordが`download-verified`になることまで確認します。元namespaceの保存は旧セットの再開計画と合わせて扱います。
+
+ServerBackupで実archiveを作る場合は、[runtime UIDを確認してarchiveを生成する](backup-and-restore-guide_ja.md#archiveを生成する)手順を使います。consoleへの要求、ZIPの完成・内容検査、off-host転送の確認を順に行います。
 
 UDP status応答とゲームへの参加、配信JSONの一致と画面表示はそれぞれ別の確認です。未確認の項目も記録します。通常の`mcrctl`が使うStack checkoutを今回のpresetへ対応させ、次projectでoperator checkとdoctorを再確認します。
 

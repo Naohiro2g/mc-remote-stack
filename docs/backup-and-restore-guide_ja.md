@@ -11,6 +11,32 @@ mcrctl operator check
 
 `mcrctl`が見つからない場合は、[PATHが通っていないとき](fresh-host-bootstrap-guide_ja.md#pathが通っていないとき)で戻します。
 
+## archiveを生成する
+
+ServerBackupを使う構成で、切替後などに実backupの生成から確認する場合の入口です。対象orderのdeployment名からMinecraft containerを選び、console pipeの所有UID:GIDを確認します。[image作者のconsole説明](https://docker-minecraft-server.readthedocs.io/en/latest/sending-commands/commands/#when-rcon-is-disabled)に従い、Minecraftの実行ユーザーでcommandを送ります。
+
+```sh
+BACKUP_DEPLOYMENT="<orderのdeployment.name>"
+BACKUP_CONTAINER="$(docker compose --project-name "$BACKUP_DEPLOYMENT" \
+  --project-directory ./generated -f ./generated/compose.yaml ps -q minecraft)"
+docker exec "$BACKUP_CONTAINER" sh -c \
+  'test -p /tmp/minecraft-console-in && stat -c "%u:%g" /tmp/minecraft-console-in'
+
+BACKUP_CONSOLE_USER="<上で確認したUID:GID>" # 例: 1000:1000
+docker exec --user "$BACKUP_CONSOLE_USER" "$BACKUP_CONTAINER" \
+  mc-send-to-console backup create @server
+```
+
+Docker execの既定userとMinecraftの実行userは同じとは限りません。`Exec needs to be run with user ID ...`で拒否された場合は、対象containerとUIDを照合します。console pipeが無い場合は採用したimage設定を確認します。
+
+このcommandはserver全体のZIP生成を要求します。ServerBackupの完了メッセージと採用設定の保存先で生成ZIPを確認し、host側のpathで内容を検査します。
+
+```sh
+mcrctl archive inspect "<host側の生成ZIPのpath>" --json
+```
+
+引き継ぐworld・権限DB・McRemote snapshot／authorityが今回の採用設定で収録されることを確認します。その後、以下のtransferまたは既存のdrain／timerで転送し、transfer recordの`download-verified`を確認します。生成要求の成功、ZIP完成、転送成功はそれぞれ別の確認です。
+
 ## 1. 転送先を設定する
 
 転送先はFTPS（明示的TLS）です。接続情報は、deployment projectの外に置くmode `0600`のファイルに書きます。passwordはこのファイルにもprojectにも書かず、`mcrctl secret set`で保存します。
