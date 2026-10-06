@@ -3,7 +3,7 @@ schema_version = 1
 [preset_catalog]
 generator = "mcrctl-preset-catalog-v1"
 canonicalization = "jcs-rfc8785-v1"
-source_sha256 = "0ad2613c013c343cbfd710bb55f20e196f08ecf76de824125b5fb3d6c87a1cbc"
+source_sha256 = "fc4c6b92773427e9aef5e88f3df8e2c00800acbdbd30cdc7091f626931545dee"
 
 [[preset_catalog.presets]]
 ref = "classroom@1"
@@ -47,5 +47,14 @@ content_sha256 = "ee6bdbbb77a855ddb0c0659dd1952e2b0320bacf9850a3f94bc5fc9b05b570
 description = "公式b8 Release manifestから収集した公開VPSセット"
 status = "active"
 available_since = "2026-10-03"
+required_profile_capabilities = ["compose", "mcremote-auth-enforced", "mcremote-session-only", "paper", "persistent-world", "public-web", "scratch-runtime", "websocket-bridge", "wirescope-browser"]
+allowed_channels = ["beta"]
+
+[[preset_catalog.presets]]
+ref = "public-web-paper@13"
+content_sha256 = "b4fcd4a3e684a036bd6b25ab436d3f4757b310db25eab3899d2591a673e24f4f"
+description = "公式b9 Release manifestから収集した公開VPSセット"
+status = "active"
+available_since = "2026-10-06"
 required_profile_capabilities = ["compose", "mcremote-auth-enforced", "mcremote-session-only", "paper", "persistent-world", "public-web", "scratch-runtime", "websocket-bridge", "wirescope-browser"]
 allowed_channels = ["beta"]

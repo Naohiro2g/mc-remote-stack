@@ -1,0 +1,153 @@
+schema_version = 1
+
+[preset]
+name = "public-web-paper"
+revision = "13"
+description = "公式b9 Release manifestから収集した公開VPSセット"
+
+[requirements]
+profile_capabilities = [
+  "compose",
+  "paper",
+  "persistent-world",
+  "public-web",
+  "scratch-runtime",
+  "websocket-bridge",
+  "wirescope-browser",
+  "mcremote-auth-enforced",
+  "mcremote-session-only",
+]
+allowed_channels = ["beta"]
+required_claims = [
+  "profile-render",
+  "protocol-hello",
+  "https-runtime",
+  "websocket-bridge",
+  "wirescope-public-handoff",
+]
+
+[scratch_runtime_contract]
+source_commit = "691576f60b7f0824e1753bd6823901d01fbe2422"
+source_directory = "packages/scratch-gui/contracts/runtime-config"
+directory_tree_sha = "ecb669a02ac6c8e502b44850e6dd28260c5adad4"
+schema_sha256 = "4e1f8489dc6ea03800f5cf0fefd2f078fd6d71c8efda581f1711f68e384f99e4"
+container_mount_path = "/usr/share/nginx/html/mc-remote-runtime-config.json"
+image_digest = "sha256:f44e7a6c1a3b041aba787eba5e052a3ae78ce4ce733732bc7213207a3b17f607"
+accepted_fixtures = ["fixtures/disabled.json", "fixtures/valid.json"]
+rejected_fixtures = [
+  "fixtures/invalid/enabled-missing-targets.json",
+  "fixtures/invalid/nested-unknown-field.json",
+  "fixtures/invalid/schema-version.json",
+  "fixtures/invalid/unknown-field.json",
+]
+
+[scratch_runtime_contract.fixture_sha256]
+"fixtures/disabled.json" = "bec0cf2c31fbca7d3bd603e29c1d145d82b6ecf7b4661b9adafde31dfa2eec2d"
+"fixtures/valid.json" = "cc2282144e1e87b42d2e31229461f9aeead26eeb446ae817571eb96935360e20"
+"fixtures/invalid/enabled-missing-targets.json" = "f5392059e42431b45fb8f7f03aa09e734fb8b9e79f8fb92913082ff05842736c"
+"fixtures/invalid/nested-unknown-field.json" = "ed0923793b8713ec67615b6f14bc9f8fb342041b0cdeed5d7b9b10110a3c62b7"
+"fixtures/invalid/schema-version.json" = "9e0d32fc83501a2b73095ae59675e27ace5d11fb31e19443b78e49341ba3e766"
+"fixtures/invalid/unknown-field.json" = "35f1f21562e237cce722f5a1f93723f00d927d07769f8b12174d3ff9f73d5e3d"
+
+[[components]]
+id = "caddy"
+role = "caddy-edge"
+artifact = "caddy-image"
+
+[[components]]
+id = "scratch"
+role = "scratch-runtime"
+artifact = "scratch-image"
+
+[[components]]
+id = "bridge"
+role = "websocket-bridge"
+artifact = "bridge-image"
+protocol = "23.2.0"
+
+[[components]]
+id = "wirescope"
+role = "wirescope-app"
+artifact = "wirescope-zip"
+
+[[components]]
+id = "wirescope-manifest"
+role = "wirescope-manifest"
+artifact = "wirescope-manifest"
+
+[[components]]
+id = "minecraft-runtime"
+role = "minecraft-runtime"
+artifact = "minecraft-image"
+
+[[components]]
+id = "paper-server"
+role = "paper-server"
+artifact = "paper-jar"
+minecraft_version = "1.21.11"
+
+[[components]]
+id = "mcremote-paper"
+role = "mcremote-plugin"
+artifact = "mcremote-jar"
+protocol = "23.2.0"
+
+[[artifacts]]
+id = "caddy-image"
+kind = "oci"
+version = "2.11.4-alpine"
+locator = "docker.io/library/caddy"
+digest = "sha256:98eb57d882ccd5213d1688764db10c1ca2c58a1ca3a6717a3411ad798f7a423a"
+
+[[artifacts]]
+id = "scratch-image"
+kind = "oci"
+version = "sha-7fbbf034488760d8fc7e034bf23f3e08e6e1807d"
+locator = "ghcr.io/naohiro2g/mc-remote-scratch"
+digest = "sha256:f44e7a6c1a3b041aba787eba5e052a3ae78ce4ce733732bc7213207a3b17f607"
+
+[[artifacts]]
+id = "bridge-image"
+kind = "oci"
+version = "sha-dc1ab834183e29f2eb03059b07e99d2b463776ee"
+locator = "ghcr.io/naohiro2g/mc-remote-bridge"
+digest = "sha256:5828304c9bb1d60df8672f9189f503790050e09358bd375f39e4d59d190eb84f"
+
+[[artifacts]]
+id = "wirescope-zip"
+kind = "https-file"
+version = "2320.0.0b9"
+filename = "wirescope-app.zip"
+sha256 = "da3da0b6cf4d05265bc0c11abaa4913208c7cfc3600b0c3e78c93a356fc431ad"
+origin = "https://github.com/Naohiro2g/scratch-editor/releases/download/v2320.0.0b9/wirescope-app.zip"
+
+[[artifacts]]
+id = "wirescope-manifest"
+kind = "https-file"
+version = "2320.0.0b9"
+filename = "wirescope-app.manifest.json"
+sha256 = "c654f7d1f0be2773d6737e889279b2587317088717f162b082c82be9cff910d7"
+origin = "https://github.com/Naohiro2g/scratch-editor/releases/download/v2320.0.0b9/wirescope-app.manifest.json"
+
+[[artifacts]]
+id = "minecraft-image"
+kind = "oci"
+version = "2026.7.2-java21"
+locator = "docker.io/itzg/minecraft-server"
+digest = "sha256:7f69fd6688e03495c8a8f5a46e8a8e82001b4465f4b55bdcd024c02c3624d8c8"
+
+[[artifacts]]
+id = "paper-jar"
+kind = "https-file"
+version = "1.21.11-132"
+filename = "paper-1.21.11-132.jar"
+sha256 = "5ffef465eeeb5f2a3c23a24419d97c51afd7dbb4923ff42df9a3f58bba1ccfba"
+origin = "https://fill-data.papermc.io/v1/objects/5ffef465eeeb5f2a3c23a24419d97c51afd7dbb4923ff42df9a3f58bba1ccfba/paper-1.21.11-132.jar"
+
+[[artifacts]]
+id = "mcremote-jar"
+kind = "https-file"
+version = "2320.0.0b9"
+filename = "mc-remote-1.21.11-2320.0.0b9.jar"
+sha256 = "4feb90dbdba8550cd16800cc3d384e42fed16a5c5e20faa489a0381ad2cda58e"
+origin = "https://github.com/Naohiro2g/McRemote/releases/download/v1.21.11-2320.0.0b9/mc-remote-1.21.11-2320.0.0b9.jar"
