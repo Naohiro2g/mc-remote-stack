@@ -519,6 +519,7 @@ def test_bundled_registry_offers_only_current_profiles_and_presets() -> None:
         "home-alpha-full@2",
         "public-web-paper@11",
         "public-web-paper@12",
+        "public-web-paper@13",
     ]
     assert public.data["renderer"] == {"name": "compose", "revision": "13"}
     assert home.data["renderer"] == {"name": "compose", "revision": "14"}
@@ -577,6 +578,58 @@ def test_public_web_paper_11_pins_manifest_published_post2_artifacts() -> None:
     }
 
     verify_preset_catalog()
+
+
+def test_public_web_paper_13_pins_exact_b9_release_artifacts() -> None:
+    preset = load_preset("public-web-paper@13")
+    artifacts = {item["id"]: item for item in preset.data["artifacts"]}
+
+    assert preset.data["preset"]["revision"] == "13"
+    assert preset.data["components"][-1]["protocol"] == "23.2.0"
+    assert artifacts["scratch-image"] == {
+        "id": "scratch-image",
+        "kind": "oci",
+        "version": "sha-7fbbf034488760d8fc7e034bf23f3e08e6e1807d",
+        "locator": "ghcr.io/naohiro2g/mc-remote-scratch",
+        "digest": "sha256:f44e7a6c1a3b041aba787eba5e052a3ae78ce4ce733732bc7213207a3b17f607",
+    }
+    assert artifacts["bridge-image"] == {
+        "id": "bridge-image",
+        "kind": "oci",
+        "version": "sha-dc1ab834183e29f2eb03059b07e99d2b463776ee",
+        "locator": "ghcr.io/naohiro2g/mc-remote-bridge",
+        "digest": "sha256:5828304c9bb1d60df8672f9189f503790050e09358bd375f39e4d59d190eb84f",
+    }
+    assert artifacts["wirescope-zip"]["sha256"] == (
+        "da3da0b6cf4d05265bc0c11abaa4913208c7cfc3600b0c3e78c93a356fc431ad"
+    )
+    assert artifacts["wirescope-manifest"]["sha256"] == (
+        "c654f7d1f0be2773d6737e889279b2587317088717f162b082c82be9cff910d7"
+    )
+    assert artifacts["mcremote-jar"]["sha256"] == (
+        "4feb90dbdba8550cd16800cc3d384e42fed16a5c5e20faa489a0381ad2cda58e"
+    )
+    assert artifacts["paper-jar"] == load_preset("public-web-paper@12").data[
+        "artifacts"
+    ][-2]
+
+    contract = preset.data["scratch_runtime_contract"]
+    assert contract["source_commit"] == "691576f60b7f0824e1753bd6823901d01fbe2422"
+    assert contract["directory_tree_sha"] == (
+        "ecb669a02ac6c8e502b44850e6dd28260c5adad4"
+    )
+    assert contract["image_digest"] == artifacts["scratch-image"]["digest"]
+
+    policy_entry = next(
+        item
+        for item in load_catalog_policy()["presets"]
+        if item["ref"] == "public-web-paper@13"
+    )
+    assert policy_entry == {
+        "ref": "public-web-paper@13",
+        "status": "active",
+        "available_since": "2026-10-06",
+    }
 
 
 def test_lock_schema_internal_references_are_defined() -> None:
