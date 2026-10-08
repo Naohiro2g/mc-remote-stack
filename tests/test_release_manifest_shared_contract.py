@@ -1,4 +1,4 @@
-"""同一commitの66共有caseについて受入・拒否理由・拒否段階を照合する。"""
+"""同一commitの85共有caseについて受入・拒否理由・拒否段階を照合する。"""
 
 import hashlib
 import json
@@ -35,14 +35,14 @@ REASONS = {
 
 
 def test_fixed_schema_fixture_identity_and_legacy_v1_regression_source():
-    assert LOCK["source_commit"] == "fb6880b192a0063241f95c44a5fa6b836f5e7394"
+    assert LOCK["source_commit"] == "5f567f14adaa24603e9dee3c0ec9909d428b7c4b"
     for pin in (LOCK["schema"], LOCK["fixtures"]):
         source = (DATA / pin["path"]).read_bytes()
         assert len(source) == pin["bytes"]
         assert hashlib.sha256(source).hexdigest() == pin["sha256"]
     legacy = FIXTURES["legacy_v1_schema_source"]
     assert hashlib.sha256((DATA / "schemas/release-manifest.schema.json").read_bytes()).hexdigest() == legacy["sha256"]
-    assert len(FIXTURES["cases"]) == 66
+    assert len(FIXTURES["cases"]) == 85
 
 
 @pytest.mark.parametrize("case", FIXTURES["cases"], ids=lambda case: case["id"])

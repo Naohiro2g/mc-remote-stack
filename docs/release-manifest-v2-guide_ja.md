@@ -7,14 +7,14 @@ coordinatorが示したexact tagと必要roleを使い、manifest全体を検査
 ## 契約の固定
 
 v1は既存の`data/schemas/release-manifest.schema.json`で検査します。
-v2はtoolingの`fb6880b192a0063241f95c44a5fa6b836f5e7394`から無変更で収容した
-schemaと66件の共有fixtureを使います。`src/mc_remote_stack/data/release-manifest-lock.json`は
+v2はtoolingの`5f567f14adaa24603e9dee3c0ec9909d428b7c4b`から無変更で収容した
+schemaと85件の共有fixtureを使います。`src/mc_remote_stack/data/release-manifest-lock.json`は
 固定commit、source path、生bytes、SHA-256を持ち、Bridge／WireScopeのlockとは独立しています。
 実行時にremoteを取得せず、schemaの欠落・改変や未知version・fieldを拒否します。
 更新時はtooling担当の発行票でschemaとfixture一組を固定し、共有試験を実行します。
 `--contract-dir`を使う場合も同じ構造のlockとschemaが必要です。
 
-正本は[Knowledgeの確定契約](https://github.com/Naohiro2g/mc-remote-knowledge/blob/6dbb9f1ee192c6c46d8dd58fdd91f8e6c3f46de5/00-hub/release-gate-notes_ja.md)
+正本は[Knowledgeの確定契約](https://github.com/Naohiro2g/mc-remote-knowledge/blob/6a7020d5199a6aa957c5ce43904916f2166a6b95/00-hub/release-gate-notes_ja.md)
 b10「release manifest v2の形」（DEC `2026-10-07-09`）です。
 
 ## Scratchの選択と実ファイルの照合
@@ -66,7 +66,9 @@ gh release download "$MC_REMOTE_TAG" --repo Naohiro2g/McRemote \
 GitHub APIのasset digestとも照合します。Minecraft対応版は`minecraft_compatibility`から読みます。
 全verificationの`record.file`を**同じtagのRelease**から取得してください。recordは`artifacts`へ足しません。
 宣言fileはmanifestの`source_commit`と`declaration.path`を使ってproducer repoから取得し、
-JSONの再serializeをせず生bytesを保存します。`collect`は宣言のdigest・対応集合と、全recordのdigestを照合します。
+JSONの再serializeをせず生bytesを保存します。宣言は`schema`=`mc-remote.minecraft-targets`、`schema_version`=`1`、`minecraft_versions`を持つobjectです。
+未知field、空・重複・型違いの対応版、裸の配列を拒否し、objectとの相互変換は行いません。
+`collect`は宣言のdigest・対応集合と、全recordのdigestを照合します。
 呼び出し側のreaderには宣言pathとsource commitを渡します。CLIでは取得済みfileを指定します。
 
 収集したJARとfoundationを、新規presetのTOMLに固定した後、次を実行します。

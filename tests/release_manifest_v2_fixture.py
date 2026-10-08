@@ -33,7 +33,13 @@ def scratch_v2() -> dict:
 
 
 def minecraft_v2() -> tuple[dict, bytes, dict[str, bytes]]:
-    declaration = json.dumps(["1.21.11", "26.2"]).encode()
+    declaration = json.dumps(
+        {
+            "schema": "mc-remote.minecraft-targets",
+            "schema_version": 1,
+            "minecraft_versions": ["1.21.11", "26.2"],
+        }
+    ).encode()
     assets = {"neutral-name.jar": b"jar", "first.json": b"first record", "second.json": b"second record"}
     document = {
         "schema": "mc-remote.release-manifest",

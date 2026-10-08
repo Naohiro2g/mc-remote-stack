@@ -274,7 +274,13 @@ def test_collection_rejects_digest_mismatch_in_each_external_reference(root, tar
 
 def test_declaration_contents_must_match_manifest(root):
     document, _, assets = minecraft_v2()
-    declaration = b'{"minecraft_versions":["26.3"]}'
+    declaration = json.dumps(
+        {
+            "schema": "mc-remote.minecraft-targets",
+            "schema_version": 1,
+            "minecraft_versions": ["26.3"],
+        }
+    ).encode()
     document["minecraft_compatibility"]["declaration"]["sha256"] = digest(declaration)
     reason(
         "release_manifest_declaration_versions_mismatch",
@@ -395,4 +401,58 @@ def test_malformed_preset_returns_structured_coordinator_diagnostic(root, field)
             paper_build=10,
             java_version="21.0.12.1+1-1-24.04.4-Ubuntu",
         ),
+    )
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda d: ["1.21.11", "26.2"],
+        lambda d: {**d, "extra": 1},
+        lambda d: {**d, "schema": "different"},
+        lambda d: {**d, "schema_version": 2},
+        lambda d: {**d, "schema_version": True},
+        lambda d: {**d, "schema_version": "1"},
+        lambda d: {**d, "minecraft_versions": []},
+        lambda d: {**d, "minecraft_versions": ["26.2", "26.2"]},
+        lambda d: {**d, "minecraft_versions": [""]},
+        lambda d: {**d, "minecraft_versions": [None]},
+        lambda d: {key: value for key, value in d.items() if key != "schema"},
+    ],
+)
+def test_declaration_object_rejects_unknown_shape_and_fields(root, mutate):
+    document, _, assets = minecraft_v2()
+    declaration = json.dumps(
+        mutate(
+            {
+                "schema": "mc-remote.minecraft-targets",
+                "schema_version": 1,
+                "minecraft_versions": ["1.21.11", "26.2"],
+            }
+        )
+    ).encode()
+    document["minecraft_compatibility"]["declaration"]["sha256"] = digest(declaration)
+    reason(
+        "release_manifest_declaration_invalid",
+        lambda: collect_release_artifacts(
+            parse(document, root),
+            [],
+            read_asset=assets.__getitem__,
+            read_declaration=lambda path, commit: declaration,
+        ),
+    )
+
+
+def test_accepts_declaration_object_matching_embedded_raw_bytes(root):
+    document, _, assets = minecraft_v2()
+    declaration = (
+        b'{"schema":"mc-remote.minecraft-targets","schema_version":1,"minecraft_versions":["26.2","1.21.11"]}\n'
+    )
+    document["minecraft_compatibility"]["declaration"]["sha256"] = digest(declaration)
+    collect_release_artifacts(
+        parse(document, root),
+        [],
+        read_asset=assets.__getitem__,
+        read_declaration=lambda path, commit: declaration,
+        jar_declaration=declaration,
     )

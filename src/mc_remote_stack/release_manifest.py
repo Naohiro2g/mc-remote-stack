@@ -284,11 +284,24 @@ def verify_minecraft_compatibility(
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         _fail("release_manifest_declaration_invalid", declaration["path"], str(exc))
     if (
-        not isinstance(contents, list)
-        or any(not isinstance(version, str) for version in contents)
-        or len(contents) != len(set(contents))
-        or set(contents) != set(declaration["minecraft_versions"])
+        not isinstance(contents, dict)
+        or set(contents) != {"schema", "schema_version", "minecraft_versions"}
+        or contents["schema"] != "mc-remote.minecraft-targets"
+        or isinstance(contents["schema_version"], bool)
+        or contents["schema_version"] != 1
     ):
+        _fail("release_manifest_declaration_invalid", declaration["path"], "expected minecraft-targets v1 object")
+    versions = contents["minecraft_versions"]
+    if (
+        not isinstance(versions, list)
+        or not versions
+        or any(not isinstance(version, str) or not version for version in versions)
+        or len(versions) != len(set(versions))
+    ):
+        _fail(
+            "release_manifest_declaration_invalid", declaration["path"], "expected nonempty, unique Minecraft versions"
+        )
+    if set(versions) != set(declaration["minecraft_versions"]):
         _fail("release_manifest_declaration_versions_mismatch", declaration["path"], "declaration versions differ")
     if jar_declaration is not None and jar_declaration != source:
         _fail(
