@@ -1,9 +1,7 @@
 import subprocess
 from pathlib import Path
 
-import pytest
-
-from mc_remote_stack.homepage_sync import HomepageSyncError, sync_homepage
+from mc_remote_stack.homepage_sync import sync_homepage
 
 
 def test_sync_homepage_fetches_main_replaces_public_directory_and_recreates_only_caddy(
@@ -31,7 +29,7 @@ def test_sync_homepage_fetches_main_replaces_public_directory_and_recreates_only
             "deployment": {"name": "official-public-beta"},
             "render_plan": {"adapter_revision": "13"},
             "operator_inputs": [
-                {"role": "public-routes", "semantic": {"homepage": "mc-remote.com"}}
+                {"role": "public-routes", "semantic": {"homepage": "preview.example"}}
             ],
         },
     )
@@ -76,58 +74,6 @@ def test_sync_homepage_fetches_main_replaces_public_directory_and_recreates_only
         "60",
     ]
     assert "minecraft" not in commands[-1][0]
-
-
-@pytest.mark.parametrize(
-    ("renderer_revision", "homepage_domain"),
-    [("14", None), ("13", "other.example")],
-)
-def test_sync_homepage_rejects_other_deployment_before_changing_files(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    renderer_revision: str,
-    homepage_domain: str | None,
-) -> None:
-    project = tmp_path / "project"
-    project.mkdir()
-    artifact_store = tmp_path / "artifacts"
-    monkeypatch.setattr(
-        "mc_remote_stack.homepage_sync.load_order",
-        lambda _project: type(
-            "Loaded", (), {"order": {"runtime": {"artifact_store": str(artifact_store)}}}
-        )(),
-    )
-    monkeypatch.setattr(
-        "mc_remote_stack.homepage_sync.load_lock",
-        lambda *_args, **_kwargs: {
-            "deployment": {"name": "home-trial"},
-            "render_plan": {"adapter_revision": renderer_revision},
-            "operator_inputs": (
-                []
-                if homepage_domain is None
-                else [
-                    {
-                        "role": "public-routes",
-                        "semantic": {"homepage": homepage_domain},
-                    }
-                ]
-            ),
-        },
-    )
-
-    def runner(_command: list[str], _timeout: int) -> subprocess.CompletedProcess[str]:
-        pytest.fail("a non-homepage deployment must fail before cloning or Docker")
-
-    with pytest.raises(HomepageSyncError) as exc_info:
-        sync_homepage(
-            project,
-            project / "generated",
-            data_root=tmp_path,
-            runner=runner,
-        )
-
-    assert exc_info.value.reason == "homepage_target_invalid"
-    assert not (tmp_path / "homepage").exists()
 
 
 def test_homepage_sync_cli_needs_only_the_project(monkeypatch, tmp_path: Path, capsys) -> None:

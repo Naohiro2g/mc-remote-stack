@@ -54,20 +54,6 @@ def sync_homepage(
 
     project_root = project_root.resolve()
     loaded = load_order(project_root)
-    lock = load_lock(project_root, data_root=data_root)
-    homepage_routes = [
-        item for item in lock.get("operator_inputs", []) if item.get("role") == "public-routes"
-    ]
-    if (
-        lock.get("render_plan", {}).get("adapter_revision") != "13"
-        or len(homepage_routes) != 1
-        or homepage_routes[0].get("semantic", {}).get("homepage") != "mc-remote.com"
-    ):
-        raise HomepageSyncError(
-            "homepage_target_invalid",
-            project_root,
-            "the project must serve the official mc-remote.com homepage",
-        )
     artifact_store = Path(loaded.order["runtime"]["artifact_store"]).resolve()
     public_directory = artifact_store.parent / "homepage"
     public_directory.parent.mkdir(parents=True, exist_ok=True)
@@ -112,6 +98,7 @@ def sync_homepage(
     os.rename(staging, public_directory)
 
     render_toml_project(project_root, output, data_root=data_root)
+    lock = load_lock(project_root, data_root=data_root)
     compose = output / "compose.yaml"
     _run(
         runner,
