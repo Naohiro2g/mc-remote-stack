@@ -87,6 +87,18 @@ def test_operator_runbooks_use_plain_mcrctl_and_check_first() -> None:
         assert "fresh-host-bootstrap-guide_ja.md#pathが通っていないとき" in guide
 
 
+def test_homepage_deploy_guide_presents_scratch_notices_before_sync() -> None:
+    guide = (REPO_ROOT / "docs" / "homepage-sync-guide_ja.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert "scratch-notice-guide_ja.md" in guide
+    assert "開発元" in guide
+    assert "運用者" in guide
+    assert "変更なし" in guide
+    assert guide.index("開発元") < guide.index("mcrctl homepage sync")
+
+
 def test_fresh_host_guide_restores_commands_without_reinstalling() -> None:
     guide = (REPO_ROOT / "docs" / "fresh-host-bootstrap-guide_ja.md").read_text(
         encoding="utf-8"

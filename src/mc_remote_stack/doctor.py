@@ -206,7 +206,7 @@ def probe_homepage_public(
         _fail(
             "doctor_homepage_content_mismatch",
             url,
-            "public homepage index does not match the locked static tree",
+            "public homepage index does not match the index in the canonical public directory",
         )
 
 
