@@ -1,0 +1,14 @@
+{
+  "repository": "https://github.com/Naohiro2g/minecraft-remote-tooling",
+  "source_commit": "5f567f14adaa24603e9dee3c0ec9909d428b7c4b",
+  "schema": {
+    "path": "schemas/release-manifest-v2.schema.json",
+    "bytes": 5654,
+    "sha256": "537684f063c5604ccb1e99a69fed51a16a73ef6e88c71ee85a410ab6f5ff5b4c"
+  },
+  "fixtures": {
+    "path": "schemas/fixtures/release-manifest-v2.json",
+    "bytes": 163704,
+    "sha256": "c60f9d8d5542dbdaa9c7c78492a2b65257c0f9ccee9968c5519ebbba44dd2b70"
+  }
+}

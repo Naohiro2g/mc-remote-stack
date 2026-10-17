@@ -49,6 +49,7 @@ where = ["src"]
 [tool.setuptools.package-data]
 mc_remote_stack = [
     "data/*.toml",
+    "data/release-manifest-lock.json",
     "data/profiles/*/*/*.toml",
     "data/preset_registry/*/*/*.toml",
     "data/compatibility/records/*.toml",
@@ -57,4 +58,7 @@ mc_remote_stack = [
     "data/scratch-contracts/*/fixtures/*.json",
     "data/scratch-contracts/*/fixtures/invalid/*.json",
     "data/schemas/*.json",
+    "data/schemas/fixtures/*.json",
+    "data/schemas/TOOLING-LICENSE",
+    "data/schemas/RELEASE-MANIFEST-NOTICE_ja.md",
 ]

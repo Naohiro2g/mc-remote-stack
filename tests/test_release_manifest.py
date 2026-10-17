@@ -137,7 +137,7 @@ def test_rejects_malformed_json() -> None:
     [
         lambda doc: doc.pop("schema"),
         lambda doc: doc.update(schema="something-else"),
-        lambda doc: doc.update(schema_version=2),
+        lambda doc: doc.update(schema_version=3),
         lambda doc: doc["artifacts"][0].pop("kind"),
         lambda doc: doc.update(artifacts=[]),
     ],

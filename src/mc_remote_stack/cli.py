@@ -5,6 +5,7 @@ import ftplib
 import getpass
 import json
 import os
+import tomllib
 import zipfile
 from importlib.resources import files
 from pathlib import Path
@@ -53,7 +54,13 @@ from .preset_registry import (
     load_preset_catalog,
     load_profile,
 )
-from .release_manifest import ReleaseManifestError, parse_release_manifest
+from .release_manifest import (
+    ReleaseManifestError,
+    collect_release_artifacts,
+    parse_release_manifest,
+    select_release_artifact,
+    verify_preset_minecraft,
+)
 from .render import RenderContractError, render_toml_project
 from .repo_check import Issue, check_repository
 from .resolver import ResolutionError, inspect_lock, load_lock, resolve_project
@@ -145,16 +152,29 @@ def _print_preset_summary(entry: dict) -> None:
     )
 
 
-def _cmd_release_manifest_verify(args: argparse.Namespace) -> int:
+def _read_release_manifest(args: argparse.Namespace) -> dict:
     path = Path(args.path)
     try:
         source = path.read_bytes()
     except OSError as exc:
-        return _print_reason_failure(
-            "release-manifest verify", "release_manifest_read_failed", path, str(exc)
-        )
+        raise ReleaseManifestError("release_manifest_read_failed", str(path), str(exc)) from exc
+    contract_dir = Path(args.contract_dir) if args.contract_dir else None
+    return parse_release_manifest(source, path=path, data_root=contract_dir)
+
+
+def _print_release_artifact(artifact: dict, *, prefix: str = "ARTIFACT") -> None:
+    identity = (
+        f"locator={artifact['locator']} digest={artifact['digest']}"
+        if artifact["kind"] == "oci"
+        else f"file={artifact['file']} sha256={artifact['sha256']}"
+    )
+    extra = "".join(f" {key}={artifact[key]}" for key in ("bytes", "os", "arch") if key in artifact)
+    print(f"{prefix} role={artifact['role']} kind={artifact['kind']} {identity}{extra}")
+
+
+def _cmd_release_manifest_verify(args: argparse.Namespace) -> int:
     try:
-        manifest = parse_release_manifest(source, path=path)
+        manifest = _read_release_manifest(args)
     except ReleaseManifestError as exc:
         return _print_structured_failure("release-manifest verify", exc)
     print(
@@ -162,21 +182,85 @@ def _cmd_release_manifest_verify(args: argparse.Namespace) -> int:
         f"source_commit={manifest['source_commit']}"
     )
     if "bundled_wirescope_source_commit" in manifest:
-        print(
-            "RELEASE-MANIFEST bundled_wirescope_source_commit="
-            + manifest["bundled_wirescope_source_commit"]
-        )
+        print("RELEASE-MANIFEST bundled_wirescope_source_commit=" + manifest["bundled_wirescope_source_commit"])
     for artifact in manifest["artifacts"]:
-        if artifact["kind"] == "oci":
-            print(
-                f"ARTIFACT role={artifact['role']} kind=oci "
-                f"locator={artifact['locator']} digest={artifact['digest']}"
+        _print_release_artifact(artifact)
+    if manifest["schema_version"] == 2:
+        print("VALIDATION schema_version=2 scope=document external-digests=unchecked")
+    compatibility = manifest.get("minecraft_compatibility")
+    if compatibility is not None:
+        declaration = compatibility["declaration"]
+        print(
+            f"MINECRAFT-DECLARATION path={declaration['path']} sha256={declaration['sha256']} "
+            f"minecraft_versions={','.join(declaration['minecraft_versions'])}"
+        )
+        for verification in compatibility["verifications"]:
+            fields = " ".join(f"{key}={verification[key]}" for key in (
+                "minecraft_version", "paper_build", "server_sha256", "java_version", "jar_sha256", "result",
+            ))
+            record = verification["record"]
+            print(f"MINECRAFT-VERIFICATION {fields} record={record['file']} record_sha256={record['sha256']}")
+    return 0
+
+
+def _cmd_release_manifest_select(args: argparse.Namespace) -> int:
+    try:
+        manifest = _read_release_manifest(args)
+        artifact = select_release_artifact(manifest, args.role, kind=args.kind, os=args.os, arch=args.arch)
+    except ReleaseManifestError as exc:
+        return _print_structured_failure("release-manifest select", exc)
+    print(json.dumps(artifact, ensure_ascii=False, sort_keys=True))
+    return 0
+
+
+def _cmd_release_manifest_collect(args: argparse.Namespace) -> int:
+    try:
+        manifest = _read_release_manifest(args)
+        selections = []
+        for value in args.artifact:
+            parts = value.split(":")
+            if len(parts) not in (2, 4) or parts[1] not in ("oci", "https-file"):
+                raise ReleaseManifestError("release_manifest_selection_invalid", value, "use ROLE:KIND[:OS:ARCH]")
+            selections.append((*parts, None, None) if len(parts) == 2 else tuple(parts))
+        foundation = None
+        needs_preset = manifest["schema_version"] == 2 and any(item[0] == "jar" for item in selections)
+        if needs_preset or args.preset_file:
+            if not args.preset_file or args.paper_build is None or not args.java_version:
+                raise ReleaseManifestError(
+                    "release_manifest_foundation_unverified", "preset",
+                    "explicit preset, measured Paper build and Java runtime required; return to gate coordinator",
+                )
+            try:
+                preset = tomllib.loads(Path(args.preset_file).read_text(encoding="utf-8"))
+            except (OSError, UnicodeError, tomllib.TOMLDecodeError) as exc:
+                raise ReleaseManifestError("release_manifest_preset_read_failed", args.preset_file, str(exc)) from exc
+            foundation = verify_preset_minecraft(
+                manifest, preset, paper_build=args.paper_build, java_version=args.java_version,
             )
-        else:
-            print(
-                f"ARTIFACT role={artifact['role']} kind=https-file "
-                f"file={artifact['file']} sha256={artifact['sha256']}"
-            )
+
+        def read_asset(name: str) -> bytes:
+            if not args.asset_dir:
+                raise ReleaseManifestError(
+                    "release_manifest_asset_dir_required", name, "provide downloaded Release assets",
+                )
+            return (Path(args.asset_dir) / name).read_bytes()
+
+        def read_declaration(path: str, commit: str) -> bytes:
+            return Path(args.declaration_file).read_bytes()
+
+        selected = collect_release_artifacts(
+            manifest, selections, read_asset=read_asset,
+            read_declaration=read_declaration if args.declaration_file else None,
+        )
+    except ReleaseManifestError as exc:
+        return _print_structured_failure("release-manifest collect", exc)
+    for artifact in selected:
+        _print_release_artifact(artifact, prefix="COLLECTION")
+    if manifest.get("minecraft_compatibility"):
+        versions = manifest["minecraft_compatibility"]["declaration"]["minecraft_versions"]
+        print(f"MINECRAFT-COMPATIBILITY minecraft_versions={','.join(versions)} external-digests=matched")
+    if foundation is not None:
+        print(f"MINECRAFT-PRESET minecraft_version={foundation['minecraft_version']} foundation=matched")
     return 0
 
 
@@ -1407,6 +1491,34 @@ def build_parser() -> argparse.ArgumentParser:
     )
     release_manifest_verify_parser.add_argument("path")
     release_manifest_verify_parser.set_defaults(handler=_cmd_release_manifest_verify)
+    release_manifest_select_parser = release_manifest_subparsers.add_parser(
+        "select", help="select one artifact by role, expected kind and explicit variant; emit JSON",
+    )
+    release_manifest_select_parser.add_argument("path")
+    release_manifest_select_parser.add_argument("role")
+    release_manifest_select_parser.add_argument("--kind", required=True, choices=("oci", "https-file"))
+    release_manifest_select_parser.add_argument("--os", choices=("windows", "macos", "linux"))
+    release_manifest_select_parser.add_argument("--arch", choices=("x64", "arm64"))
+    release_manifest_select_parser.set_defaults(handler=_cmd_release_manifest_select)
+    release_manifest_collect_parser = release_manifest_subparsers.add_parser(
+        "collect", help="check selected downloaded artifacts, all compatibility references and preset foundation",
+    )
+    release_manifest_collect_parser.add_argument("path")
+    release_manifest_collect_parser.add_argument(
+        "--artifact", action="append", required=True, metavar="ROLE:KIND[:OS:ARCH]",
+    )
+    release_manifest_collect_parser.add_argument("--asset-dir")
+    release_manifest_collect_parser.add_argument("--declaration-file")
+    release_manifest_collect_parser.add_argument("--preset-file")
+    release_manifest_collect_parser.add_argument("--paper-build", type=int)
+    release_manifest_collect_parser.add_argument("--java-version")
+    release_manifest_collect_parser.set_defaults(handler=_cmd_release_manifest_collect)
+    for manifest_subparser in (
+        release_manifest_verify_parser, release_manifest_select_parser, release_manifest_collect_parser,
+    ):
+        manifest_subparser.add_argument(
+            "--contract-dir", help="offline directory with release-manifest-lock.json and pinned schemas",
+        )
 
     resolve_parser = subparsers.add_parser("resolve", help="resolve one TOML deployment project")
     _add_project_argument(resolve_parser)

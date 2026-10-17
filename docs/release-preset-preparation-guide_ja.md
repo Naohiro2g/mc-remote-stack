@@ -2,6 +2,10 @@
 
 このrunbookは収集経路（release tagから一組のimmutable presetを作るところまで）を扱う。ケータリング（`mc-remote.toml`への記入）とデプロイ（`mcrctl deployment update`実行）は`public-vps-bootstrap-guide_ja.md`が扱う。完成したexact preset refをそちらへ渡す。
 
+v2のmanifestでは、配布物を取得する前に[Release manifest v2の収集・照合](release-manifest-v2-guide_ja.md)を使います。
+`select`でrole・期待kind・明示OS／archを確定し、`collect`でbytesとSHA、Minecraftの宣言・全record・preset構成を照合します。
+以下の収集例は既存v1向けです。v2で構成がverificationと違う場合はcoordinatorへ返します。
+
 ## 1. release tagを一組にする
 
 Stack担当が受け取る正式な入力は、確定済みrelease gateが示す各componentのexact release tagだけである。ユーザーの「b7」のようなrelease nameは、release gateが示すexact tagへ対応させる。tag以外の値（commit、digest、schema内容）を会話やhandoffテキストから個別に受け取らず、必ずmanifestが示すidentityまたはprovider APIから取得した実物のidentityを使う。
@@ -125,7 +129,7 @@ topologyが使うPaperは公式Paper配布URLから取得し、McRemote assetと
 収集表は次の列を一組にする。
 
 ```text
-role | kind | version/tag | source commit | official locator | exact digest | verification
+role | kind | os/arch | bytes | version/tag | source commit | official locator | exact digest | compatibility/verification
 ```
 
 ## 5. git-build artifactを例外経路として固定する（新規presetでは選ばない）
