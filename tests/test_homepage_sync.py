@@ -25,7 +25,13 @@ def test_sync_homepage_fetches_main_replaces_public_directory_and_recreates_only
     )
     monkeypatch.setattr(
         "mc_remote_stack.homepage_sync.load_lock",
-        lambda *_args, **_kwargs: {"deployment": {"name": "official-public-beta"}},
+        lambda *_args, **_kwargs: {
+            "deployment": {"name": "official-public-beta"},
+            "render_plan": {"adapter_revision": "13"},
+            "operator_inputs": [
+                {"role": "public-routes", "semantic": {"homepage": "preview.example"}}
+            ],
+        },
     )
     monkeypatch.setattr(
         "mc_remote_stack.homepage_sync.render_toml_project",

@@ -592,6 +592,35 @@ def test_doctor_checks_exact_public_homepage_index(
     assert received["request"].full_url == "https://mc-remote.example/"
 
 
+def test_doctor_reports_live_homepage_index_mismatch_without_claiming_a_lock(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Response:
+        def __enter__(self) -> "Response":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def read(self, _size: int) -> bytes:
+            return b"different public index"
+
+    monkeypatch.setattr(
+        "mc_remote_stack.doctor.urlopen", lambda _request, timeout: Response()
+    )
+
+    with pytest.raises(DoctorContractError) as exc_info:
+        probe_homepage_public(
+            "https://mc-remote.example/",
+            expected_index_sha256=hashlib.sha256(b"local live index").hexdigest(),
+            timeout=5,
+        )
+
+    assert exc_info.value.reason == "doctor_homepage_content_mismatch"
+    assert "canonical public directory" in str(exc_info.value)
+    assert "locked" not in str(exc_info.value)
+
+
 def test_doctor_checks_cross_origin_wirescope_headers_and_exact_index(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

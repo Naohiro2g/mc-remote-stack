@@ -1,29 +1,10 @@
-# ホームページを更新する
+# ホームページをデプロイする
 
-公開VPSが配信するホームページの正本は、[mc-remote-knowledge](https://github.com/Naohiro2g/mc-remote-knowledge)の`30-広告宣伝/homepage/`です。「ホームページを更新して」という依頼では、ScratchのAPIページも確認し、必要な取り込みを済ませてから配信を更新します。
+公開VPSが配信するホームページの正本は、[mc-remote-knowledge](https://github.com/Naohiro2g/mc-remote-knowledge)の`30-広告宣伝/homepage/`です。「ホームページを更新して」は[Scratch APIページの確認・取り込み](scratch-api-page-intake-guide_ja.md)も含みます。コンテンツをknowledgeの`main`へ反映した後の「デプロイして」は、以下の配信手順です。
 
-## 1. ScratchのAPIページを確認して正本へ取り込む
+## 1. 配信対象を確認する
 
-生成済みページの所有者は[scratch-editor](https://github.com/Naohiro2g/scratch-editor)です。更新担当は、次の入力と出力を確認します。
-
-| 対象 | path |
-| --- | --- |
-| Scratch側の生成済みページ | `mc-remote/block-reference/site/` |
-| ホームページ正本への取り込み先 | knowledgeの`30-広告宣伝/homepage/api/scratch/` |
-| 公開URL | `https://mc-remote.com/api/scratch/` |
-
-1. Scratchの生成済みページを取得し、取得元のcommitを記録します。取得には対象commitのGitHub archiveまたは使い捨てのread-only cloneを使います。利用者の作業中checkoutは変更しません。
-2. `blocks.json`の`release`、`sourceRef`、`sourceCommit`を確認し、公開済みreleaseのtag targetと一致することをGitHub APIまたはGitで確かめます。ページを取得したcommitと、ページが説明するreleaseの`sourceCommit`は区別して記録します。
-3. `index.html`、`blocks.json`、`page.js`、`style.css`、`images/`を含むdirectory全体を、knowledge側のホームページ正本と比較します。差分があればknowledge側の作業として`api/scratch/`を置き換え、追加・削除も反映します。ほかのホームページ内容と合わせて`main`へ反映し、リモートへの反映を確認します。差分がなければ、同じ内容であることを記録して次へ進みます。
-4. 取り込み先のfile集合と各fileのbytes／SHA-256が生成元に一致し、ページが参照する画像・JS・CSSが揃っていることを確かめます。
-
-この作業では生成済みのページを取り込みます。ブロック画像の再生成は[Scratch側の生成手順](https://github.com/Naohiro2g/scratch-editor/blob/develop/mc-remote/block-reference/README.md)に従う別作業です。必要な公開版の生成物がない場合や、metadataが公開releaseと一致しない場合は、その不足を更新結果へ記載します。candidateのページを公開版として取り込みません。
-
-取り込みのためのknowledge側の編集は、knowledge担当が所有する作業環境で行います。SSOT参照に使ったread-only cloneを編集・push用へ転用しません。
-
-## 2. hostを確認して配信を更新する
-
-コマンドは対象hostで、deployment projectのdirectoryに入って実行します。最初に環境を確かめます。
+公式の対象hostとdeployment projectは、非公開の運用記録にある現行公開環境と今回の引継ぎで確かめます。過去のdeployment名から推測しません。対象hostでprojectのdirectoryに入ります。
 
 ```sh
 cd "$HOME/mc-remote-deployments/<deployment名>"
@@ -32,17 +13,23 @@ mcrctl operator check
 
 `mcrctl`が見つからない場合は、[PATHが通っていないとき](fresh-host-bootstrap-guide_ja.md#pathが通っていないとき)で戻します。
 
-Scratchページの取り込みを含む変更がknowledgeの`main`へ反映されたら、次を実行します。
+「ホームページを更新して」という全体更新では、公開中の`https://<Scratchのhostname>/mc-remote-product-config.json`にある**開発元のお知らせ**と、対象projectの`operator/connection-targets/targets.toml`にある**前回の運用者のお知らせ**を、見出し・本文・リンク先とともに提示し、更新の要否を決めます。確認した公開URLと、実ファイルがあればクリックできるファイルリンクも添えます。「お知らせ更新なし」が既に決まっている場合は再確認しません。「デプロイして」だけの依頼では、この確認を省略します。
+
+お知らせを変える場合や**お知らせだけを更新する場合**は[Scratchのお知らせ編集手順](scratch-notice-guide_ja.md)に従います。`homepage sync`はお知らせを変更しません。
+
+## 2. 配信する
+
+knowledgeの`main`へ今回のコンテンツが反映されたら実行します。
 
 ```sh
 mcrctl homepage sync
 mcrctl doctor
 ```
 
-`homepage sync`は、knowledgeの`main`を一時的にshallow cloneし、配信用directoryを丸ごと入れ替えてから、Caddyだけを作り直します。Minecraft、Scratch、Bridgeは止まりません。deployment lockは変わりません。
+`homepage sync`はknowledgeの`main`を一時的にshallow cloneし、配信用directoryを丸ごと入れ替えてからCaddyだけを作り直します。Minecraft、Scratch、Bridgeは止まりません。deployment lockは変わりません。`homepage sync`がFAILなら同じコマンドを一度だけ再実行します。再度FAILなら、出力をそのまま報告して止めます。
 
 ## 3. 公開結果を確認する
 
-`doctor`の成功に加えて、公開HTTPSの`/api/scratch/`、一覧データ、JS・CSS・画像が取得でき、反映したknowledgeの正本と一致することを確認します。更新結果には、Scratchページの取得commitと対象release、反映したknowledge commit、取り込み差分の有無、公開確認の結果を残します。privateなhost・deployment・実施記録はprivate opsへ残します。
+`doctor`が`OK doctor homepage=current`を表示し、今回変更した公開URLに反映されたら配信完了です。`doctor`がFAILなら出力を報告して止めます。Scratch APIページを取り込んだ場合は、`/api/scratch/`の一覧データ、JS・CSS・画像も確認します。結果には反映したknowledge commitと公開確認を残します。Scratchページを取り込んだ場合は取得commit・対象release・差分の有無も残します。非公開の実施記録はprivate opsへ残します。
 
-配信内容を戻したいときは、knowledge側でrevertしてから、もう一度`homepage sync`を実行します。
+配信内容を戻す場合は、knowledge側でrevertしてから、もう一度`homepage sync`を実行します。
