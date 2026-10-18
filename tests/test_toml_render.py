@@ -725,3 +725,45 @@ def test_public_renderer_rejects_missing_peripheral_plugin(tmp_path: Path) -> No
         render_module._compose_public(lock)
 
     assert exc_info.value.reason == "runtime_content_missing"
+
+
+def test_compose_v15_serves_release_candidates_beside_the_homepage(tmp_path: Path) -> None:
+    fixture = build_vps_fixture(tmp_path, profile="vps-server@13")
+
+    render_toml_project(fixture.project, fixture.output, data_root=fixture.data_root)
+
+    caddyfile = (fixture.output / "Caddyfile").read_text(encoding="utf-8")
+    homepage_site = caddyfile.split("\n}\n", 1)[0]
+    candidates = homepage_site.split("handle_path /candidates/* {", 1)[1].split(
+        "\n    }\n", 1
+    )[0]
+    assert "root * /srv/candidates" in candidates
+    assert 'X-Robots-Tag "noindex, nofollow"' in candidates
+    assert "encode" not in candidates
+    assert "browse" not in candidates
+    for extension, media_type in {
+        "zip": "application/zip",
+        "jar": "application/java-archive",
+        "whl": "application/zip",
+    }.items():
+        assert f"@{extension} path *.{extension}" in candidates
+        assert f'header @{extension} Content-Type "{media_type}"' in candidates
+    assert "encode zstd gzip" in homepage_site.split("handle {", 1)[1]
+    compose = yaml.safe_load((fixture.output / "compose.yaml").read_text(encoding="utf-8"))
+    assert {
+        "type": "bind",
+        "source": str((fixture.artifact_store.parent / "candidates").resolve()),
+        "target": "/srv/candidates",
+        "read_only": True,
+    } in compose["services"]["caddy"]["volumes"]
+
+
+def test_compose_v15_requires_the_operator_candidate_directory(tmp_path: Path) -> None:
+    fixture = build_vps_fixture(tmp_path, profile="vps-server@13")
+    (fixture.artifact_store.parent / "candidates").rmdir()
+
+    with pytest.raises(RenderContractError) as exc_info:
+        render_toml_project(fixture.project, fixture.output, data_root=fixture.data_root)
+
+    assert exc_info.value.reason == "runtime_content_missing"
+    assert not fixture.output.exists()

@@ -1,4 +1,5 @@
-"""Test-owned public VPS deployment fixture for vps-server@12 / compose@13.
+"""Test-owned public VPS deployment fixture for vps-server@12 / compose@13 and
+vps-server@13 / compose@15.
 
 Mechanism tests (render, apply, doctor, world restore, artifact fetch) build on
 this fixture instead of copying product presets, so adding or retiring a
@@ -298,15 +299,16 @@ def build_vps_fixture(
     *,
     identity: str = "official-vps",
     mcremote_artifact: str | None = None,
+    profile: str = PROFILE,
 ) -> VpsFixture:
-    """Create one resolved vps-server@12 project with test-owned artifacts.
+    """Create one resolved public VPS project with test-owned artifacts.
 
     ``mcremote_artifact`` replaces the McRemote artifact record, for example with a
     reviewed git-build record.
     """
 
     data_root = _data_root(tmp_path, "vps-data")
-    profile_name, profile_revision = PROFILE.split("@")
+    profile_name, profile_revision = profile.split("@")
     profile_path = data_root / "profiles" / profile_name / profile_revision / "profile.toml"
     profile_path.parent.mkdir(parents=True)
     profile_path.write_text(
@@ -343,11 +345,13 @@ def build_vps_fixture(
     live_homepage = artifact_store.parent / "homepage"
     live_homepage.mkdir()
     (live_homepage / "index.html").write_text("homepage fixture\n", encoding="utf-8")
+    # The release-candidate directory the operator fills beside the store.
+    (artifact_store.parent / "candidates").mkdir()
 
     project = init_toml_project(
         tmp_path / identity,
         deployment_name=identity,
-        profile=PROFILE,
+        profile=profile,
         environment_identity=identity,
         channel="beta",
         exposure="public",

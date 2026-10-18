@@ -74,6 +74,7 @@ cp -a "$SOURCE_PROJECT/operator" "$NEXT_PROJECT/operator"
 | Minecraft設定／connection targets／notice | 今回の利用条件に合う内容 |
 | plugin入力 | 引き継ぐJARのfilename、origin、SHA-256。周辺pluginの更新は必要なものを選ぶ |
 | backup入力 | 次セット専用の、存在するhost directory |
+| リリース候補の置き場所 | `vps-server@13`以降は、artifact storeの一つ上の`candidates`ディレクトリが要る。無ければ[リリース候補を配る](release-candidate-downloads-guide_ja.md)の手順で作る |
 
 noticeは[Scratchのお知らせ編集手順](scratch-notice-guide_ja.md)で一時ファイルを編集し、まだ稼働していない次セットの入力へ収容します。運用者noticeと製品noticeの表示を合わせて確認します。画面での確認は切替後です。
 

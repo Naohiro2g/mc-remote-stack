@@ -80,6 +80,7 @@ def test_operator_runbooks_use_plain_mcrctl_and_check_first() -> None:
         "docs/public-vps-bootstrap-guide_ja.md",
         "docs/homepage-sync-guide_ja.md",
         "docs/backup-and-restore-guide_ja.md",
+        "docs/release-candidate-downloads-guide_ja.md",
     ):
         guide = (REPO_ROOT / relative_path).read_text(encoding="utf-8")
         commands = re.findall(r"(?m)^mcrctl [a-z-]+(?: [a-z-]+)?", guide)
@@ -177,6 +178,7 @@ def test_readme_leads_to_the_current_procedures() -> None:
         "docs/public-vps-bootstrap-guide_ja.md",
         "docs/homepage-sync-guide_ja.md",
         "docs/backup-and-restore-guide_ja.md",
+        "docs/release-candidate-downloads-guide_ja.md",
     ):
         assert f"]({page})" in readme
 

@@ -140,6 +140,40 @@ def test_doctor_validates_all_canonical_composition_mounts(tmp_path: Path) -> No
     assert exc_info.value.reason == "doctor_composition_mount_mismatch"
 
 
+def test_doctor_requires_the_read_only_candidate_mount_on_compose_v15(
+    tmp_path: Path,
+) -> None:
+    store = tmp_path / "artifacts"
+    lock = {
+        "runtime": {"artifact_store": str(store)},
+        "render_plan": {
+            "adapter_revision": "15",
+            "required_security_controls": ["exact-peripheral-plugin-set"],
+        },
+    }
+    homepage = {
+        "Type": "bind",
+        "Source": str(store.parent / "homepage"),
+        "Destination": "/srv/homepage",
+        "RW": False,
+    }
+    candidates = {
+        "Type": "bind",
+        "Source": str(store.parent / "candidates"),
+        "Destination": "/srv/candidates",
+        "RW": False,
+    }
+
+    _validate_canonical_composition_mounts(
+        {"Mounts": [homepage, candidates]}, lock, service="caddy"
+    )
+    for mounts in ([homepage], [homepage, {**candidates, "RW": True}]):
+        with pytest.raises(DoctorContractError) as exc_info:
+            _validate_canonical_composition_mounts({"Mounts": mounts}, lock, service="caddy")
+        assert exc_info.value.reason == "doctor_composition_mount_mismatch"
+        assert exc_info.value.path == "/srv/candidates"
+
+
 def _managed_container(
     lock: dict,
     output: Path,

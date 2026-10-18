@@ -1,7 +1,7 @@
-"""Pin the exact files the public VPS profile renders.
+"""Pin the exact files the public VPS profiles render.
 
-Any change to what a vps-server@12 deployment receives must show up here as a
-deliberate golden update. Regenerate with:
+Any change to what a vps-server@12 or vps-server@13 deployment receives must
+show up here as a deliberate golden update. Regenerate with:
 
     MCRCTL_UPDATE_GOLDEN=1 uv run pytest tests/test_vps_render_golden.py
 """
@@ -10,12 +10,14 @@ import json
 import os
 from pathlib import Path
 
+import pytest
+
 from mc_remote_stack.render import render_toml_project
 from mc_remote_stack.resolver import load_lock
 
 from .vps_fixture import build_vps_fixture
 
-GOLDEN = Path(__file__).parent / "golden" / "vps-server-12-render.json"
+GOLDEN_DIRECTORY = Path(__file__).parent / "golden"
 
 
 def _normalized_output(tmp_path: Path, output: Path, lock_identity: str) -> dict[str, str]:
@@ -33,17 +35,19 @@ def _normalized_output(tmp_path: Path, output: Path, lock_identity: str) -> dict
     return rendered
 
 
-def test_vps_server_12_render_matches_golden(tmp_path: Path) -> None:
-    fixture = build_vps_fixture(tmp_path)
+@pytest.mark.parametrize("profile", ["vps-server@12", "vps-server@13"])
+def test_vps_server_render_matches_golden(tmp_path: Path, profile: str) -> None:
+    golden = GOLDEN_DIRECTORY / f"{profile.replace('@', '-')}-render.json"
+    fixture = build_vps_fixture(tmp_path, profile=profile)
     render_toml_project(fixture.project, fixture.output, data_root=fixture.data_root)
     lock_identity = load_lock(fixture.project, data_root=fixture.data_root)["lock_identity"]
 
     actual = _normalized_output(tmp_path, fixture.output, lock_identity)
 
     if os.environ.get("MCRCTL_UPDATE_GOLDEN") == "1":
-        GOLDEN.parent.mkdir(exist_ok=True)
-        GOLDEN.write_text(
+        golden.parent.mkdir(exist_ok=True)
+        golden.write_text(
             json.dumps(actual, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
         )
-    assert actual == json.loads(GOLDEN.read_text(encoding="utf-8"))
+    assert actual == json.loads(golden.read_text(encoding="utf-8"))
