@@ -1,6 +1,6 @@
 # リリース候補を配る
 
-凍結したリリース候補を、公開VPSの`https://<ホームページのhostname>/candidates/<版>/<set>/`に置いて、試験する人がブラウザで取れるようにする手順です。リリースの後に消します。
+凍結したリリース候補を、公開VPSの`https://<ホームページのhostname>/candidates/<版>/set-<N>/`に置いて、試験する人がブラウザで取れるようにする手順です。`<N>`は凍結のsetの番号です（rc1の`rc1-integrated-artifact-set-1`は`/candidates/2321.0.0rc1/set-1/`）。リリースの後に消します。
 
 この経路は、profile `vps-server@13`以降の公開VPSの設定にあります。Caddyは`/candidates/`の下を、ホームページとは別のディレクトリから読み取り専用で配ります。`X-Robots-Tag: noindex, nofollow`を付け、再圧縮せず、Rangeに応え、ディレクトリの一覧を出しません。`.zip`と`.whl`は`application/zip`、`.jar`は`application/java-archive`で返します。どこからもリンクしません。
 
@@ -46,19 +46,19 @@ mcrctl doctor
 ```sh
 cd "<照合済みファイルのdirectory>"
 sha256sum -c SHA256SUMS
-rsync --partial --mkpath --chmod=D755,F644 -av ./ "<SSH接続先>:<CANDIDATESのpath>/<版>/<set>/"
+rsync --partial --mkpath --chmod=D755,F644 -av ./ "<SSH接続先>:<CANDIDATESのpath>/<版>/set-<N>/"
 ```
 
 対象hostで照合します。
 
 ```sh
-cd "$CANDIDATES/<版>/<set>"
+cd "$CANDIDATES/<版>/set-<N>"
 sha256sum -c SHA256SUMS
 ```
 
 すべて`OK`なら配置は完了です。置いたURLと`sha256sum -c`の結果を返します。外からの照合は、配布を頼んだ側が行います。`rsync`が途中で切れたら、同じコマンドをもう一度実行すると続きから送ります。照合が`FAILED`なら、そのファイルを消し、出力をそのまま報告して止めます。
 
-試験で候補を作り直した場合は、新しい`<set>`（例：`set-2`）に置きます。同じURLの中身は差し替えません。
+試験で候補を作り直した場合は、新しい凍結のsetの番号の`set-<N>`（例：`set-2`）に置きます。同じURLの中身は差し替えません。
 
 ## 4. リリースの後に消す
 
