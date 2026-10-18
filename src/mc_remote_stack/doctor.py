@@ -635,6 +635,23 @@ def _validate_canonical_composition_mounts(
                 "/srv/homepage",
                 "live homepage directory differs from the canonical public directory",
             )
+        if lock["render_plan"].get("adapter_revision") == "15":
+            expected = artifact_store.parent / "candidates"
+            matching = [
+                mount for mount in mounts if mount.get("Destination") == "/srv/candidates"
+            ]
+            if (
+                len(matching) != 1
+                or matching[0].get("Type") != "bind"
+                or matching[0].get("RW") is not False
+                or not isinstance(matching[0].get("Source"), str)
+                or Path(matching[0]["Source"]).resolve() != expected
+            ):
+                _fail(
+                    "doctor_composition_mount_mismatch",
+                    "/srv/candidates",
+                    "live release-candidate directory differs from the canonical one",
+                )
 
 
 def _validate_container(
@@ -714,7 +731,7 @@ def _validate_container(
             ],
         }
         renderer_revision = lock["render_plan"]["adapter_revision"]
-        if renderer_revision in {"13", "14"}:
+        if renderer_revision in {"13", "14", "15"}:
             expected_ports["25565/udp"] = [
                 {
                     "HostIp": address,

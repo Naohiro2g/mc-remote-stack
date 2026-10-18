@@ -48,6 +48,7 @@ release待ちの間に、別のセットを用意する場合は[公開VPSの構
 - [Scratchのお知らせを編集する](docs/scratch-notice-guide_ja.md)（配備前の編集と適用後の表示確認）
 - [ホームページを更新する](docs/homepage-sync-guide_ja.md)
 - [backupを転送する・復元する](docs/backup-and-restore-guide_ja.md)
+- [リリース候補を配る](docs/release-candidate-downloads-guide_ja.md)（試験の間だけ`/candidates/`に置く）
 
 ホームで b7.post2 の新セットを用意する場合は、[ホーム用ケータリング手順](docs/home-catering-guide_ja.md)へ進みます。起動前に設定を生成して確認する段階から説明しています。
 
