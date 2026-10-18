@@ -26,10 +26,12 @@ PLUGIN_SHA256 = hashlib.sha256(PLUGIN_BYTES).hexdigest()
 OCI_DIGEST = f"sha256:{11:064x}"
 
 
-def _render_fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
+def _render_fixture(
+    tmp_path: Path, *, profile: str = "vps-server@12"
+) -> tuple[Path, Path, Path]:
     """Resolved public VPS project, data root, and artifact store."""
 
-    fixture = build_vps_fixture(tmp_path)
+    fixture = build_vps_fixture(tmp_path, profile=profile)
     return fixture.project, fixture.data_root, fixture.artifact_store
 
 
@@ -780,3 +782,26 @@ def test_compose_v15_second_render_over_managed_output_is_noop(tmp_path: Path) -
     assert _tree_bytes(fixture.output) == before
     manifest = json.loads((fixture.output / "render-manifest.json").read_text(encoding="utf-8"))
     assert manifest["adapter_revision"] == "15"
+
+
+def test_public_render_moves_between_compose_v13_and_v15_in_one_output(
+    tmp_path: Path,
+) -> None:
+    """The in-place update renders forward, and its rollback renders back."""
+
+    (tmp_path / "source").mkdir()
+    (tmp_path / "target").mkdir()
+    source = build_vps_fixture(tmp_path / "source")
+    target = build_vps_fixture(tmp_path / "target", profile="vps-server@13")
+    output = tmp_path / "generated"
+
+    def render(fixture) -> tuple[str, str]:
+        result = render_toml_project(fixture.project, output, data_root=fixture.data_root)
+        manifest = json.loads((output / "render-manifest.json").read_text(encoding="utf-8"))
+        return result.status, manifest["adapter_revision"]
+
+    assert render(source) == ("created", "13")
+    assert render(target) == ("replaced", "15")
+    assert render(source) == ("replaced", "13")
+    assert render(target) == ("replaced", "15")
+    assert render(target) == ("unchanged", "15")
