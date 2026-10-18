@@ -21,6 +21,8 @@ from mc_remote_stack.doctor import (
     probe_wirescope_public_handoff,
     validate_scratch_runtime_config,
 )
+from mc_remote_stack.render import render_toml_project
+from mc_remote_stack.resolver import load_lock
 from mc_remote_stack.scratch_contract import load_runtime_config_schema
 
 from .test_toml_apply import (
@@ -28,7 +30,7 @@ from .test_toml_apply import (
     _prepared_project,
     _result,
 )
-from .vps_fixture import SCRATCH_CONTRACT, rendered_containers
+from .vps_fixture import SCRATCH_CONTRACT, build_vps_fixture, rendered_containers
 
 
 def _docker(*arguments: str) -> tuple[str, ...]:
@@ -732,6 +734,29 @@ def test_doctor_rejects_tokenless_hello_when_auth_enforcement_is_required(
         )
 
     assert exc_info.value.reason == "doctor_auth_not_enforced"
+
+
+def test_doctor_checks_public_content_on_compose_v15(tmp_path: Path) -> None:
+    fixture = build_vps_fixture(tmp_path, profile="vps-server@13")
+    render_toml_project(fixture.project, fixture.output, data_root=fixture.data_root)
+    lock = load_lock(fixture.project, data_root=fixture.data_root)
+
+    result = doctor_toml_project(
+        fixture.project,
+        fixture.output,
+        docker_context="default",
+        data_root=fixture.data_root,
+        runner=FakeDocker(_vps_doctor_responses(fixture.output, lock)),
+        hello_probe=_auth_required_hello,
+        **_vps_public_probes(fixture.output),
+    )
+
+    assert result.render_status == "current"
+    assert (
+        result.homepage_status,
+        result.scratch_runtime_status,
+        result.wirescope_status,
+    ) == ("current", "current", "current")
 
 
 def test_doctor_reports_additional_compose_files_without_hiding_health(

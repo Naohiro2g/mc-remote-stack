@@ -93,6 +93,10 @@ class TomlDoctorResult:
     wirescope_status: str = "not-applicable"
 
 
+# compose@13 (vps-server@12) and compose@15 (vps-server@13) render the public VPS.
+PUBLIC_RENDERER_REVISIONS = {"13", "15"}
+
+
 class DoctorContractError(ValueError):
     """Stable, fail-closed diagnostic for read-only live checks."""
 
@@ -1092,7 +1096,7 @@ def doctor_toml_project(
     homepage_status = "not-applicable"
     scratch_runtime_status = "not-applicable"
     wirescope_status = "not-applicable"
-    if lock["render_plan"]["adapter_revision"] == "13":
+    if lock["render_plan"]["adapter_revision"] in PUBLIC_RENDERER_REVISIONS:
         runtime_path = output / "runtime" / "scratch.json"
         try:
             expected_runtime = json.loads(runtime_path.read_text(encoding="utf-8"))
@@ -1103,7 +1107,7 @@ def doctor_toml_project(
                 f"cannot read canonical Scratch runtime config: {exc}",
             )
         routes = _locked_public_routes(lock)
-        if lock["render_plan"]["adapter_revision"] == "13":
+        if lock["render_plan"]["adapter_revision"] in PUBLIC_RENDERER_REVISIONS:
             index_path = (
                 Path(lock["runtime"]["artifact_store"]).parent
                 / "homepage"
@@ -1146,7 +1150,7 @@ def doctor_toml_project(
             schema=schema,
         )
         scratch_runtime_status = "current"
-        if lock["render_plan"]["adapter_revision"] == "13":
+        if lock["render_plan"]["adapter_revision"] in PUBLIC_RENDERER_REVISIONS:
             expected_wirescope_url = f"https://{routes['wirescope']}/"
             if expected_runtime.get("wirescope_url") != expected_wirescope_url:
                 _fail(
