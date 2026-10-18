@@ -50,18 +50,7 @@ release待ちの間に、別のセットを用意する場合は[公開VPSの構
 - [backupを転送する・復元する](docs/backup-and-restore-guide_ja.md)
 - [リリース候補を配る](docs/release-candidate-downloads-guide_ja.md)（試験の間だけ`/candidates/`に置く）
 
-ホームで b7.post2 の新セットを用意する場合は、[ホーム用ケータリング手順](docs/home-catering-guide_ja.md)へ進みます。起動前に設定を生成して確認する段階から説明しています。
-
-## 目指す形と、今との差
-
-目指しているのは「ケータリング方式」です。「b8セットをVPSへ」のような短い依頼から、Stack担当が設定ファイル`mc-remote.toml`を一つ用意し、`mcrctl apply`と`mcrctl doctor`の二つのコマンドで、新規構築も更新も終えます。設計の正本はknowledgeの[deployment interface設計](https://github.com/Naohiro2g/mc-remote-knowledge/blob/main/00-hub/deployment-interface-design_ja.md)です。
-
-今との差は次のとおりです。
-
-- この形のコード（`mcrctl apply ./mc-remote.toml`）は、Scratch、Bridge、Minecraftの3サービスと、ホーム用のCaddyを含む4サービスを扱います。ホーム用はhost側のHTTPS／WSS転送を使います。ホームページ、backup、追加プラグインの取込はこの入口にはまだありません。ホーム構成の実サービス起動・browser接続は未検証です。実装の範囲は[deployment interface実装境界](docs/deployment-interface-implementation_ja.md)にあります。
-- そのため公開VPSは、上の「今の手順」で動かしています。こちらはprofileとpresetを指定したproject（`mc-remote.toml`＋`mc-remote.lock.toml`＋`operator/`以下の入力）を、`mcrctl deployment update`で更新する方式です。
-- 二つの方式は、設定ファイル名がどちらも`mc-remote.toml`ですが、書き方が違います。
-- 次の環境の仕組みは、まだStackにありません: 公式stable（Minecraft部分はXServer GAMEs）、devサーバーのalpha／beta、Dockerを使わない構成、ケータリングPCでの検証、private opsリポの立ち上げ。
+ホームのPCにセットを置く手順は、[ホーム用ケータリング手順](docs/home-catering-guide_ja.md)にあります。設定ファイルを一つ用意し、`mcrctl apply`と`mcrctl doctor`で構築と確認をする方式です。今あるpresetは公開済みのb7.post2向けです。
 
 ## 役割分担
 
@@ -72,6 +61,8 @@ release待ちの間に、別のセットを用意する場合は[公開VPSの構
 | [mc-remote-knowledge](https://github.com/Naohiro2g/mc-remote-knowledge) | 設計判断の正本 |
 
 Stackとbackstageは協調して働き、どちらが実務を持つかを厳密には区切りません。
+
+設計の正本はknowledgeの[deployment interface設計](https://github.com/Naohiro2g/mc-remote-knowledge/blob/main/00-hub/deployment-interface-design_ja.md)で、今のコードが扱う範囲は[deployment interface実装境界](docs/deployment-interface-implementation_ja.md)にあります。
 
 OSSとして使う場合は、非公開の運用情報を置くprivate opsリポを自分で持ちます。公開テンプレートは作らず、その立ち上げの仕組みをStackに置く予定です。
 
