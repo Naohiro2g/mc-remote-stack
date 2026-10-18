@@ -1524,7 +1524,7 @@ def _load_managed_manifest(output: Path) -> dict[str, Any] | None:
         or manifest.get("schema_version") != 1
         or manifest.get("adapter") != "compose"
         or manifest.get("adapter_revision")
-        not in {"13", "14"}
+        not in {"13", "14", "15"}
         or not isinstance(manifest.get("files"), list)
     ):
         _render_fail("render_output_tampered", manifest_path, "managed render manifest shape is invalid")

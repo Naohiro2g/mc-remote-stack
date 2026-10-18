@@ -767,3 +767,16 @@ def test_compose_v15_requires_the_operator_candidate_directory(tmp_path: Path) -
 
     assert exc_info.value.reason == "runtime_content_missing"
     assert not fixture.output.exists()
+
+
+def test_compose_v15_second_render_over_managed_output_is_noop(tmp_path: Path) -> None:
+    fixture = build_vps_fixture(tmp_path, profile="vps-server@13")
+
+    first = render_toml_project(fixture.project, fixture.output, data_root=fixture.data_root)
+    before = _tree_bytes(fixture.output)
+    second = render_toml_project(fixture.project, fixture.output, data_root=fixture.data_root)
+
+    assert (first.status, second.status) == ("created", "unchanged")
+    assert _tree_bytes(fixture.output) == before
+    manifest = json.loads((fixture.output / "render-manifest.json").read_text(encoding="utf-8"))
+    assert manifest["adapter_revision"] == "15"
