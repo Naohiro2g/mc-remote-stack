@@ -521,8 +521,10 @@ def test_bundled_registry_offers_only_current_profiles_and_presets() -> None:
         "public-web-paper@12",
         "public-web-paper@13",
         "public-web-paper@14",
+        "public-web-paper@15",
     ]
     assert public.data["renderer"] == {"name": "compose", "revision": "13"}
+    assert load_profile("vps-server@14").data["renderer"] == {"name": "compose", "revision": "16"}
     assert home.data["renderer"] == {"name": "compose", "revision": "14"}
     assert "canonical-runtime-composition" in public.data["capabilities"]["provided"]
     for profile in (public, home):
@@ -530,6 +532,31 @@ def test_bundled_registry_offers_only_current_profiles_and_presets() -> None:
         assert "mcremote-auth-enforced" in profile.data["policy"][
             "required_security_controls"
         ]
+
+
+def test_public_web_paper_15_pins_the_published_rc1_set_on_paper_1_21_11() -> None:
+    preset = load_preset("public-web-paper@15")
+
+    artifacts = {item["id"]: item for item in preset.data["artifacts"]}
+    assert {
+        artifact_id: artifacts[artifact_id].get("digest") or artifacts[artifact_id]["sha256"]
+        for artifact_id in ("scratch-image", "bridge-image", "mcremote-jar", "paper-jar")
+    } == {
+        "scratch-image": (
+            "sha256:75e76edb6b8a1de4fb896184b5c26bed7cb1791296f82903e6b1ec4a1a5ab840"
+        ),
+        "bridge-image": (
+            "sha256:305d6e38b36e195a0e158522f32f3a8c45d39da2aeec7b7e46f785c920406acf"
+        ),
+        "mcremote-jar": "917c358c201aa219277b96a447fb85116e8bdb0260870a4d76a8c51219d31c37",
+        "paper-jar": "5ffef465eeeb5f2a3c23a24419d97c51afd7dbb4923ff42df9a3f58bba1ccfba",
+    }
+    components = {item["id"]: item for item in preset.data["components"]}
+    assert components["paper-server"]["minecraft_version"] == "1.21.11"
+    assert components["mcremote-paper"]["protocol"] == "23.2.1"
+    assert preset.data["scratch_runtime_contract"]["source_commit"] == (
+        "ec79b3b0e364e722d6926a0932eb4bf088ddd3a1"
+    )
 
 
 def test_public_web_paper_11_pins_manifest_published_post2_artifacts() -> None:
