@@ -634,6 +634,15 @@ def _locked_composition_input(
     return item
 
 
+# compose@13 (vps-server@12), compose@15 (vps-server@13), and compose@16
+# (vps-server@14) render the public VPS; compose@14 renders the home set.
+PUBLIC_RENDERER_REVISIONS = frozenset({"13", "15", "16"})
+SUPPORTED_RENDERER_REVISIONS = PUBLIC_RENDERER_REVISIONS | {"14"}
+# Revisions that serve the fixed /candidates/ route beside the homepage.
+CANDIDATE_ROUTE_REVISIONS = frozenset({"15", "16"})
+# Revisions that set every container clock; earlier ones stay on UTC.
+CONTAINER_TIME_ZONE = {"16": "Asia/Tokyo"}
+
 PUBLIC_SERVICES = [
     {"id": "caddy", "role": "caddy-edge"},
     {"id": "scratch", "role": "scratch-runtime"},
@@ -758,11 +767,13 @@ SCRATCH_RUNTIME_MOUNT = "/usr/share/nginx/html/mc-remote-runtime-config.json"
 
 
 def _compose_public(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str]]:
-    """vps-server@12 and @13: public Caddy edge, Scratch, Bridge, and Minecraft on one host.
+    """vps-server@12 to @14: public Caddy edge, Scratch, Bridge, and Minecraft on one host.
 
     compose@15 (vps-server@13) adds the fixed ``/candidates/`` route. It serves the
     directory beside the artifact store that the operator fills with release
     candidates, separate from the homepage directory that ``homepage sync`` replaces.
+    compose@16 (vps-server@14) also sets ``TZ`` in every container, so server logs,
+    Discord relays, and ServerBackup schedules read local time instead of UTC.
     """
 
     if lock["render_plan"]["services"] != PUBLIC_SERVICES:
@@ -911,7 +922,7 @@ def _compose_public(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str
             "read_only": True,
         }
     ]
-    if revision == "15":
+    if revision in CANDIDATE_ROUTE_REVISIONS:
         candidates = store.parent / "candidates"
         if candidates.is_symlink() or not candidates.is_dir():
             _render_fail(
@@ -1077,6 +1088,10 @@ def _compose_public(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str
             for role, identity in volume_assignments.items()
         },
     }
+    time_zone = CONTAINER_TIME_ZONE.get(revision)
+    if time_zone is not None:
+        for service in compose["services"].values():
+            service.setdefault("environment", {})["TZ"] = time_zone
     return compose, {
         "Caddyfile": caddyfile,
         "runtime/scratch.json": json.dumps(runtime, ensure_ascii=False, indent=2) + "\n",
@@ -1470,7 +1485,7 @@ def _stage_compose_v14(lock: dict[str, Any], staging: Path) -> tuple[str, ...]:
 
 def _stage_current(lock: dict[str, Any], staging: Path) -> tuple[str, ...]:
     revision = lock["render_plan"]["adapter_revision"]
-    if revision in {"13", "15"}:
+    if revision in PUBLIC_RENDERER_REVISIONS:
         return _stage_compose_public(lock, staging)
     if revision == "14":
         return _stage_compose_v14(lock, staging)
@@ -1524,7 +1539,7 @@ def _load_managed_manifest(output: Path) -> dict[str, Any] | None:
         or manifest.get("schema_version") != 1
         or manifest.get("adapter") != "compose"
         or manifest.get("adapter_revision")
-        not in {"13", "14", "15"}
+        not in SUPPORTED_RENDERER_REVISIONS
         or not isinstance(manifest.get("files"), list)
     ):
         _render_fail("render_output_tampered", manifest_path, "managed render manifest shape is invalid")
@@ -1653,8 +1668,7 @@ def _load_current_toml_render_lock(
         lock = load_lock(project_root, data_root=data_root)
     adapter = lock["render_plan"]["adapter"]
     adapter_revision = lock["render_plan"]["adapter_revision"]
-    supported_revisions = {"13", "14", "15"}
-    if adapter != "compose" or adapter_revision not in supported_revisions:
+    if adapter != "compose" or adapter_revision not in SUPPORTED_RENDERER_REVISIONS:
         _render_fail(
             "unsupported_renderer",
             "render_plan",
