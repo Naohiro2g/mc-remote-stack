@@ -17,6 +17,9 @@ from urllib.request import Request, urlopen
 
 from .apply import DOCKER_CONTEXT, compose_render_status
 from .render import (
+    CANDIDATE_ROUTE_REVISIONS,
+    PUBLIC_RENDERER_REVISIONS,
+    SUPPORTED_RENDERER_REVISIONS,
     RenderContractError,
     _locked_public_routes,
     verify_toml_render_output,
@@ -91,10 +94,6 @@ class TomlDoctorResult:
     homepage_status: str = "not-applicable"
     scratch_runtime_status: str = "not-applicable"
     wirescope_status: str = "not-applicable"
-
-
-# compose@13 (vps-server@12) and compose@15 (vps-server@13) render the public VPS.
-PUBLIC_RENDERER_REVISIONS = {"13", "15"}
 
 
 class DoctorContractError(ValueError):
@@ -639,7 +638,7 @@ def _validate_canonical_composition_mounts(
                 "/srv/homepage",
                 "live homepage directory differs from the canonical public directory",
             )
-        if lock["render_plan"].get("adapter_revision") == "15":
+        if lock["render_plan"].get("adapter_revision") in CANDIDATE_ROUTE_REVISIONS:
             expected = artifact_store.parent / "candidates"
             matching = [
                 mount for mount in mounts if mount.get("Destination") == "/srv/candidates"
@@ -735,7 +734,7 @@ def _validate_container(
             ],
         }
         renderer_revision = lock["render_plan"]["adapter_revision"]
-        if renderer_revision in {"13", "14", "15"}:
+        if renderer_revision in SUPPORTED_RENDERER_REVISIONS:
             expected_ports["25565/udp"] = [
                 {
                     "HostIp": address,

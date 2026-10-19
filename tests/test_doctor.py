@@ -142,14 +142,15 @@ def test_doctor_validates_all_canonical_composition_mounts(tmp_path: Path) -> No
     assert exc_info.value.reason == "doctor_composition_mount_mismatch"
 
 
-def test_doctor_requires_the_read_only_candidate_mount_on_compose_v15(
-    tmp_path: Path,
+@pytest.mark.parametrize("revision", ["15", "16"])
+def test_doctor_requires_the_read_only_candidate_mount_from_compose_v15(
+    tmp_path: Path, revision: str
 ) -> None:
     store = tmp_path / "artifacts"
     lock = {
         "runtime": {"artifact_store": str(store)},
         "render_plan": {
-            "adapter_revision": "15",
+            "adapter_revision": revision,
             "required_security_controls": ["exact-peripheral-plugin-set"],
         },
     }
@@ -736,8 +737,9 @@ def test_doctor_rejects_tokenless_hello_when_auth_enforcement_is_required(
     assert exc_info.value.reason == "doctor_auth_not_enforced"
 
 
-def test_doctor_checks_public_content_on_compose_v15(tmp_path: Path) -> None:
-    fixture = build_vps_fixture(tmp_path, profile="vps-server@13")
+@pytest.mark.parametrize("profile", ["vps-server@13", "vps-server@14"])
+def test_doctor_checks_public_content_from_compose_v15(tmp_path: Path, profile: str) -> None:
+    fixture = build_vps_fixture(tmp_path, profile=profile)
     render_toml_project(fixture.project, fixture.output, data_root=fixture.data_root)
     lock = load_lock(fixture.project, data_root=fixture.data_root)
 

@@ -140,6 +140,7 @@ docker compose --project-name "$NEXT_DEPLOYMENT" \
 - doctorのruntime、lock／render、protocol／auth、homepage、Scratch runtime、WireScope
 - 正式McRemote JARと周辺JARのSHA、旧JARの有無、LuckPerms使用、credential backendの健全性
 - world名とdimension、creative等の採用設定、引き継いだ権限・認証データ
+- `vps-server@14`以降はcontainerの時刻がJST（`TZ=Asia/Tokyo`）。server logとDiscordへ送られるlogの時刻を確認する。ServerBackupの予定時刻もJSTで読まれるので、UTCのつもりで書いた予定は9時間早く動く
 - 公開HTTPS、認証付きScratchのペアリング／hello／chat、WireScopeでの応答、notice表示
 - JavaのTCPと統合版のUDPを別々に、VPS外の端末から確認
 - 新しいbackup保存先と、既存の暗号化・転送・予約実行の参照先
