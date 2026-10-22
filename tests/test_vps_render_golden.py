@@ -1,6 +1,6 @@
 """Pin the exact files the public VPS profiles render.
 
-Any change to what a vps-server@12, @13, or @14 deployment receives must
+Any change to what a vps-server@12, @13, @14, or @15 deployment receives must
 show up here as a deliberate golden update. Regenerate with:
 
     MCRCTL_UPDATE_GOLDEN=1 uv run pytest tests/test_vps_render_golden.py
@@ -35,7 +35,9 @@ def _normalized_output(tmp_path: Path, output: Path, lock_identity: str) -> dict
     return rendered
 
 
-@pytest.mark.parametrize("profile", ["vps-server@12", "vps-server@13", "vps-server@14"])
+@pytest.mark.parametrize(
+    "profile", ["vps-server@12", "vps-server@13", "vps-server@14", "vps-server@15"]
+)
 def test_vps_server_render_matches_golden(tmp_path: Path, profile: str) -> None:
     golden = GOLDEN_DIRECTORY / f"{profile.replace('@', '-')}-render.json"
     fixture = build_vps_fixture(tmp_path, profile=profile)

@@ -376,9 +376,16 @@ def _vps_public_probes(output: Path) -> dict:
     """Public HTTPS probes that observe exactly what the render publishes."""
 
     runtime = json.loads((output / "runtime" / "scratch.json").read_text(encoding="utf-8"))
+    # compose@17 serves each extra Scratch name its own runtime config.
+    paired = {
+        path.name.removesuffix(".json"): json.loads(path.read_text(encoding="utf-8"))
+        for path in (output / "runtime").glob("web-pairs/*.json")
+    }
     return {
         "homepage_probe": lambda *_args, **_kwargs: None,
-        "scratch_runtime_probe": lambda *_args, **_kwargs: runtime,
+        "scratch_runtime_probe": lambda url, *_args, **_kwargs: paired.get(
+            url.split("/")[2], runtime
+        ),
         "wirescope_probe": lambda *_args, **_kwargs: None,
     }
 
@@ -489,6 +496,7 @@ def test_doctor_checks_current_render_runtime_and_protocol_without_mutation(
         homepage_status="current",
         scratch_runtime_status="current",
         wirescope_status="current",
+        web_pair_count=1,
     )
     assert hello_calls == [
         ("0.0.0.0", 25575, "23.1.0", "1.21.11", "official-vps-world", 5)
@@ -737,7 +745,7 @@ def test_doctor_rejects_tokenless_hello_when_auth_enforcement_is_required(
     assert exc_info.value.reason == "doctor_auth_not_enforced"
 
 
-@pytest.mark.parametrize("profile", ["vps-server@13", "vps-server@14"])
+@pytest.mark.parametrize("profile", ["vps-server@13", "vps-server@14", "vps-server@15"])
 def test_doctor_checks_public_content_from_compose_v15(tmp_path: Path, profile: str) -> None:
     fixture = build_vps_fixture(tmp_path, profile=profile)
     render_toml_project(fixture.project, fixture.output, data_root=fixture.data_root)
@@ -759,6 +767,80 @@ def test_doctor_checks_public_content_from_compose_v15(tmp_path: Path, profile: 
         result.scratch_runtime_status,
         result.wirescope_status,
     ) == ("current", "current", "current")
+
+
+def _web_pair_probes(output: Path, wirescope_calls: list[tuple[str, str]]) -> dict:
+    """Public probes for a compose@17 render, keyed by the Scratch name asked for."""
+
+    runtimes = {
+        "scratch-beta.mc-remote.example": json.loads(
+            (output / "runtime/scratch.json").read_text(encoding="utf-8")
+        ),
+        "scratch.mc-remote.example": json.loads(
+            (output / "runtime/web-pairs/scratch.mc-remote.example.json").read_text(
+                encoding="utf-8"
+            )
+        ),
+    }
+
+    def wirescope_probe(scratch_url: str, wirescope_url: str, **_kwargs: object) -> None:
+        wirescope_calls.append((scratch_url, wirescope_url))
+
+    return {
+        "homepage_probe": lambda *_args, **_kwargs: None,
+        "scratch_runtime_probe": lambda url, _timeout: runtimes[url.split("/")[2]],
+        "wirescope_probe": wirescope_probe,
+        "_runtimes": runtimes,
+    }
+
+
+def test_doctor_checks_every_scratch_and_wirescope_name_pair(tmp_path: Path) -> None:
+    fixture = build_vps_fixture(tmp_path, profile="vps-server@15")
+    render_toml_project(fixture.project, fixture.output, data_root=fixture.data_root)
+    lock = load_lock(fixture.project, data_root=fixture.data_root)
+    wirescope_calls: list[tuple[str, str]] = []
+    probes = _web_pair_probes(fixture.output, wirescope_calls)
+    probes.pop("_runtimes")
+
+    result = doctor_toml_project(
+        fixture.project,
+        fixture.output,
+        docker_context="default",
+        data_root=fixture.data_root,
+        runner=FakeDocker(_vps_doctor_responses(fixture.output, lock)),
+        hello_probe=_auth_required_hello,
+        **probes,
+    )
+
+    assert (result.scratch_runtime_status, result.wirescope_status) == ("current", "current")
+    assert result.web_pair_count == 2
+    assert wirescope_calls == [
+        ("https://scratch-beta.mc-remote.example/", "https://wirescope-beta.mc-remote.example/"),
+        ("https://scratch.mc-remote.example/", "https://wirescope.mc-remote.example/"),
+    ]
+
+
+def test_doctor_rejects_a_scratch_name_that_hands_off_to_another_pair(tmp_path: Path) -> None:
+    fixture = build_vps_fixture(tmp_path, profile="vps-server@15")
+    render_toml_project(fixture.project, fixture.output, data_root=fixture.data_root)
+    lock = load_lock(fixture.project, data_root=fixture.data_root)
+    probes = _web_pair_probes(fixture.output, [])
+    runtimes = probes.pop("_runtimes")
+    # The stable Scratch name serves the beta pair's runtime config.
+    runtimes["scratch.mc-remote.example"] = runtimes["scratch-beta.mc-remote.example"]
+
+    with pytest.raises(DoctorContractError) as exc_info:
+        doctor_toml_project(
+            fixture.project,
+            fixture.output,
+            docker_context="default",
+            data_root=fixture.data_root,
+            runner=FakeDocker(_vps_doctor_responses(fixture.output, lock)),
+            hello_probe=_auth_required_hello,
+            **probes,
+        )
+
+    assert exc_info.value.reason == "doctor_scratch_runtime_mismatch"
 
 
 def test_doctor_reports_additional_compose_files_without_hiding_health(

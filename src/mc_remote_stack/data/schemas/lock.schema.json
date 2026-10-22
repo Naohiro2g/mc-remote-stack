@@ -652,6 +652,9 @@
           "$ref": "#/$defs/publicRoutesV2Input"
         },
         {
+          "$ref": "#/$defs/publicRoutesV3Input"
+        },
+        {
           "$ref": "#/$defs/minecraftServerInput"
         },
         {
@@ -696,7 +699,7 @@
           "const": "public-routes"
         },
         "adapter": {
-          "enum": ["public-routes@2"]
+          "enum": ["public-routes@2", "public-routes@3"]
         },
         "required": {
           "type": "boolean"
@@ -939,6 +942,94 @@
             "wirescope": {
               "type": "string",
               "minLength": 1
+            }
+          }
+        }
+      }
+    },
+    "publicRoutesV3Input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "role",
+        "adapter",
+        "path",
+        "semantic_sha256",
+        "semantic"
+      ],
+      "properties": {
+        "role": {
+          "const": "public-routes"
+        },
+        "adapter": {
+          "const": "public-routes@3"
+        },
+        "path": {
+          "const": "operator/public-routes/routes.toml"
+        },
+        "semantic_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "semantic": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "homepage",
+            "homepage_aliases",
+            "scratch",
+            "bridge",
+            "minecraft",
+            "wirescope",
+            "web_pairs"
+          ],
+          "properties": {
+            "homepage": {
+              "type": "string",
+              "minLength": 1
+            },
+            "homepage_aliases": {
+              "type": "array",
+              "maxItems": 8,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "scratch": {
+              "type": "string",
+              "minLength": 1
+            },
+            "bridge": {
+              "type": "string",
+              "minLength": 1
+            },
+            "minecraft": {
+              "type": "string",
+              "minLength": 1
+            },
+            "wirescope": {
+              "type": "string",
+              "minLength": 1
+            },
+            "web_pairs": {
+              "type": "array",
+              "maxItems": 4,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["scratch", "wirescope"],
+                "properties": {
+                  "scratch": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "wirescope": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              }
             }
           }
         }

@@ -1,5 +1,6 @@
 """Test-owned public VPS deployment fixture for vps-server@12 / compose@13,
-vps-server@13 / compose@15, and vps-server@14 / compose@16.
+vps-server@13 / compose@15, vps-server@14 / compose@16, and vps-server@15 /
+compose@17.
 
 Mechanism tests (render, apply, doctor, world restore, artifact fetch) build on
 this fixture instead of copying product presets, so adding or retiring a
@@ -231,6 +232,23 @@ digest = "{_oci_digest(24)}"
 """
 
 
+# vps-server@15 reads public-routes@3, which adds one stable Scratch/WireScope pair.
+PUBLIC_ROUTES_V3 = (
+    "public-routes@3",
+    "operator/public-routes/routes.toml",
+    """homepage = "mc-remote.example"
+homepage_aliases = ["www.mc-remote.example"]
+scratch = "scratch-beta.mc-remote.example"
+bridge = "bridge-beta.mc-remote.example"
+minecraft = "sb-beta.mc-remote.example"
+wirescope = "wirescope-beta.mc-remote.example"
+
+[[web_pairs]]
+scratch = "scratch.mc-remote.example"
+wirescope = "wirescope.mc-remote.example"
+""",
+)
+
 OPERATOR_INPUTS = {
     "public-routes": (
         "public-routes@2",
@@ -311,12 +329,12 @@ def build_vps_fixture(
     profile_name, profile_revision = profile.split("@")
     profile_path = data_root / "profiles" / profile_name / profile_revision / "profile.toml"
     profile_path.parent.mkdir(parents=True)
-    profile_path.write_text(
+    profile_source = (
         files("mc_remote_stack")
         .joinpath("data", "profiles", profile_name, profile_revision, "profile.toml")
-        .read_text(encoding="utf-8"),
-        encoding="utf-8",
+        .read_text(encoding="utf-8")
     )
+    profile_path.write_text(profile_source, encoding="utf-8")
     contract_source = files("mc_remote_stack").joinpath(
         "data", "scratch-contracts", SCRATCH_CONTRACT_COMMIT
     )
@@ -371,6 +389,8 @@ def build_vps_fixture(
     ).root
 
     inputs = dict(OPERATOR_INPUTS)
+    if f'adapter = "{PUBLIC_ROUTES_V3[0]}"' in profile_source:
+        inputs["public-routes"] = PUBLIC_ROUTES_V3
     inputs["minecraft-plugins"] = (
         "minecraft-plugins@1",
         "operator/minecraft-plugins/plugins.toml",

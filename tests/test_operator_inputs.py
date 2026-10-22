@@ -12,6 +12,7 @@ from mc_remote_stack.operator_inputs import (
     _parse_minecraft_plugins,
     _parse_minecraft_server,
     _parse_public_routes_v2,
+    _parse_public_routes_v3,
 )
 from mc_remote_stack.preset_registry import semantic_sha256
 from mc_remote_stack.resolver import (
@@ -436,6 +437,75 @@ wirescope = "wirescope-beta.mc-remote.example"
                 b'wirescope = "scratch-beta.mc-remote.example"',
             ),
         )
+
+    assert exc_info.value.reason == "operator_input_parse_failed"
+
+
+PUBLIC_ROUTES_V3_SOURCE = b'''homepage = "mc-remote.example"
+homepage_aliases = ["www.mc-remote.example"]
+scratch = "scratch-beta.mc-remote.example"
+bridge = "bridge-beta.mc-remote.example"
+minecraft = "sb-beta.mc-remote.example"
+wirescope = "wirescope-beta.mc-remote.example"
+
+[[web_pairs]]
+scratch = "scratch.mc-remote.example"
+wirescope = "wirescope.mc-remote.example"
+'''
+
+
+def test_public_routes_v3_adds_scratch_and_wirescope_name_pairs(tmp_path: Path) -> None:
+    assert _parse_public_routes_v3(tmp_path / "routes.toml", PUBLIC_ROUTES_V3_SOURCE) == {
+        "homepage": "mc-remote.example",
+        "homepage_aliases": ["www.mc-remote.example"],
+        "scratch": "scratch-beta.mc-remote.example",
+        "bridge": "bridge-beta.mc-remote.example",
+        "minecraft": "sb-beta.mc-remote.example",
+        "wirescope": "wirescope-beta.mc-remote.example",
+        "web_pairs": [
+            {
+                "scratch": "scratch.mc-remote.example",
+                "wirescope": "wirescope.mc-remote.example",
+            }
+        ],
+    }
+    without_pairs = PUBLIC_ROUTES_V3_SOURCE.split(b"\n[[web_pairs]]")[0] + b"web_pairs = []\n"
+    assert _parse_public_routes_v3(tmp_path / "routes.toml", without_pairs)["web_pairs"] == []
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        # A pair reuses the primary WireScope name.
+        PUBLIC_ROUTES_V3_SOURCE.replace(
+            b'wirescope = "wirescope.mc-remote.example"',
+            b'wirescope = "wirescope-beta.mc-remote.example"',
+        ),
+        # A pair carries a key other than scratch and wirescope.
+        PUBLIC_ROUTES_V3_SOURCE + b'bridge = "bridge.mc-remote.example"\n',
+        # A pair misses its WireScope name.
+        PUBLIC_ROUTES_V3_SOURCE.replace(b'wirescope = "wirescope.mc-remote.example"\n', b""),
+        # The pair list is absent.
+        PUBLIC_ROUTES_V3_SOURCE.split(b"\n[[web_pairs]]")[0],
+        # More than four pairs.
+        PUBLIC_ROUTES_V3_SOURCE.split(b"\n[[web_pairs]]")[0]
+        + b"".join(
+            b'\n[[web_pairs]]\nscratch = "s%d.mc-remote.example"\n'
+            b'wirescope = "w%d.mc-remote.example"\n' % (index, index)
+            for index in range(5)
+        ),
+    ],
+)
+def test_public_routes_v3_rejects_invalid_name_pairs(tmp_path: Path, source: bytes) -> None:
+    with pytest.raises(OperatorInputError) as exc_info:
+        _parse_public_routes_v3(tmp_path / "routes.toml", source)
+
+    assert exc_info.value.reason == "operator_input_parse_failed"
+
+
+def test_public_routes_v2_does_not_accept_name_pairs(tmp_path: Path) -> None:
+    with pytest.raises(OperatorInputError) as exc_info:
+        _parse_public_routes_v2(tmp_path / "routes.toml", PUBLIC_ROUTES_V3_SOURCE)
 
     assert exc_info.value.reason == "operator_input_parse_failed"
 

@@ -1048,10 +1048,12 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
         print("OK doctor protocol=responsive auth=required")
     if result.homepage_status == "current":
         print("OK doctor homepage=current")
+    # Only sets with extra Scratch/WireScope name pairs report how many were checked.
+    pair_suffix = f" web-pairs={result.web_pair_count}" if result.web_pair_count > 1 else ""
     if result.scratch_runtime_status == "current":
-        print("OK doctor scratch-runtime=current")
+        print(f"OK doctor scratch-runtime=current{pair_suffix}")
     if result.wirescope_status == "current":
-        print("OK doctor wirescope=current handoff=cross-origin")
+        print(f"OK doctor wirescope=current handoff=cross-origin{pair_suffix}")
     return 0
 
 

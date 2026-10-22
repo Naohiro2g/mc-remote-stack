@@ -525,6 +525,7 @@ def test_bundled_registry_offers_only_current_profiles_and_presets() -> None:
     ]
     assert public.data["renderer"] == {"name": "compose", "revision": "13"}
     assert load_profile("vps-server@14").data["renderer"] == {"name": "compose", "revision": "16"}
+    assert load_profile("vps-server@15").data["renderer"] == {"name": "compose", "revision": "17"}
     assert home.data["renderer"] == {"name": "compose", "revision": "14"}
     assert "canonical-runtime-composition" in public.data["capabilities"]["provided"]
     for profile in (public, home):

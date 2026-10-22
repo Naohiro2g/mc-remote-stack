@@ -23,6 +23,8 @@ from .render import (
     RenderContractError,
     _locked_public_routes,
     verify_toml_render_output,
+    web_pair_runtime_path,
+    web_pairs,
 )
 from .runtime_artifacts import (
     RuntimeArtifactContractError,
@@ -94,6 +96,7 @@ class TomlDoctorResult:
     homepage_status: str = "not-applicable"
     scratch_runtime_status: str = "not-applicable"
     wirescope_status: str = "not-applicable"
+    web_pair_count: int = 0
 
 
 class DoctorContractError(ValueError):
@@ -1095,16 +1098,8 @@ def doctor_toml_project(
     homepage_status = "not-applicable"
     scratch_runtime_status = "not-applicable"
     wirescope_status = "not-applicable"
+    pairs: list[dict[str, str]] = []
     if lock["render_plan"]["adapter_revision"] in PUBLIC_RENDERER_REVISIONS:
-        runtime_path = output / "runtime" / "scratch.json"
-        try:
-            expected_runtime = json.loads(runtime_path.read_text(encoding="utf-8"))
-        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-            _fail(
-                "doctor_scratch_runtime_invalid",
-                runtime_path,
-                f"cannot read canonical Scratch runtime config: {exc}",
-            )
         routes = _locked_public_routes(lock)
         if lock["render_plan"]["adapter_revision"] in PUBLIC_RENDERER_REVISIONS:
             index_path = (
@@ -1132,10 +1127,6 @@ def doctor_toml_project(
                 timeout=timeout,
             )
             homepage_status = "current"
-        scratch_runtime_url = (
-            f"https://{routes['scratch']}/mc-remote-runtime-config.json"
-        )
-        observed_runtime = scratch_runtime_probe(scratch_runtime_url, timeout)
         schema = None
         contract = lock.get("scratch_runtime_contract")
         if contract is not None:
@@ -1143,36 +1134,52 @@ def doctor_toml_project(
                 schema = load_runtime_config_schema(contract, data_root=data_root)
             except ScratchContractError as exc:
                 _fail(exc.reason, exc.path, exc.detail)
-        validate_scratch_runtime_config(
-            observed_runtime,
-            expected=expected_runtime,
-            schema=schema,
-        )
-        scratch_runtime_status = "current"
-        if lock["render_plan"]["adapter_revision"] in PUBLIC_RENDERER_REVISIONS:
-            expected_wirescope_url = f"https://{routes['wirescope']}/"
+        index_path = output / "wirescope" / "index.html"
+        try:
+            expected_index_sha256 = hashlib.sha256(index_path.read_bytes()).hexdigest()
+        except OSError as exc:
+            _fail(
+                "doctor_wirescope_invalid",
+                index_path,
+                f"cannot read canonical WireScope index: {exc}",
+            )
+        # Every Scratch/WireScope name pair gets the same checks as the primary pair.
+        pairs = web_pairs(routes)
+        for index, pair in enumerate(pairs):
+            runtime_path = output / (
+                "runtime/scratch.json" if index == 0 else web_pair_runtime_path(pair)
+            )
+            try:
+                expected_runtime = json.loads(runtime_path.read_text(encoding="utf-8"))
+            except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+                _fail(
+                    "doctor_scratch_runtime_invalid",
+                    runtime_path,
+                    f"cannot read canonical Scratch runtime config: {exc}",
+                )
+            observed_runtime = scratch_runtime_probe(
+                f"https://{pair['scratch']}/mc-remote-runtime-config.json", timeout
+            )
+            validate_scratch_runtime_config(
+                observed_runtime,
+                expected=expected_runtime,
+                schema=schema,
+            )
+            expected_wirescope_url = f"https://{pair['wirescope']}/"
             if expected_runtime.get("wirescope_url") != expected_wirescope_url:
                 _fail(
                     "doctor_wirescope_config_mismatch",
                     "scratch.runtime.wirescope_url",
                     "Scratch runtime does not point at the canonical public WireScope origin",
                 )
-            index_path = output / "wirescope" / "index.html"
-            try:
-                expected_index_sha256 = hashlib.sha256(index_path.read_bytes()).hexdigest()
-            except OSError as exc:
-                _fail(
-                    "doctor_wirescope_invalid",
-                    index_path,
-                    f"cannot read canonical WireScope index: {exc}",
-                )
             wirescope_probe(
-                f"https://{routes['scratch']}/",
+                f"https://{pair['scratch']}/",
                 expected_wirescope_url,
                 expected_index_sha256=expected_index_sha256,
                 timeout=timeout,
             )
-            wirescope_status = "current"
+        scratch_runtime_status = "current"
+        wirescope_status = "current"
 
     network = lock["network"]
     hello = hello_probe(
@@ -1214,4 +1221,5 @@ def doctor_toml_project(
         homepage_status=homepage_status,
         scratch_runtime_status=scratch_runtime_status,
         wirescope_status=wirescope_status,
+        web_pair_count=len(pairs),
     )

@@ -76,6 +76,14 @@ cp -a "$SOURCE_PROJECT/operator" "$NEXT_PROJECT/operator"
 | backup入力 | 次セット専用の、存在するhost directory |
 | リリース候補の置き場所 | `vps-server@13`以降は、artifact storeの一つ上の`candidates`ディレクトリが要る。無ければ[リリース候補を配る](release-candidate-downloads-guide_ja.md)の手順で作る |
 
+`vps-server@15`以降は、public routesの`[[web_pairs]]`に、同じセットで出すScratchとWireScopeの名前の組を足せます（4組まで）。どの組も同じBridgeとMinecraftへつなぎ、Scratchは同じ組のWireScopeを開きます。足す名前は、先にDNSでこのhostへ向けます。CaddyがTLSの証明書を取るためです。組が無いときは`web_pairs = []`と書きます。
+
+```toml
+[[web_pairs]]
+scratch = "scratch.mc-remote.com"
+wirescope = "wirescope.mc-remote.com"
+```
+
 noticeは[Scratchのお知らせ編集手順](scratch-notice-guide_ja.md)で一時ファイルを編集し、まだ稼働していない次セットの入力へ収容します。運用者noticeと製品noticeの表示を合わせて確認します。画面での確認は切替後です。
 
 旧セットのデータを保持することと、新しいvolumeに引き継ぐことは別です。コピーする対象をここで記録し、権限DBや認証データが未反映なら、その状態も残します。
