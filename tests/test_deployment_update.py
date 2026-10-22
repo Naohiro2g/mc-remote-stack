@@ -24,9 +24,11 @@ from mc_remote_stack.deployment_update import (
     _write_json,
     apply_deployment_update,
 )
+from mc_remote_stack.resolver import load_lock, resolve_project
 from mc_remote_stack.toml_project import init_toml_project
 
-from .vps_fixture import PRESET, build_vps_fixture
+from .test_resolver import FIRST_RESOLVED_AT
+from .vps_fixture import PRESET, PUBLIC_ROUTES_V3, build_vps_fixture
 
 
 def _public_order(tmp_path: Path) -> Path:
@@ -688,3 +690,45 @@ def test_cli_exposes_two_command_update_without_volume_or_compose_path_arguments
     assert "--target-volume" not in text
     assert "--preserve-compose-file" not in text
     assert "OK deployment-update status=complete" in text
+
+
+def test_vps_server_14_set_updates_in_place_to_name_pairs_on_vps_server_15(
+    tmp_path: Path,
+) -> None:
+    fixture = build_vps_fixture(tmp_path, profile="vps-server@14")
+    (fixture.data_root / "profiles/vps-server/15").mkdir(parents=True)
+    (fixture.data_root / "profiles/vps-server/15/profile.toml").write_text(
+        files("mc_remote_stack")
+        .joinpath("data/profiles/vps-server/15/profile.toml")
+        .read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    reviewed_routes = tmp_path / "reviewed-routes.toml"
+    reviewed_routes.write_text(PUBLIC_ROUTES_V3[2], encoding="utf-8")
+    candidate = tmp_path / "candidate"
+
+    _prepare_candidate_order(
+        fixture.project,
+        fixture.output,
+        candidate,
+        target_profile="vps-server@15",
+        target_preset=PRESET,
+        input_overrides={},
+        input_files={"public-routes": reviewed_routes},
+        data_root=fixture.data_root,
+    )
+    resolve_project(
+        candidate,
+        data_root=fixture.data_root,
+        allow_unverified=True,
+        resolved_at=FIRST_RESOLVED_AT,
+    )
+
+    source_lock = load_lock(fixture.project, data_root=fixture.data_root)
+    target_lock = load_lock(candidate, data_root=fixture.data_root)
+    _validate_in_place_transition(source_lock, target_lock)
+    assert target_lock["render_plan"]["adapter_revision"] == "17"
+    routes = next(
+        item for item in target_lock["operator_inputs"] if item["role"] == "public-routes"
+    )
+    assert routes["adapter"] == "public-routes@3"

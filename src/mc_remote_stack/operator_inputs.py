@@ -15,6 +15,7 @@ from .toml_project import LoadedOrder
 MINECRAFT_MOTD_ADAPTER = "minecraft-motd@1"
 MINECRAFT_MOTD_PATH = "operator/minecraft-motd/server.properties"
 PUBLIC_ROUTES_V2_ADAPTER = "public-routes@2"
+PUBLIC_ROUTES_V3_ADAPTER = "public-routes@3"
 PUBLIC_ROUTES_PATH = "operator/public-routes/routes.toml"
 MINECRAFT_SERVER_ADAPTER = "minecraft-server@1"
 MINECRAFT_SERVER_PATH = "operator/minecraft-server/server.toml"
@@ -43,6 +44,7 @@ SUPPORTED_ADAPTERS = frozenset(
         MINECRAFT_MOTD_ADAPTER,
         MINECRAFT_SERVER_ADAPTER,
         PUBLIC_ROUTES_V2_ADAPTER,
+        PUBLIC_ROUTES_V3_ADAPTER,
         CONNECTION_TARGETS_V3_ADAPTER,
         MINECRAFT_PLUGINS_ADAPTER,
         HOMEPAGE_STATIC_ADAPTER,
@@ -54,6 +56,10 @@ PUBLIC_ROUTE_KEYS = frozenset(
     {"homepage", "homepage_aliases", "scratch", "bridge", "minecraft"}
 )
 PUBLIC_ROUTE_V2_KEYS = PUBLIC_ROUTE_KEYS | {"wirescope"}
+# public-routes@3 adds more Scratch/WireScope name pairs served by the same set.
+PUBLIC_ROUTE_V3_KEYS = PUBLIC_ROUTE_V2_KEYS | {"web_pairs"}
+WEB_PAIR_KEYS = frozenset({"scratch", "wirescope"})
+MAX_WEB_PAIRS = 4
 CONNECTION_TARGET_KEYS = frozenset({"id", "label", "sandbox"})
 LAN_ROUTES_KEYS = frozenset({"hostname", "scratch_port", "bridge_port"})
 CONNECTION_TARGET_V2_KEYS = frozenset(
@@ -239,7 +245,7 @@ def _parse_public_routes_for_keys(
         )
     semantic: dict[str, Any] = {
         key: _public_dns_name(path, key, value[key])
-        for key in sorted(required_keys - {"homepage_aliases"})
+        for key in sorted(required_keys - {"homepage_aliases", "web_pairs"})
     }
     semantic["homepage_aliases"] = sorted(
         _public_dns_name(path, f"homepage_aliases[{index}]", alias)
@@ -248,8 +254,16 @@ def _parse_public_routes_for_keys(
     all_names = [
         semantic["homepage"],
         *semantic["homepage_aliases"],
-        *(semantic[key] for key in sorted(required_keys - {"homepage", "homepage_aliases"})),
+        *(
+            semantic[key]
+            for key in sorted(required_keys - {"homepage", "homepage_aliases", "web_pairs"})
+        ),
     ]
+    if "web_pairs" in required_keys:
+        semantic["web_pairs"] = _web_pairs(path, value["web_pairs"])
+        all_names.extend(
+            name for pair in semantic["web_pairs"] for name in (pair["scratch"], pair["wirescope"])
+        )
     if len(set(all_names)) != len(all_names):
         _fail(
             "operator_input_parse_failed",
@@ -259,12 +273,45 @@ def _parse_public_routes_for_keys(
     return semantic
 
 
+def _web_pairs(path: Path, value: object) -> list[dict[str, str]]:
+    if not isinstance(value, list) or len(value) > MAX_WEB_PAIRS:
+        _fail(
+            "operator_input_parse_failed",
+            path,
+            f"web_pairs must be an array containing at most {MAX_WEB_PAIRS} tables",
+        )
+    pairs = []
+    for index, pair in enumerate(value):
+        if not isinstance(pair, dict) or set(pair) != WEB_PAIR_KEYS:
+            _fail(
+                "operator_input_parse_failed",
+                path,
+                f"web_pairs[{index}] requires exactly the scratch and wirescope keys",
+            )
+        pairs.append(
+            {
+                key: _public_dns_name(path, f"web_pairs[{index}].{key}", pair[key])
+                for key in sorted(WEB_PAIR_KEYS)
+            }
+        )
+    return sorted(pairs, key=lambda pair: pair["scratch"])
+
+
 def _parse_public_routes_v2(path: Path, source: bytes) -> dict[str, Any]:
     return _parse_public_routes_for_keys(
         path,
         source,
         adapter=PUBLIC_ROUTES_V2_ADAPTER,
         required_keys=PUBLIC_ROUTE_V2_KEYS,
+    )
+
+
+def _parse_public_routes_v3(path: Path, source: bytes) -> dict[str, Any]:
+    return _parse_public_routes_for_keys(
+        path,
+        source,
+        adapter=PUBLIC_ROUTES_V3_ADAPTER,
+        required_keys=PUBLIC_ROUTE_V3_KEYS,
     )
 
 
@@ -756,13 +803,15 @@ def _parse_adapter(adapter: str, path: Path, relative_path: str) -> dict[str, An
                 f"{adapter} requires exact path {MINECRAFT_MOTD_PATH}",
             )
         return _parse_minecraft_motd(path, _read_source(path))
-    if adapter == PUBLIC_ROUTES_V2_ADAPTER:
+    if adapter in {PUBLIC_ROUTES_V2_ADAPTER, PUBLIC_ROUTES_V3_ADAPTER}:
         if relative_path != PUBLIC_ROUTES_PATH:
             _fail(
                 "operator_input_path_invalid",
                 path,
                 f"{adapter} requires exact path {PUBLIC_ROUTES_PATH}",
             )
+        if adapter == PUBLIC_ROUTES_V3_ADAPTER:
+            return _parse_public_routes_v3(path, _read_source(path))
         return _parse_public_routes_v2(path, _read_source(path))
     if adapter == MINECRAFT_SERVER_ADAPTER:
         if relative_path != MINECRAFT_SERVER_PATH:

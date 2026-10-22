@@ -332,7 +332,9 @@ def _read_only_responses(
     return commands
 
 
-@pytest.mark.parametrize("profile", ["vps-server@12", "vps-server@13", "vps-server@14"])
+@pytest.mark.parametrize(
+    "profile", ["vps-server@12", "vps-server@13", "vps-server@14", "vps-server@15"]
+)
 def test_bootstrap_apply_is_bound_to_current_lock_and_verified_render(
     tmp_path: Path,
     profile: str,
@@ -670,7 +672,9 @@ def test_failed_compose_up_rolls_back_containers_but_retains_world_volume(
     assert all(command[:5] != _docker("volume", "rm") for command, _ in runner.calls)
 
 
-@pytest.mark.parametrize("profile", ["vps-server@12", "vps-server@13", "vps-server@14"])
+@pytest.mark.parametrize(
+    "profile", ["vps-server@12", "vps-server@13", "vps-server@14", "vps-server@15"]
+)
 def test_exact_running_bootstrap_is_an_apply_noop(tmp_path: Path, profile: str) -> None:
     project, data_root, output, lock = _prepared_project(tmp_path, profile=profile)
     responses = _read_only_responses(

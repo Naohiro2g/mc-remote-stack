@@ -200,8 +200,11 @@ def _locked_public_routes(lock: dict[str, Any]) -> dict[str, Any]:
         )
     operator_input = matches[0]
     semantic = operator_input["semantic"]
+    required_keys = {"homepage", "homepage_aliases", "scratch", "bridge", "minecraft", "wirescope"}
+    if operator_input["adapter"] == "public-routes@3":
+        required_keys.add("web_pairs")
     if (
-        operator_input["adapter"] != "public-routes@2"
+        operator_input["adapter"] not in {"public-routes@2", "public-routes@3"}
         or operator_input["path"] != "operator/public-routes/routes.toml"
         or operator_input["semantic_sha256"] != semantic_sha256(semantic)
     ):
@@ -210,13 +213,28 @@ def _locked_public_routes(lock: dict[str, Any]) -> dict[str, Any]:
             "operator_inputs.public-routes",
             "locked public-routes adapter identity or semantic digest is invalid",
         )
-    if set(semantic) != {"homepage", "homepage_aliases", "scratch", "bridge", "minecraft", "wirescope"}:
+    if set(semantic) != required_keys:
         _render_fail(
             "render_plan_invalid",
             "operator_inputs.public-routes.semantic",
             "locked public routes do not contain the exact required keys",
         )
     return semantic
+
+
+def web_pairs(routes: dict[str, Any]) -> list[dict[str, str]]:
+    """Every Scratch/WireScope name pair the set serves, the primary pair first."""
+
+    return [
+        {"scratch": routes["scratch"], "wirescope": routes["wirescope"]},
+        *routes.get("web_pairs", []),
+    ]
+
+
+def web_pair_runtime_path(pair: dict[str, str]) -> str:
+    """Rendered runtime config that Caddy serves for one extra Scratch name."""
+
+    return f"runtime/web-pairs/{pair['scratch']}.json"
 
 
 def _locked_lan_routes(lock: dict[str, Any]) -> dict[str, Any]:
@@ -634,14 +652,17 @@ def _locked_composition_input(
     return item
 
 
-# compose@13 (vps-server@12), compose@15 (vps-server@13), and compose@16
-# (vps-server@14) render the public VPS; compose@14 renders the home set.
-PUBLIC_RENDERER_REVISIONS = frozenset({"13", "15", "16"})
+# compose@13 (vps-server@12), compose@15 (vps-server@13), compose@16
+# (vps-server@14), and compose@17 (vps-server@15) render the public VPS;
+# compose@14 renders the home set.
+PUBLIC_RENDERER_REVISIONS = frozenset({"13", "15", "16", "17"})
 SUPPORTED_RENDERER_REVISIONS = PUBLIC_RENDERER_REVISIONS | {"14"}
 # Revisions that serve the fixed /candidates/ route beside the homepage.
-CANDIDATE_ROUTE_REVISIONS = frozenset({"15", "16"})
+CANDIDATE_ROUTE_REVISIONS = frozenset({"15", "16", "17"})
 # Revisions that set every container clock; earlier ones stay on UTC.
-CONTAINER_TIME_ZONE = {"16": "Asia/Tokyo"}
+CONTAINER_TIME_ZONE = {"16": "Asia/Tokyo", "17": "Asia/Tokyo"}
+# Revisions that serve extra Scratch/WireScope name pairs from public-routes@3.
+WEB_PAIR_REVISIONS = frozenset({"17"})
 
 PUBLIC_SERVICES = [
     {"id": "caddy", "role": "caddy-edge"},
@@ -767,13 +788,18 @@ SCRATCH_RUNTIME_MOUNT = "/usr/share/nginx/html/mc-remote-runtime-config.json"
 
 
 def _compose_public(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str]]:
-    """vps-server@12 to @14: public Caddy edge, Scratch, Bridge, and Minecraft on one host.
+    """vps-server@12 to @15: public Caddy edge, Scratch, Bridge, and Minecraft on one host.
 
     compose@15 (vps-server@13) adds the fixed ``/candidates/`` route. It serves the
     directory beside the artifact store that the operator fills with release
     candidates, separate from the homepage directory that ``homepage sync`` replaces.
     compose@16 (vps-server@14) also sets ``TZ`` in every container, so server logs,
     Discord relays, and ServerBackup schedules read local time instead of UTC.
+    compose@17 (vps-server@15) serves the extra Scratch/WireScope name pairs of
+    public-routes@3. Caddy answers each extra Scratch name's runtime config with
+    that pair's WireScope URL, so one name never hands off to another pair's
+    WireScope. Bridge accepts every Scratch origin, and the Minecraft service
+    answers every allowed sandbox name inside the app network.
     """
 
     if lock["render_plan"]["services"] != PUBLIC_SERVICES:
@@ -842,6 +868,18 @@ def _compose_public(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str
     runtime = _public_runtime_config(lock, routes, scratch_artifact)
     sandbox_allowlist = {routes["minecraft"]}
     sandbox_allowlist.update(target["sandbox"] for target in runtime["connection_targets"])
+    pairs = web_pairs(routes)
+    extra_pairs = pairs[1:]
+    if extra_pairs and revision not in WEB_PAIR_REVISIONS:
+        _render_fail(
+            "render_plan_invalid",
+            "operator_inputs.public-routes.semantic.web_pairs",
+            f"compose@{revision} cannot serve extra Scratch/WireScope name pairs",
+        )
+    if revision in WEB_PAIR_REVISIONS:
+        minecraft_aliases = sorted(sandbox_allowlist)
+    else:
+        minecraft_aliases = [routes["minecraft"]]
 
     plugin_input = _locked_composition_input(
         lock,
@@ -959,6 +997,32 @@ def _compose_public(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str
         homepage_site = """    root * /srv/homepage
     encode zstd gzip
     file_server"""
+    if extra_pairs:
+        caddy_site_mounts.append(
+            {
+                "type": "bind",
+                "source": "./runtime/web-pairs",
+                "target": "/srv/web-pairs",
+                "read_only": True,
+            }
+        )
+    extra_scratch_sites = "".join(
+        f"""
+{pair["scratch"]} {{
+    header Referrer-Policy "strict-origin-when-cross-origin"
+    handle /mc-remote-runtime-config.json {{
+        root * /srv/web-pairs
+        rewrite * /{pair["scratch"]}.json
+        file_server
+    }}
+    handle {{
+        reverse_proxy scratch:8080
+    }}
+}}
+"""
+        for pair in extra_pairs
+    )
+    wirescope_domains = ", ".join(pair["wirescope"] for pair in pairs)
     caddyfile = f"""# Generated by mcrctl {adapter}. Do not edit.
 {homepage_domains} {{
 {homepage_site}
@@ -968,12 +1032,12 @@ def _compose_public(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str
     header Referrer-Policy "strict-origin-when-cross-origin"
     reverse_proxy scratch:8080
 }}
-
+{extra_scratch_sites}
 {routes["bridge"]} {{
     reverse_proxy bridge:8080
 }}
 
-{routes["wirescope"]} {{
+{wirescope_domains} {{
     root * /srv/wirescope
     header {{
         Cross-Origin-Opener-Policy "unsafe-none"
@@ -1030,7 +1094,9 @@ def _compose_public(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str
                 "environment": {
                     "BRIDGE_WS_HOST": "0.0.0.0",
                     "BRIDGE_WS_PORT": "8080",
-                    "BRIDGE_ORIGIN_ALLOWLIST": f"https://{routes['scratch']}",
+                    "BRIDGE_ORIGIN_ALLOWLIST": ",".join(
+                        f"https://{pair['scratch']}" for pair in pairs
+                    ),
                     "BRIDGE_SANDBOX_ALLOWLIST": ",".join(sorted(sandbox_allowlist)),
                     "BRIDGE_DEFAULT_SANDBOX": routes["minecraft"],
                     "BRIDGE_SANDBOX_PORT": "25575",
@@ -1067,7 +1133,7 @@ def _compose_public(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str
                 ),
                 "volumes": minecraft_volumes,
                 "networks": {
-                    "app": {"aliases": [routes["minecraft"]]},
+                    "app": {"aliases": minecraft_aliases},
                     "egress": {"gw_priority": 1},
                 },
                 "labels": {
@@ -1092,7 +1158,7 @@ def _compose_public(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str
     if time_zone is not None:
         for service in compose["services"].values():
             service.setdefault("environment", {})["TZ"] = time_zone
-    return compose, {
+    rendered_files = {
         "Caddyfile": caddyfile,
         "runtime/scratch.json": json.dumps(runtime, ensure_ascii=False, indent=2) + "\n",
         "minecraft/server.properties": _public_server_properties(lock, adapter=adapter),
@@ -1100,6 +1166,12 @@ def _compose_public(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str
             adapter=adapter, minecraft_version=minecraft_version
         ),
     }
+    for pair in extra_pairs:
+        pair_runtime = {**runtime, "wirescope_url": f"https://{pair['wirescope']}/"}
+        rendered_files[web_pair_runtime_path(pair)] = (
+            json.dumps(pair_runtime, ensure_ascii=False, indent=2) + "\n"
+        )
+    return compose, rendered_files
 
 
 def _compose_v14(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str]]:

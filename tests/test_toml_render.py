@@ -729,7 +729,7 @@ def test_public_renderer_rejects_missing_peripheral_plugin(tmp_path: Path) -> No
     assert exc_info.value.reason == "runtime_content_missing"
 
 
-@pytest.mark.parametrize("profile", ["vps-server@13", "vps-server@14"])
+@pytest.mark.parametrize("profile", ["vps-server@13", "vps-server@14", "vps-server@15"])
 def test_public_render_serves_release_candidates_beside_the_homepage(
     tmp_path: Path, profile: str
 ) -> None:
@@ -763,7 +763,7 @@ def test_public_render_serves_release_candidates_beside_the_homepage(
     } in compose["services"]["caddy"]["volumes"]
 
 
-@pytest.mark.parametrize("profile", ["vps-server@13", "vps-server@14"])
+@pytest.mark.parametrize("profile", ["vps-server@13", "vps-server@14", "vps-server@15"])
 def test_public_render_requires_the_operator_candidate_directory(
     tmp_path: Path, profile: str
 ) -> None:
@@ -777,7 +777,10 @@ def test_public_render_requires_the_operator_candidate_directory(
     assert not fixture.output.exists()
 
 
-@pytest.mark.parametrize(("profile", "revision"), [("vps-server@13", "15"), ("vps-server@14", "16")])
+@pytest.mark.parametrize(
+    ("profile", "revision"),
+    [("vps-server@13", "15"), ("vps-server@14", "16"), ("vps-server@15", "17")],
+)
 def test_public_render_second_render_over_managed_output_is_noop(
     tmp_path: Path, profile: str, revision: str
 ) -> None:
@@ -835,7 +838,12 @@ def test_public_render_moves_from_compose_v15_to_v16_in_one_output(tmp_path: Pat
 
 @pytest.mark.parametrize(
     ("profile", "time_zone"),
-    [("vps-server@12", None), ("vps-server@13", None), ("vps-server@14", "Asia/Tokyo")],
+    [
+        ("vps-server@12", None),
+        ("vps-server@13", None),
+        ("vps-server@14", "Asia/Tokyo"),
+        ("vps-server@15", "Asia/Tokyo"),
+    ],
 )
 def test_public_render_sets_the_container_time_zone_from_compose_v16(
     tmp_path: Path, profile: str, time_zone: str | None
@@ -848,3 +856,81 @@ def test_public_render_sets_the_container_time_zone_from_compose_v16(
     for service in ("caddy", "scratch", "bridge", "minecraft"):
         environment = compose["services"][service].get("environment", {})
         assert environment.get("TZ") == time_zone, service
+
+
+def test_compose_v17_hands_each_scratch_name_to_its_own_wirescope(tmp_path: Path) -> None:
+    fixture = build_vps_fixture(tmp_path, profile="vps-server@15")
+
+    render_toml_project(fixture.project, fixture.output, data_root=fixture.data_root)
+
+    primary = json.loads((fixture.output / "runtime/scratch.json").read_text(encoding="utf-8"))
+    paired = json.loads(
+        (fixture.output / "runtime/web-pairs/scratch.mc-remote.example.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert primary["wirescope_url"] == "https://wirescope-beta.mc-remote.example/"
+    assert paired == {**primary, "wirescope_url": "https://wirescope.mc-remote.example/"}
+    caddyfile = (fixture.output / "Caddyfile").read_text(encoding="utf-8")
+    beta_site = caddyfile.split("scratch-beta.mc-remote.example {", 1)[1].split("\n}\n", 1)[0]
+    stable_site = caddyfile.split("\nscratch.mc-remote.example {", 1)[1].split("\n}\n", 1)[0]
+    assert "/srv/web-pairs" not in beta_site
+    assert "rewrite * /scratch.mc-remote.example.json" in stable_site
+    assert 'Referrer-Policy "strict-origin-when-cross-origin"' in stable_site
+    assert "wirescope-beta.mc-remote.example, wirescope.mc-remote.example {" in caddyfile
+    compose = yaml.safe_load((fixture.output / "compose.yaml").read_text(encoding="utf-8"))
+    assert compose["services"]["bridge"]["environment"]["BRIDGE_ORIGIN_ALLOWLIST"] == (
+        "https://scratch-beta.mc-remote.example,https://scratch.mc-remote.example"
+    )
+    assert {
+        "type": "bind",
+        "source": "./runtime/web-pairs",
+        "target": "/srv/web-pairs",
+        "read_only": True,
+    } in compose["services"]["caddy"]["volumes"]
+
+
+def test_compose_v17_aliases_minecraft_for_every_allowed_sandbox(tmp_path: Path) -> None:
+    fixture = build_vps_fixture(tmp_path, profile="vps-server@15")
+    targets = fixture.project / "operator/connection-targets/targets.toml"
+    targets.write_text(
+        targets.read_text(encoding="utf-8").replace(
+            "[[notices]]",
+            '[[targets]]\nid = "stable"\nlabel = "安定版"\nsandbox = "sb.mc-remote.example"\n\n'
+            "[[notices]]",
+        ),
+        encoding="utf-8",
+    )
+    resolve_project(
+        fixture.project,
+        data_root=fixture.data_root,
+        allow_unverified=True,
+        resolved_at=SECOND_RESOLVED_AT,
+    )
+
+    render_toml_project(fixture.project, fixture.output, data_root=fixture.data_root)
+
+    compose = yaml.safe_load((fixture.output / "compose.yaml").read_text(encoding="utf-8"))
+    sandboxes = ["sb-beta.mc-remote.example", "sb.mc-remote.example"]
+    assert compose["services"]["minecraft"]["networks"]["app"]["aliases"] == sandboxes
+    bridge = compose["services"]["bridge"]["environment"]
+    assert bridge["BRIDGE_SANDBOX_ALLOWLIST"] == ",".join(sandboxes)
+
+
+def test_public_render_moves_from_compose_v16_to_v17_in_one_output(tmp_path: Path) -> None:
+    (tmp_path / "source").mkdir()
+    (tmp_path / "target").mkdir()
+    source = build_vps_fixture(tmp_path / "source", profile="vps-server@14")
+    target = build_vps_fixture(tmp_path / "target", profile="vps-server@15")
+    output = tmp_path / "generated"
+
+    def render(fixture) -> tuple[str, str]:
+        result = render_toml_project(fixture.project, output, data_root=fixture.data_root)
+        manifest = json.loads((output / "render-manifest.json").read_text(encoding="utf-8"))
+        return result.status, manifest["adapter_revision"]
+
+    assert render(source) == ("created", "16")
+    assert render(target) == ("replaced", "17")
+    assert (output / "runtime/web-pairs/scratch.mc-remote.example.json").is_file()
+    assert render(source) == ("replaced", "16")
+    assert not (output / "runtime/web-pairs").exists()
