@@ -148,6 +148,8 @@ Composeの`run`は、このcommandではserviceの公開portを割り当てま�
 
 Minecraft data volume内の`/data/plugins/*.jar`のSHA-256を、lockとplugin入力へ照合します。LuckPerms、Geyser、Floodgate、ViaVersion、ViaBackwardsが揃うことも確認します。これはファイル配置の確認であり、pluginの起動や権限判定の確認は初回起動後に行います。
 
+LuckPermsを入れていない環境へ後から入れるときは、permissionの`mcr.online`／`mcr.offline`と、metaの`mcr.build.range`／`mcr.build.blocks`を一緒に設定します。一つでも無いと、認証が通っても、chatやブロックの設置が拒まれます。値は接続時に読まれるので、設定した後は接続し直します。
+
 準備が終わったら、会話で「次セットの準備が完了し、旧セットは稼働中」と伝えます。ゲームサーバーと公開入口の切替は、次の切替手順で進めます。
 
 最後に、一時containerが終了・削除されていることと、稼働中セットのdoctorが引き続き正常であることを確認します。
