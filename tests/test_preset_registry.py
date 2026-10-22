@@ -522,6 +522,7 @@ def test_bundled_registry_offers_only_current_profiles_and_presets() -> None:
         "public-web-paper@13",
         "public-web-paper@14",
         "public-web-paper@15",
+        "public-web-paper@16",
     ]
     assert public.data["renderer"] == {"name": "compose", "revision": "13"}
     assert load_profile("vps-server@14").data["renderer"] == {"name": "compose", "revision": "16"}
@@ -559,6 +560,33 @@ def test_public_web_paper_15_pins_the_published_rc1_set_on_paper_1_21_11() -> No
         "ec79b3b0e364e722d6926a0932eb4bf088ddd3a1"
     )
 
+
+def test_public_web_paper_16_pins_rc2_on_paper_26_3_and_java_25() -> None:
+    preset = load_preset("public-web-paper@16")
+    rc1 = load_preset("public-web-paper@15")
+
+    artifacts = {item["id"]: item for item in preset.data["artifacts"]}
+    assert {
+        artifact_id: artifacts[artifact_id].get("digest") or artifacts[artifact_id]["sha256"]
+        for artifact_id in ("mcremote-jar", "paper-jar", "minecraft-image")
+    } == {
+        "mcremote-jar": "ce66abaf41a94800217a11161145b9f868333b7bfa605fd1f77b888878620e50",
+        "paper-jar": "0fcb63f341abe5d8370d354bb2e39d47c917d8010c817f4567f89e97b5c3ecf9",
+        "minecraft-image": (
+            "sha256:6ec1110e4d9236d00ae9436a3e4a5929583e5b19cc94b756a7c603f7cf647a77"
+        ),
+    }
+    assert artifacts["minecraft-image"]["version"] == "2026.7.2-java25"
+    components = {item["id"]: item for item in preset.data["components"]}
+    assert components["paper-server"]["minecraft_version"] == "26.3"
+    assert components["mcremote-paper"]["protocol"] == "23.2.1"
+    # Scratch, Bridge, WireScope, and Caddy stay on the rc1 set.
+    rc1_artifacts = {item["id"]: item for item in rc1.data["artifacts"]}
+    for artifact_id in (
+        "caddy-image", "scratch-image", "bridge-image", "wirescope-zip", "wirescope-manifest",
+    ):
+        assert artifacts[artifact_id] == rc1_artifacts[artifact_id]
+    assert preset.data["scratch_runtime_contract"] == rc1.data["scratch_runtime_contract"]
 
 def test_public_web_paper_11_pins_manifest_published_post2_artifacts() -> None:
     preset = load_preset("public-web-paper@11")
