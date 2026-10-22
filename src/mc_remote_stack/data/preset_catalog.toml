@@ -3,7 +3,7 @@ schema_version = 1
 [preset_catalog]
 generator = "mcrctl-preset-catalog-v1"
 canonicalization = "jcs-rfc8785-v1"
-source_sha256 = "d1f880917bfdb5bdd63add168fb27de76472dd0cca16ade720de219cda444083"
+source_sha256 = "9b068a6fbb91694f2e9c611d6be690492d69fe63a8b68702a10e1f12dd69f296"
 
 [[preset_catalog.presets]]
 ref = "classroom@1"
@@ -74,5 +74,14 @@ content_sha256 = "b6d3f2dcb157e2e2d9baacd4cdaf8846923046223dbe3fd4933d7f52d5fc99
 description = "公式rc1 Releaseから収集した公開VPSセット（Paper 1.21.11／Java 21）"
 status = "active"
 available_since = "2026-10-19"
+required_profile_capabilities = ["compose", "mcremote-auth-enforced", "mcremote-session-only", "paper", "persistent-world", "public-web", "scratch-runtime", "websocket-bridge", "wirescope-browser"]
+allowed_channels = ["beta"]
+
+[[preset_catalog.presets]]
+ref = "public-web-paper@16"
+content_sha256 = "3c59941f93e46b1d0bbdff4a09153dba971bda25505bee0eb0f2b7c02996ee47"
+description = "McRemote rc2とScratch／Bridge／WireScope rc1の公開VPSセット（Paper 26.3／Java 25）"
+status = "active"
+available_since = "2026-10-22"
 required_profile_capabilities = ["compose", "mcremote-auth-enforced", "mcremote-session-only", "paper", "persistent-world", "public-web", "scratch-runtime", "websocket-bridge", "wirescope-browser"]
 allowed_channels = ["beta"]
