@@ -427,13 +427,20 @@ def _minecraft_port_publications(
     *,
     bind_address: str | None,
     java_port: int,
-    bedrock_port: int,
     mcremote_port: int,
+    geyser_port: bool = False,
 ) -> list[str]:
     prefix = f"{bind_address}:" if bind_address is not None else ""
+    if geyser_port:
+        bedrock = [
+            f"{prefix}{GEYSER_PORT}:{GEYSER_PORT}/tcp",
+            f"{prefix}{GEYSER_PORT}:{GEYSER_PORT}/udp",
+        ]
+    else:
+        bedrock = [f"{prefix}{java_port}:25565/udp"]
     return [
         f"{prefix}{java_port}:25565/tcp",
-        f"{prefix}{bedrock_port}:25565/udp",
+        *bedrock,
         f"{prefix}{mcremote_port}:25575/tcp",
     ]
 
@@ -653,16 +660,21 @@ def _locked_composition_input(
 
 
 # compose@13 (vps-server@12), compose@15 (vps-server@13), compose@16
-# (vps-server@14), and compose@17 (vps-server@15) render the public VPS;
-# compose@14 renders the home set.
-PUBLIC_RENDERER_REVISIONS = frozenset({"13", "15", "16", "17"})
+# (vps-server@14), compose@17 (vps-server@15), and compose@18 (vps-server@16)
+# render the public VPS; compose@14 renders the home set.
+PUBLIC_RENDERER_REVISIONS = frozenset({"13", "15", "16", "17", "18"})
 SUPPORTED_RENDERER_REVISIONS = PUBLIC_RENDERER_REVISIONS | {"14"}
 # Revisions that serve the fixed /candidates/ route beside the homepage.
-CANDIDATE_ROUTE_REVISIONS = frozenset({"15", "16", "17"})
+CANDIDATE_ROUTE_REVISIONS = frozenset({"15", "16", "17", "18"})
 # Revisions that set every container clock; earlier ones stay on UTC.
-CONTAINER_TIME_ZONE = {"16": "Asia/Tokyo", "17": "Asia/Tokyo"}
+CONTAINER_TIME_ZONE = {"16": "Asia/Tokyo", "17": "Asia/Tokyo", "18": "Asia/Tokyo"}
 # Revisions that serve extra Scratch/WireScope name pairs from public-routes@3.
-WEB_PAIR_REVISIONS = frozenset({"17"})
+WEB_PAIR_REVISIONS = frozenset({"17", "18"})
+# Revisions that give Geyser its own port over TCP and UDP. NetherNet signaling
+# needs TCP on the Geyser port, which Java already holds on 25565; earlier
+# revisions publish Geyser as UDP on the Java port number.
+GEYSER_PORT_REVISIONS = frozenset({"18"})
+GEYSER_PORT = 19132
 
 PUBLIC_SERVICES = [
     {"id": "caddy", "role": "caddy-edge"},
@@ -788,7 +800,7 @@ SCRATCH_RUNTIME_MOUNT = "/usr/share/nginx/html/mc-remote-runtime-config.json"
 
 
 def _compose_public(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str]]:
-    """vps-server@12 to @15: public Caddy edge, Scratch, Bridge, and Minecraft on one host.
+    """vps-server@12 to @16: public Caddy edge, Scratch, Bridge, and Minecraft on one host.
 
     compose@15 (vps-server@13) adds the fixed ``/candidates/`` route. It serves the
     directory beside the artifact store that the operator fills with release
@@ -800,6 +812,8 @@ def _compose_public(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str
     that pair's WireScope URL, so one name never hands off to another pair's
     WireScope. Bridge accepts every Scratch origin, and the Minecraft service
     answers every allowed sandbox name inside the app network.
+    compose@18 (vps-server@16) publishes Geyser on its own port 19132 over TCP
+    and UDP, for NetherNet, instead of UDP on the Java port number.
     """
 
     if lock["render_plan"]["services"] != PUBLIC_SERVICES:
@@ -1128,8 +1142,8 @@ def _compose_public(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str
                 "ports": _minecraft_port_publications(
                     bind_address="0.0.0.0",
                     java_port=network["java_port"],
-                    bedrock_port=network["java_port"],
                     mcremote_port=network["mcremote_port"],
+                    geyser_port=revision in GEYSER_PORT_REVISIONS,
                 ),
                 "volumes": minecraft_volumes,
                 "networks": {
@@ -1385,7 +1399,6 @@ def _compose_v14(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str]]:
                 "ports": _minecraft_port_publications(
                     bind_address=network["bind_address"],
                     java_port=network["java_port"],
-                    bedrock_port=network["java_port"],
                     mcremote_port=network["mcremote_port"],
                 ),
                 "volumes": [

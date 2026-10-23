@@ -745,7 +745,9 @@ def test_doctor_rejects_tokenless_hello_when_auth_enforcement_is_required(
     assert exc_info.value.reason == "doctor_auth_not_enforced"
 
 
-@pytest.mark.parametrize("profile", ["vps-server@13", "vps-server@14", "vps-server@15"])
+@pytest.mark.parametrize(
+    "profile", ["vps-server@13", "vps-server@14", "vps-server@15", "vps-server@16"]
+)
 def test_doctor_checks_public_content_from_compose_v15(tmp_path: Path, profile: str) -> None:
     fixture = build_vps_fixture(tmp_path, profile=profile)
     render_toml_project(fixture.project, fixture.output, data_root=fixture.data_root)
@@ -936,6 +938,31 @@ def test_doctor_rejects_live_port_drift_before_protocol_probe(tmp_path: Path) ->
             runner=FakeDocker(_vps_doctor_responses(output, lock, containers=containers)),
             hello_probe=lambda *_args: pytest.fail("hello probe must not run"),
             **_vps_public_probes(output),
+        )
+
+    assert exc_info.value.reason == "doctor_network_mismatch"
+
+
+def test_doctor_rejects_the_old_bedrock_port_on_compose_v18(tmp_path: Path) -> None:
+    """A container left on the vps-server@15 ports has not moved Geyser to 19132."""
+
+    fixture = build_vps_fixture(tmp_path, profile="vps-server@16")
+    render_toml_project(fixture.project, fixture.output, data_root=fixture.data_root)
+    lock = load_lock(fixture.project, data_root=fixture.data_root)
+    containers = rendered_containers(fixture.output)
+    ports = _minecraft(containers)["NetworkSettings"]["Ports"]
+    del ports["19132/tcp"], ports["19132/udp"]
+    ports["25565/udp"] = [{"HostIp": "0.0.0.0", "HostPort": "25565"}]
+
+    with pytest.raises(DoctorContractError) as exc_info:
+        doctor_toml_project(
+            fixture.project,
+            fixture.output,
+            docker_context="default",
+            data_root=fixture.data_root,
+            runner=FakeDocker(_vps_doctor_responses(fixture.output, lock, containers=containers)),
+            hello_probe=lambda *_args: pytest.fail("hello probe must not run"),
+            **_vps_public_probes(fixture.output),
         )
 
     assert exc_info.value.reason == "doctor_network_mismatch"
