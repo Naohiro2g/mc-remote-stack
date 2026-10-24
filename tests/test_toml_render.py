@@ -729,7 +729,9 @@ def test_public_renderer_rejects_missing_peripheral_plugin(tmp_path: Path) -> No
     assert exc_info.value.reason == "runtime_content_missing"
 
 
-@pytest.mark.parametrize("profile", ["vps-server@13", "vps-server@14", "vps-server@15"])
+@pytest.mark.parametrize(
+    "profile", ["vps-server@13", "vps-server@14", "vps-server@15", "vps-server@16"]
+)
 def test_public_render_serves_release_candidates_beside_the_homepage(
     tmp_path: Path, profile: str
 ) -> None:
@@ -763,7 +765,9 @@ def test_public_render_serves_release_candidates_beside_the_homepage(
     } in compose["services"]["caddy"]["volumes"]
 
 
-@pytest.mark.parametrize("profile", ["vps-server@13", "vps-server@14", "vps-server@15"])
+@pytest.mark.parametrize(
+    "profile", ["vps-server@13", "vps-server@14", "vps-server@15", "vps-server@16"]
+)
 def test_public_render_requires_the_operator_candidate_directory(
     tmp_path: Path, profile: str
 ) -> None:
@@ -779,7 +783,12 @@ def test_public_render_requires_the_operator_candidate_directory(
 
 @pytest.mark.parametrize(
     ("profile", "revision"),
-    [("vps-server@13", "15"), ("vps-server@14", "16"), ("vps-server@15", "17")],
+    [
+        ("vps-server@13", "15"),
+        ("vps-server@14", "16"),
+        ("vps-server@15", "17"),
+        ("vps-server@16", "18"),
+    ],
 )
 def test_public_render_second_render_over_managed_output_is_noop(
     tmp_path: Path, profile: str, revision: str
@@ -837,12 +846,44 @@ def test_public_render_moves_from_compose_v15_to_v16_in_one_output(tmp_path: Pat
 
 
 @pytest.mark.parametrize(
+    ("profile", "minecraft_ports"),
+    [
+        (
+            "vps-server@15",
+            ["0.0.0.0:25565:25565/tcp", "0.0.0.0:25565:25565/udp", "0.0.0.0:25575:25575/tcp"],
+        ),
+        (
+            "vps-server@16",
+            [
+                "0.0.0.0:25565:25565/tcp",
+                "0.0.0.0:19132:19132/tcp",
+                "0.0.0.0:19132:19132/udp",
+                "0.0.0.0:25575:25575/tcp",
+            ],
+        ),
+    ],
+)
+def test_public_render_gives_geyser_its_own_port_from_compose_v18(
+    tmp_path: Path, profile: str, minecraft_ports: list[str]
+) -> None:
+    """NetherNet signaling needs TCP on the Geyser port, which Java already holds on 25565."""
+
+    fixture = build_vps_fixture(tmp_path, profile=profile)
+
+    render_toml_project(fixture.project, fixture.output, data_root=fixture.data_root)
+
+    compose = yaml.safe_load((fixture.output / "compose.yaml").read_text(encoding="utf-8"))
+    assert compose["services"]["minecraft"]["ports"] == minecraft_ports
+
+
+@pytest.mark.parametrize(
     ("profile", "time_zone"),
     [
         ("vps-server@12", None),
         ("vps-server@13", None),
         ("vps-server@14", "Asia/Tokyo"),
         ("vps-server@15", "Asia/Tokyo"),
+        ("vps-server@16", "Asia/Tokyo"),
     ],
 )
 def test_public_render_sets_the_container_time_zone_from_compose_v16(

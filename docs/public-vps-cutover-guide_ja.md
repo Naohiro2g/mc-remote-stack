@@ -142,7 +142,7 @@ docker compose --project-name "$NEXT_DEPLOYMENT" \
 - world名とdimension、creative等の採用設定、引き継いだ権限・認証データ
 - `vps-server@14`以降はcontainerの時刻がJST（`TZ=Asia/Tokyo`）。server logとDiscordへ送られるlogの時刻を確認する。ServerBackupの予定時刻もJSTで読まれるので、UTCのつもりで書いた予定は9時間早く動く
 - 公開HTTPS、認証付きScratchのペアリング／hello／chat、WireScopeでの応答、notice表示
-- JavaのTCPと統合版のUDPを別々に、VPS外の端末から確認
+- Javaと統合版を別々に、VPS外の端末から確認。`vps-server@16`以降の統合版は19132でつなぐ
 - 新しいbackup保存先と、既存の暗号化・転送・予約実行の参照先
 
 起動後のdoctorが正常であることを確認した時点で、その結果と時刻を伝えます。外部端末での接続や実backup転送がまだなら、それらは確認中として報告します。

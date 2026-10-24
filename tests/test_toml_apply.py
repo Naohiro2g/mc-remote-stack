@@ -14,7 +14,7 @@ from mc_remote_stack.apply import (
     apply_toml_project,
 )
 from mc_remote_stack.cli import main
-from mc_remote_stack.render import render_toml_project
+from mc_remote_stack.render import GEYSER_PORT, GEYSER_PORT_REVISIONS, render_toml_project
 from mc_remote_stack.resolver import load_lock
 
 from .test_toml_render import _render_fixture
@@ -280,6 +280,8 @@ def _read_only_responses(
     )
     if lock and "caddy" in _service_ids(lock):
         ports = ["80", "443", *ports]
+    if lock and lock["render_plan"]["adapter_revision"] in GEYSER_PORT_REVISIONS:
+        ports.append(str(GEYSER_PORT))
     container_stdout = "".join(f"{value}\n" for value in (project_containers or []))
     commands = {
         ("docker", "context", "inspect", "default"): [
@@ -333,7 +335,8 @@ def _read_only_responses(
 
 
 @pytest.mark.parametrize(
-    "profile", ["vps-server@12", "vps-server@13", "vps-server@14", "vps-server@15"]
+    "profile",
+    ["vps-server@12", "vps-server@13", "vps-server@14", "vps-server@15", "vps-server@16"],
 )
 def test_bootstrap_apply_is_bound_to_current_lock_and_verified_render(
     tmp_path: Path,
@@ -365,10 +368,12 @@ def test_bootstrap_apply_is_bound_to_current_lock_and_verified_render(
     assert result.service == "caddy,scratch,bridge,minecraft"
     assert sorted(result.volume.split(",")) == sorted(_volume_names(lock))
     # Every host port the canonical render publishes, including the public edge.
+    geyser = [("0.0.0.0", GEYSER_PORT)] if profile == "vps-server@16" else []
     assert probed == [
         ("0.0.0.0", 80),
         ("0.0.0.0", 443),
         ("0.0.0.0", 25565),
+        *geyser,
         ("0.0.0.0", 25575),
     ]
     assert progress == [
@@ -673,7 +678,8 @@ def test_failed_compose_up_rolls_back_containers_but_retains_world_volume(
 
 
 @pytest.mark.parametrize(
-    "profile", ["vps-server@12", "vps-server@13", "vps-server@14", "vps-server@15"]
+    "profile",
+    ["vps-server@12", "vps-server@13", "vps-server@14", "vps-server@15", "vps-server@16"],
 )
 def test_exact_running_bootstrap_is_an_apply_noop(tmp_path: Path, profile: str) -> None:
     project, data_root, output, lock = _prepared_project(tmp_path, profile=profile)

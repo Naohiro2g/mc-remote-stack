@@ -36,7 +36,7 @@ releaseの収集は[release artifact／preset準備手順](release-preset-prepar
 - 公開URLと認証、`mcrctl operator check`、`mcrctl doctor`の結果
 - 空きメモリ、空きディスク、コピーするデータ量とbackupの状態
 
-Javaと統合版は別の通信です。このVPS構成は、JavaにTCP、Geyserに同じ番号のUDPを使います。WebのHTTPS転送だけでは統合版の接続確認になりません。
+Javaと統合版は別の通信です。`vps-server@15`までは、JavaにTCP、Geyserに同じ番号のUDPを使います。`vps-server@16`以降は、Geyserに19132のTCPとUDPを使います。WebのHTTPS転送だけでは統合版の接続確認になりません。
 
 資源があっても、同じIPとportには二つのセットを同時に起動できません。ここでは次セットのファイル配置まで進め、現在の公開入口とゲームportは稼働中セットが使い続けます。
 
@@ -82,6 +82,14 @@ cp -a "$SOURCE_PROJECT/operator" "$NEXT_PROJECT/operator"
 [[web_pairs]]
 scratch = "scratch.mc-remote.com"
 wirescope = "wirescope.mc-remote.com"
+```
+
+`vps-server@16`以降は、Geyserを19132で受けます。統合版の新しい接続方式（NetherNet）は、最初にTCPでGeyserへ問い合わせ、そのあとUDPで遊びます。JavaがTCP 25565を使うので、Geyserは別の番号にします。Geyserの設定はStackが作らず、Minecraft data volume内の`plugins/Geyser-Spigot/config.yml`にあるので、`bedrock`の次の2つを書き換えます。hostのUFW、providerのport許可、Docker用フィルタでも、19132をTCPとUDPの両方で通します。統合版の利用者は、つなぎ先のportを19132に変えます。
+
+```yaml
+bedrock:
+  port: 19132
+  transport: nethernet
 ```
 
 noticeは[Scratchのお知らせ編集手順](scratch-notice-guide_ja.md)で一時ファイルを編集し、まだ稼働していない次セットの入力へ収容します。運用者noticeと製品noticeの表示を合わせて確認します。画面での確認は切替後です。

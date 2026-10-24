@@ -1,6 +1,6 @@
 """Test-owned public VPS deployment fixture for vps-server@12 / compose@13,
-vps-server@13 / compose@15, vps-server@14 / compose@16, and vps-server@15 /
-compose@17.
+vps-server@13 / compose@15, vps-server@14 / compose@16, vps-server@15 /
+compose@17, and vps-server@16 / compose@18.
 
 Mechanism tests (render, apply, doctor, world restore, artifact fetch) build on
 this fixture instead of copying product presets, so adding or retiring a

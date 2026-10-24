@@ -18,6 +18,8 @@ from urllib.request import Request, urlopen
 from .apply import DOCKER_CONTEXT, compose_render_status
 from .render import (
     CANDIDATE_ROUTE_REVISIONS,
+    GEYSER_PORT,
+    GEYSER_PORT_REVISIONS,
     PUBLIC_RENDERER_REVISIONS,
     SUPPORTED_RENDERER_REVISIONS,
     RenderContractError,
@@ -737,7 +739,12 @@ def _validate_container(
             ],
         }
         renderer_revision = lock["render_plan"]["adapter_revision"]
-        if renderer_revision in SUPPORTED_RENDERER_REVISIONS:
+        if renderer_revision in GEYSER_PORT_REVISIONS:
+            for protocol in ("tcp", "udp"):
+                expected_ports[f"{GEYSER_PORT}/{protocol}"] = [
+                    {"HostIp": address, "HostPort": str(GEYSER_PORT)}
+                ]
+        elif renderer_revision in SUPPORTED_RENDERER_REVISIONS:
             expected_ports["25565/udp"] = [
                 {
                     "HostIp": address,
