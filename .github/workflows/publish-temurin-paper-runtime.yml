@@ -55,3 +55,14 @@ jobs:
         env:
           IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
         run: echo "Published ghcr.io/naohiro2g/mc-remote-paper-runtime-temurin@${IMAGE_DIGEST}"
+
+      - name: Verify published Java version metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          image='ghcr.io/naohiro2g/mc-remote-paper-runtime-temurin:temurin-25.0.5-8'
+          docker pull "$image"
+          docker image inspect "$image" --format '{{range .Config.Env}}{{println .}}{{end}}' \
+            | grep -Fx 'JAVA_VERSION=jdk-25.0.5+8'
+          docker run --rm --network none --entrypoint java "$image" -version 2>&1 \
+            | grep -F '25.0.5+8'
