@@ -6,5 +6,7 @@ RUN test "$JAVA_HOME" = "/opt/java/openjdk" \
 
 COPY runtime/ /opt/java/openjdk/
 
+ENV JAVA_VERSION=jdk-25.0.5+8
+
 LABEL org.opencontainers.image.source="https://github.com/Naohiro2g/mc-remote-stack"
 LABEL org.opencontainers.image.version="temurin-25.0.5-8"
