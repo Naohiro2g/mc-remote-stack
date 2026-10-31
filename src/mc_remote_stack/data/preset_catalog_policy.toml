@@ -43,3 +43,8 @@ available_since = "2026-10-19"
 ref = "public-web-paper@16"
 status = "active"
 available_since = "2026-10-22"
+
+[[presets]]
+ref = "public-web-paper@17"
+status = "active"
+available_since = "2026-11-01"
