@@ -664,21 +664,28 @@ def _locked_composition_input(
 
 # compose@13 (vps-server@12), compose@15 (vps-server@13), compose@16
 # (vps-server@14), compose@17 (vps-server@15), compose@18 (vps-server@16),
-# and compose@19 (vps-server@17)
+# compose@19 (vps-server@17), and compose@20 (vps-server@18)
 # render the public VPS; compose@14 renders the home set.
-PUBLIC_RENDERER_REVISIONS = frozenset({"13", "15", "16", "17", "18", "19"})
+PUBLIC_RENDERER_REVISIONS = frozenset({"13", "15", "16", "17", "18", "19", "20"})
 SUPPORTED_RENDERER_REVISIONS = PUBLIC_RENDERER_REVISIONS | {"14"}
 # Revisions that serve the fixed /candidates/ route beside the homepage.
-CANDIDATE_ROUTE_REVISIONS = frozenset({"15", "16", "17", "18", "19"})
+CANDIDATE_ROUTE_REVISIONS = frozenset({"15", "16", "17", "18", "19", "20"})
 # Revisions that set every container clock; earlier ones stay on UTC.
-CONTAINER_TIME_ZONE = {"16": "Asia/Tokyo", "17": "Asia/Tokyo", "18": "Asia/Tokyo", "19": "Asia/Tokyo"}
+CONTAINER_TIME_ZONE = {
+    "16": "Asia/Tokyo",
+    "17": "Asia/Tokyo",
+    "18": "Asia/Tokyo",
+    "19": "Asia/Tokyo",
+    "20": "Asia/Tokyo",
+}
 # Revisions that serve extra Scratch/WireScope name pairs from public-routes@3.
-WEB_PAIR_REVISIONS = frozenset({"17", "18", "19"})
-PER_ORIGIN_TARGET_REVISIONS = frozenset({"19"})
+WEB_PAIR_REVISIONS = frozenset({"17", "18", "19", "20"})
+PER_ORIGIN_TARGET_REVISIONS = frozenset({"19", "20"})
+HEAP_ENV_REVISIONS = frozenset({"20"})
 # Revisions that give Geyser its own port over TCP and UDP. NetherNet signaling
 # needs TCP on the Geyser port, which Java already holds on 25565; earlier
 # revisions publish Geyser as UDP on the Java port number.
-GEYSER_PORT_REVISIONS = frozenset({"18", "19"})
+GEYSER_PORT_REVISIONS = frozenset({"18", "19", "20"})
 GEYSER_PORT = 19132
 
 PUBLIC_SERVICES = [
@@ -863,7 +870,8 @@ def _compose_public(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str
     and UDP, for NetherNet, instead of UDP on the Java port number.
 
     compose@19 (vps-server@17) selects targets and a default for each Scratch
-    origin, using the common connection-targets@4 catalog.
+    origin, using the common connection-targets@4 catalog. compose@20
+    (vps-server@18) adds a required, locked Minecraft heap setting.
     """
 
     if lock["render_plan"]["services"] != PUBLIC_SERVICES:
@@ -925,6 +933,13 @@ def _compose_public(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str
             "render_plan_invalid",
             "components.paper-server.minecraft_version",
             "the public renderer requires an explicit Minecraft target version",
+        )
+    heap = lock.get("minecraft", {}).get("heap")
+    if revision in HEAP_ENV_REVISIONS and heap is None:
+        _render_fail(
+            "render_plan_invalid",
+            "minecraft.heap",
+            f"compose@{revision} requires a locked Minecraft heap",
         )
 
     routes = _locked_public_routes(lock)
@@ -1188,6 +1203,11 @@ def _compose_public(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str
                     "SYNC_SKIP_NEWER_IN_DESTINATION": "true",
                     "REPLACE_ENV_DURING_SYNC": "false",
                     "LEVEL": lock["world"]["identity"],
+                    **(
+                        {"INIT_MEMORY": heap, "MEMORY": heap}
+                        if revision in HEAP_ENV_REVISIONS and heap is not None
+                        else {}
+                    ),
                 },
                 "ports": _minecraft_port_publications(
                     bind_address="0.0.0.0",

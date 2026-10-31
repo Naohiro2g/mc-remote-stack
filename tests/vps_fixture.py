@@ -348,6 +348,7 @@ def build_vps_fixture(
     identity: str = "official-vps",
     mcremote_artifact: str | None = None,
     profile: str = PROFILE,
+    minecraft_heap: str | None = None,
 ) -> VpsFixture:
     """Create one resolved public VPS project with test-owned artifacts.
 
@@ -417,6 +418,15 @@ def build_vps_fixture(
         mcremote_port=25575,
         minecraft_eula=True,
     ).root
+
+    if minecraft_heap is not None:
+        order_path = project / "mc-remote.toml"
+        order_path.write_text(
+            order_path.read_text(encoding="utf-8").replace(
+                "[world]", f'[minecraft]\nheap = "{minecraft_heap}"\n\n[world]'
+            ),
+            encoding="utf-8",
+        )
 
     inputs = dict(OPERATOR_INPUTS)
     if f'adapter = "{PUBLIC_ROUTES_V3[0]}"' in profile_source:

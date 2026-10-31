@@ -94,6 +94,13 @@ bedrock:
   transport: nethernet
 ```
 
+`vps-server@18`／`compose@20`では、orderの`[minecraft]`に`heap = "3G"`を指定します。resolveしたlockにheapが固定され、Minecraft containerの`INIT_MEMORY`と`MEMORY`の両方へ出力されます。profileがこの値を要求するため、省略したorderはresolveできません。以前のprofile／renderer revisionは引き続き従来どおりです。
+
+```toml
+[minecraft]
+heap = "3G"
+```
+
 noticeは[Scratchのお知らせ編集手順](scratch-notice-guide_ja.md)で一時ファイルを編集し、まだ稼働していない次セットの入力へ収容します。運用者noticeと製品noticeの表示を合わせて確認します。画面での確認は切替後です。
 
 旧セットのデータを保持することと、新しいvolumeに引き継ぐことは別です。コピーする対象をここで記録し、権限DBや認証データが未反映なら、その状態も残します。

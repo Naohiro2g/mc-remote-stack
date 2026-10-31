@@ -237,6 +237,8 @@ def _build_candidate(
         "components": preset["components"],
         "artifacts": preset["artifacts"],
     }
+    if "minecraft" in order:
+        render_payload["minecraft"] = order["minecraft"]
     if "presentation" in preset:
         render_payload["presentation"] = preset["presentation"]
     if "scratch_runtime_contract" in preset:
@@ -310,6 +312,8 @@ def _build_candidate(
             "runtime_owned_state": "excluded",
         },
     }
+    if "minecraft" in order:
+        identity_payload["minecraft"] = copy.deepcopy(order["minecraft"])
     if "presentation" in preset:
         identity_payload["presentation"] = copy.deepcopy(preset["presentation"])
     if "scratch_runtime_contract" in preset:
