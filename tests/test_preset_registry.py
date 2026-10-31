@@ -523,6 +523,7 @@ def test_bundled_registry_offers_only_current_profiles_and_presets() -> None:
         "public-web-paper@14",
         "public-web-paper@15",
         "public-web-paper@16",
+        "public-web-paper@17",
     ]
     assert public.data["renderer"] == {"name": "compose", "revision": "13"}
     assert load_profile("vps-server@14").data["renderer"] == {"name": "compose", "revision": "16"}

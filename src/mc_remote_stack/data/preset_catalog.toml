@@ -3,7 +3,7 @@ schema_version = 1
 [preset_catalog]
 generator = "mcrctl-preset-catalog-v1"
 canonicalization = "jcs-rfc8785-v1"
-source_sha256 = "9b068a6fbb91694f2e9c611d6be690492d69fe63a8b68702a10e1f12dd69f296"
+source_sha256 = "c719cfe2a70e8c066fe35b0ffb9a6304a76f15d995ec053f25cbd7fe7b2728b3"
 
 [[preset_catalog.presets]]
 ref = "classroom@1"
@@ -85,3 +85,12 @@ status = "active"
 available_since = "2026-10-22"
 required_profile_capabilities = ["compose", "mcremote-auth-enforced", "mcremote-session-only", "paper", "persistent-world", "public-web", "scratch-runtime", "websocket-bridge", "wirescope-browser"]
 allowed_channels = ["beta"]
+
+[[preset_catalog.presets]]
+ref = "public-web-paper@17"
+content_sha256 = "5be1bb4323d5ec381cb3355a61eb1c3d0b09eade4428a24750b7444207616d15"
+description = "McRemote 2321.0.0とScratch／Bridge／WireScope 2321.0.0の公開VPS stableセット（Paper 26.3／Temurin 25.0.5+8）"
+status = "active"
+available_since = "2026-11-01"
+required_profile_capabilities = ["compose", "mcremote-auth-enforced", "mcremote-session-only", "paper", "persistent-world", "public-web", "scratch-runtime", "websocket-bridge", "wirescope-browser"]
+allowed_channels = ["stable"]
