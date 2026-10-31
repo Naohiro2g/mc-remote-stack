@@ -24,11 +24,17 @@ from mc_remote_stack.deployment_update import (
     _write_json,
     apply_deployment_update,
 )
+from mc_remote_stack.render import render_toml_project
 from mc_remote_stack.resolver import load_lock, resolve_project
 from mc_remote_stack.toml_project import init_toml_project
 
 from .test_resolver import FIRST_RESOLVED_AT
-from .vps_fixture import PRESET, PUBLIC_ROUTES_V3, build_vps_fixture
+from .vps_fixture import (
+    CONNECTION_TARGETS_V4_SOURCE,
+    PRESET,
+    PUBLIC_ROUTES_V3,
+    build_vps_fixture,
+)
 
 
 def _public_order(tmp_path: Path) -> Path:
@@ -732,3 +738,56 @@ def test_vps_server_14_set_updates_in_place_to_name_pairs_on_vps_server_15(
         item for item in target_lock["operator_inputs"] if item["role"] == "public-routes"
     )
     assert routes["adapter"] == "public-routes@3"
+
+
+def test_vps_server_16_updates_to_per_origin_targets_without_changing_source(
+    tmp_path: Path,
+) -> None:
+    fixture = build_vps_fixture(tmp_path, profile="vps-server@16")
+    new_profile = fixture.data_root / "profiles/vps-server/17/profile.toml"
+    new_profile.parent.mkdir(parents=True)
+    new_profile.write_text(
+        files("mc_remote_stack")
+        .joinpath("data/profiles/vps-server/17/profile.toml")
+        .read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    source_paths = [
+        fixture.project / "mc-remote.toml",
+        fixture.project / "operator/connection-targets/targets.toml",
+    ]
+    before = {path: path.read_bytes() for path in source_paths}
+    reviewed = tmp_path / "reviewed-targets.toml"
+    reviewed.write_text(CONNECTION_TARGETS_V4_SOURCE, encoding="utf-8")
+    candidate = tmp_path / "candidate"
+    _prepare_candidate_order(
+        fixture.project,
+        fixture.output,
+        candidate,
+        target_profile="vps-server@17",
+        target_preset=PRESET,
+        input_overrides={},
+        input_files={"connection-targets": reviewed},
+        data_root=fixture.data_root,
+    )
+    resolve_project(
+        candidate,
+        data_root=fixture.data_root,
+        allow_unverified=True,
+        resolved_at=FIRST_RESOLVED_AT,
+    )
+    source_lock = load_lock(fixture.project, data_root=fixture.data_root)
+    target_lock = load_lock(candidate, data_root=fixture.data_root)
+    _validate_in_place_transition(source_lock, target_lock)
+    render_toml_project(candidate, candidate / "generated", data_root=fixture.data_root)
+
+    assert target_lock["render_plan"]["adapter_revision"] == "19"
+    target_input = next(
+        item for item in target_lock["operator_inputs"] if item["role"] == "connection-targets"
+    )
+    assert target_input["adapter"] == "connection-targets@4"
+    stable = json.loads(
+        (candidate / "generated/runtime/web-pairs/scratch.mc-remote.example.json").read_text()
+    )
+    assert stable["default_sandbox"] == "sb.mc-remote.example"
+    assert {path: path.read_bytes() for path in source_paths} == before

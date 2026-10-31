@@ -295,8 +295,10 @@ def _locked_connection_input(lock: dict[str, Any]) -> dict[str, Any] | None:
         return None
     operator_input = matches[0]
     semantic = operator_input["semantic"]
+    per_origin = lock["render_plan"]["adapter_revision"] in PER_ORIGIN_TARGET_REVISIONS
+    expected_adapter = "connection-targets@4" if per_origin else "connection-targets@3"
     if (
-        operator_input["adapter"] != "connection-targets@3"
+        operator_input["adapter"] != expected_adapter
         or operator_input["path"] != "operator/connection-targets/targets.toml"
         or operator_input["semantic_sha256"] != semantic_sha256(semantic)
     ):
@@ -305,7 +307,8 @@ def _locked_connection_input(lock: dict[str, Any]) -> dict[str, Any] | None:
             "operator_inputs.connection-targets",
             "locked connection-targets adapter identity or semantic digest is invalid",
         )
-    if set(semantic) != {"targets", "notices"}:
+    expected_keys = {"targets", "notices", "selections"} if per_origin else {"targets", "notices"}
+    if set(semantic) != expected_keys:
         _render_fail(
             "render_plan_invalid",
             "operator_inputs.connection-targets.semantic",
@@ -660,20 +663,22 @@ def _locked_composition_input(
 
 
 # compose@13 (vps-server@12), compose@15 (vps-server@13), compose@16
-# (vps-server@14), compose@17 (vps-server@15), and compose@18 (vps-server@16)
+# (vps-server@14), compose@17 (vps-server@15), compose@18 (vps-server@16),
+# and compose@19 (vps-server@17)
 # render the public VPS; compose@14 renders the home set.
-PUBLIC_RENDERER_REVISIONS = frozenset({"13", "15", "16", "17", "18"})
+PUBLIC_RENDERER_REVISIONS = frozenset({"13", "15", "16", "17", "18", "19"})
 SUPPORTED_RENDERER_REVISIONS = PUBLIC_RENDERER_REVISIONS | {"14"}
 # Revisions that serve the fixed /candidates/ route beside the homepage.
-CANDIDATE_ROUTE_REVISIONS = frozenset({"15", "16", "17", "18"})
+CANDIDATE_ROUTE_REVISIONS = frozenset({"15", "16", "17", "18", "19"})
 # Revisions that set every container clock; earlier ones stay on UTC.
-CONTAINER_TIME_ZONE = {"16": "Asia/Tokyo", "17": "Asia/Tokyo", "18": "Asia/Tokyo"}
+CONTAINER_TIME_ZONE = {"16": "Asia/Tokyo", "17": "Asia/Tokyo", "18": "Asia/Tokyo", "19": "Asia/Tokyo"}
 # Revisions that serve extra Scratch/WireScope name pairs from public-routes@3.
-WEB_PAIR_REVISIONS = frozenset({"17", "18"})
+WEB_PAIR_REVISIONS = frozenset({"17", "18", "19"})
+PER_ORIGIN_TARGET_REVISIONS = frozenset({"19"})
 # Revisions that give Geyser its own port over TCP and UDP. NetherNet signaling
 # needs TCP on the Geyser port, which Java already holds on 25565; earlier
 # revisions publish Geyser as UDP on the Java port number.
-GEYSER_PORT_REVISIONS = frozenset({"18"})
+GEYSER_PORT_REVISIONS = frozenset({"18", "19"})
 GEYSER_PORT = 19132
 
 PUBLIC_SERVICES = [
@@ -735,11 +740,9 @@ def _public_server_properties(lock: dict[str, Any], *, adapter: str) -> str:
     )
 
 
-def _public_runtime_config(
-    lock: dict[str, Any],
-    routes: dict[str, Any],
-    scratch_artifact: dict[str, Any],
-) -> dict[str, Any]:
+def _selected_connection_targets(
+    lock: dict[str, Any], routes: dict[str, Any], scratch: str
+) -> tuple[list[dict[str, str]], str]:
     targets = _locked_connection_targets(lock)
     if not targets:
         _render_fail(
@@ -747,12 +750,56 @@ def _public_runtime_config(
             "runtime/scratch.json.connection_targets",
             "the public renderer requires a non-empty connection_targets array",
         )
-    if routes["minecraft"] not in {target["sandbox"] for target in targets}:
+    default_sandbox = routes["minecraft"]
+    if lock["render_plan"]["adapter_revision"] in PER_ORIGIN_TARGET_REVISIONS:
+        selections = _locked_connection_input(lock)["selections"]
+        selection_path = "operator_inputs.connection-targets.semantic.selections"
+        if not isinstance(selections, list) or any(
+            not isinstance(item, dict) or not isinstance(item.get("scratch"), str) for item in selections
+        ):
+            _render_fail("scratch_runtime_config_invalid", selection_path, "invalid Scratch selections")
+        names = [item["scratch"] for item in selections]
+        if len(names) != len(set(names)) or set(names) != {pair["scratch"] for pair in web_pairs(routes)}:
+            _render_fail(
+                "scratch_runtime_config_invalid",
+                selection_path,
+                "selections must cover every served Scratch origin exactly once",
+            )
+        selection = next(item for item in selections if item["scratch"] == scratch)
+        by_id = {target["id"]: target for target in targets}
+        ids = selection.get("target_ids")
+        if (
+            not isinstance(ids, list)
+            or not ids
+            or any(not isinstance(item, str) or item not in by_id for item in ids)
+            or len(ids) != len(set(ids))
+            or selection.get("default_target") not in ids
+        ):
+            _render_fail(
+                "scratch_runtime_config_invalid",
+                selection_path,
+                f"{scratch} must select catalog ids and a default from its own list",
+            )
+        return [by_id[item] for item in ids], by_id[selection["default_target"]]["sandbox"]
+    if default_sandbox not in {target["sandbox"] for target in targets}:
         _render_fail(
             "scratch_runtime_config_invalid",
             "runtime/scratch.json.default_sandbox",
             "default_sandbox must be listed in connection_targets",
         )
+    return targets, default_sandbox
+
+
+def _public_runtime_config(
+    lock: dict[str, Any],
+    routes: dict[str, Any],
+    scratch_artifact: dict[str, Any],
+    *,
+    pair: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    if pair is None:
+        pair = {"scratch": routes["scratch"], "wirescope": routes["wirescope"]}
+    targets, default_sandbox = _selected_connection_targets(lock, routes, pair["scratch"])
     notices = _locked_connection_notices(lock)
     if not notices:
         _render_fail(
@@ -763,7 +810,7 @@ def _public_runtime_config(
     release_notice = _locked_scratch_release_notice(lock)
     runtime: dict[str, Any] = {
         "bridge_url": f"wss://{routes['bridge']}",
-        "default_sandbox": routes["minecraft"],
+        "default_sandbox": default_sandbox,
         "connection_targets": [
             {"id": target["id"], "label": target["label"], "sandbox": target["sandbox"]}
             for target in targets
@@ -771,7 +818,7 @@ def _public_runtime_config(
         "connection_enabled": True,
         "release_identity": scratch_artifact["version"],
         "notices": [*notices, release_notice] if release_notice is not None else notices,
-        "wirescope_url": f"https://{routes['wirescope']}/",
+        "wirescope_url": f"https://{pair['wirescope']}/",
     }
     contract = _locked_scratch_runtime_contract(lock)
     if contract is not None:
@@ -814,6 +861,9 @@ def _compose_public(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str
     answers every allowed sandbox name inside the app network.
     compose@18 (vps-server@16) publishes Geyser on its own port 19132 over TCP
     and UDP, for NetherNet, instead of UDP on the Java port number.
+
+    compose@19 (vps-server@17) selects targets and a default for each Scratch
+    origin, using the common connection-targets@4 catalog.
     """
 
     if lock["render_plan"]["services"] != PUBLIC_SERVICES:
@@ -879,10 +929,10 @@ def _compose_public(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str
 
     routes = _locked_public_routes(lock)
     _verified_wirescope_assets(lock)
-    runtime = _public_runtime_config(lock, routes, scratch_artifact)
-    sandbox_allowlist = {routes["minecraft"]}
-    sandbox_allowlist.update(target["sandbox"] for target in runtime["connection_targets"])
     pairs = web_pairs(routes)
+    runtimes = {pair["scratch"]: _public_runtime_config(lock, routes, scratch_artifact, pair=pair) for pair in pairs}
+    runtime = runtimes[routes["scratch"]]
+    sandbox_allowlist = {target["sandbox"] for config in runtimes.values() for target in config["connection_targets"]}
     extra_pairs = pairs[1:]
     if extra_pairs and revision not in WEB_PAIR_REVISIONS:
         _render_fail(
@@ -1112,7 +1162,7 @@ def _compose_public(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str
                         f"https://{pair['scratch']}" for pair in pairs
                     ),
                     "BRIDGE_SANDBOX_ALLOWLIST": ",".join(sorted(sandbox_allowlist)),
-                    "BRIDGE_DEFAULT_SANDBOX": routes["minecraft"],
+                    "BRIDGE_DEFAULT_SANDBOX": runtime["default_sandbox"],
                     "BRIDGE_SANDBOX_PORT": "25575",
                 },
                 "networks": ["app"],
@@ -1181,7 +1231,7 @@ def _compose_public(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str
         ),
     }
     for pair in extra_pairs:
-        pair_runtime = {**runtime, "wirescope_url": f"https://{pair['wirescope']}/"}
+        pair_runtime = runtimes[pair["scratch"]]
         rendered_files[web_pair_runtime_path(pair)] = (
             json.dumps(pair_runtime, ensure_ascii=False, indent=2) + "\n"
         )

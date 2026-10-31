@@ -796,8 +796,11 @@ def _web_pair_probes(output: Path, wirescope_calls: list[tuple[str, str]]) -> di
     }
 
 
-def test_doctor_checks_every_scratch_and_wirescope_name_pair(tmp_path: Path) -> None:
-    fixture = build_vps_fixture(tmp_path, profile="vps-server@15")
+@pytest.mark.parametrize("profile", ["vps-server@15", "vps-server@17"])
+def test_doctor_checks_every_scratch_and_wirescope_name_pair(
+    tmp_path: Path, profile: str
+) -> None:
+    fixture = build_vps_fixture(tmp_path, profile=profile)
     render_toml_project(fixture.project, fixture.output, data_root=fixture.data_root)
     lock = load_lock(fixture.project, data_root=fixture.data_root)
     wirescope_calls: list[tuple[str, str]] = []
@@ -843,6 +846,36 @@ def test_doctor_rejects_a_scratch_name_that_hands_off_to_another_pair(tmp_path: 
         )
 
     assert exc_info.value.reason == "doctor_scratch_runtime_mismatch"
+
+
+@pytest.mark.parametrize("field", ["connection_targets", "default_sandbox"])
+def test_doctor_rejects_wrong_per_origin_targets_or_default(
+    tmp_path: Path, field: str
+) -> None:
+    fixture = build_vps_fixture(tmp_path, profile="vps-server@17")
+    render_toml_project(fixture.project, fixture.output, data_root=fixture.data_root)
+    lock = load_lock(fixture.project, data_root=fixture.data_root)
+    probes = _web_pair_probes(fixture.output, [])
+    stable = probes.pop("_runtimes")["scratch.mc-remote.example"]
+    if field == "connection_targets":
+        # The published list is still valid and contains its default, but is incomplete.
+        stable[field] = stable[field][:1]
+    else:
+        # beta is allowed here, but the configured default for this origin is stable.
+        stable[field] = "sb-beta.mc-remote.example"
+
+    with pytest.raises(DoctorContractError) as error:
+        doctor_toml_project(
+            fixture.project,
+            fixture.output,
+            docker_context="default",
+            data_root=fixture.data_root,
+            runner=FakeDocker(_vps_doctor_responses(fixture.output, lock)),
+            hello_probe=_auth_required_hello,
+            **probes,
+        )
+
+    assert error.value.reason == "doctor_scratch_runtime_mismatch"
 
 
 def test_doctor_reports_additional_compose_files_without_hiding_health(

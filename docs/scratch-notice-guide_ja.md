@@ -41,7 +41,7 @@ cat "$NOTICE_REVIEW/product-notices.json"
 
 ## 2. VPS用の一時ファイルを編集する
 
-現行VPSの`connection-targets@3`では、接続先と運用者noticeが同じ入力ファイルに入ります。以下は標準pathです。orderの`operator_inputs`でroleが`connection-targets`のpathを確認し、異なる場合は読み替えます。
+VPSの`connection-targets@3`／`connection-targets@4`では、接続先と運用者noticeが同じ入力ファイルに入ります。`vps-server@17`の`@4`には組別の`[[selections]]`もあるので、noticeだけを変更するときはその内容も維持します。接続先の設定は[組別接続先の設定手順](scratch-connection-selections-guide_ja.md)を参照してください。以下は標準pathです。orderの`operator_inputs`でroleが`connection-targets`のpathを確認し、異なる場合は読み替えます。
 
 ```sh
 mcrctl operator check
@@ -54,6 +54,7 @@ cp "$NOTICE_INPUT" "$NOTICE_REVIEW/targets.toml"
 
 ```toml
 # [[targets]] は元のファイルの内容を維持する
+# connection-targets@4 の [[selections]] も元の内容を維持する
 
 [[notices]]
 heading = "このサーバーの利用について"

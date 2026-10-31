@@ -20,6 +20,7 @@ PUBLIC_ROUTES_PATH = "operator/public-routes/routes.toml"
 MINECRAFT_SERVER_ADAPTER = "minecraft-server@1"
 MINECRAFT_SERVER_PATH = "operator/minecraft-server/server.toml"
 CONNECTION_TARGETS_V3_ADAPTER = "connection-targets@3"
+CONNECTION_TARGETS_V4_ADAPTER = "connection-targets@4"
 CONNECTION_TARGETS_PATH = "operator/connection-targets/targets.toml"
 MINECRAFT_PLUGINS_ADAPTER = "minecraft-plugins@1"
 MINECRAFT_PLUGINS_PATH = "operator/minecraft-plugins/plugins.toml"
@@ -46,6 +47,7 @@ SUPPORTED_ADAPTERS = frozenset(
         PUBLIC_ROUTES_V2_ADAPTER,
         PUBLIC_ROUTES_V3_ADAPTER,
         CONNECTION_TARGETS_V3_ADAPTER,
+        CONNECTION_TARGETS_V4_ADAPTER,
         MINECRAFT_PLUGINS_ADAPTER,
         HOMEPAGE_STATIC_ADAPTER,
         MINECRAFT_BACKUP_ADAPTER,
@@ -72,6 +74,8 @@ CONNECTION_TARGET_V2_KEYS = frozenset(
     }
 )
 CONNECTION_TARGET_V3_KEYS = frozenset({"targets", "notices"})
+CONNECTION_TARGET_V4_KEYS = CONNECTION_TARGET_V3_KEYS | {"selections"}
+CONNECTION_SELECTION_KEYS = frozenset({"scratch", "target_ids", "default_target"})
 CONNECTION_TARGET_ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
 DNS_NAME = re.compile(
     r"^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+"
@@ -549,6 +553,10 @@ def _notice_href(path: Path, value: object, *, key: str = "notice_href") -> str:
 
 def _parse_connection_targets_v3(path: Path, source: bytes) -> dict[str, Any]:
     value = _connection_targets_document(path, source)
+    return _connection_targets_v3_semantic(path, value)
+
+
+def _connection_targets_v3_semantic(path: Path, value: dict[str, Any]) -> dict[str, Any]:
     if set(value) != CONNECTION_TARGET_V3_KEYS:
         _fail(
             "operator_input_parse_failed",
@@ -611,6 +619,62 @@ def _parse_connection_targets_v3(path: Path, source: bytes) -> dict[str, Any]:
         "targets": _connection_targets_semantic(path, value["targets"]),
         "notices": semantic_notices,
     }
+
+
+def _parse_connection_targets_v4(path: Path, source: bytes) -> dict[str, Any]:
+    value = _connection_targets_document(path, source)
+    if set(value) != CONNECTION_TARGET_V4_KEYS:
+        _fail(
+            "operator_input_parse_failed",
+            path,
+            "connection-targets@4 requires exactly targets, notices, and selections",
+        )
+    semantic = _connection_targets_v3_semantic(path, {key: value[key] for key in CONNECTION_TARGET_V3_KEYS})
+    selections = value["selections"]
+    if not isinstance(selections, list) or not selections or len(selections) > MAX_WEB_PAIRS + 1:
+        _fail(
+            "operator_input_parse_failed",
+            path,
+            f"selections must contain 1 through {MAX_WEB_PAIRS + 1} Scratch origins",
+        )
+    known_ids = {target["id"] for target in semantic["targets"]}
+    normalized = []
+    for index, selection in enumerate(selections):
+        if not isinstance(selection, dict) or set(selection) != CONNECTION_SELECTION_KEYS:
+            _fail(
+                "operator_input_parse_failed",
+                path,
+                f"selections[{index}] requires exactly scratch, target_ids, and default_target",
+            )
+        ids = selection["target_ids"]
+        if (
+            not isinstance(ids, list)
+            or not ids
+            or any(not isinstance(item, str) or item not in known_ids for item in ids)
+            or len(ids) != len(set(ids))
+        ):
+            _fail(
+                "operator_input_parse_failed",
+                path,
+                f"selections[{index}].target_ids must be a non-empty list of unique catalog ids",
+            )
+        if selection["default_target"] not in ids:
+            _fail(
+                "operator_input_parse_failed",
+                path,
+                f"selections[{index}].default_target must occur in its own target_ids",
+            )
+        normalized.append(
+            {
+                "scratch": _public_dns_name(path, f"selections[{index}].scratch", selection["scratch"]),
+                "target_ids": list(ids),
+                "default_target": selection["default_target"],
+            }
+        )
+    names = [selection["scratch"] for selection in normalized]
+    if len(set(names)) != len(names):
+        _fail("operator_input_parse_failed", path, "selection Scratch origins must be unique")
+    return {**semantic, "selections": sorted(normalized, key=lambda item: item["scratch"])}
 
 
 def _parse_toml_document(path: Path, source: bytes) -> dict[str, Any]:
@@ -821,13 +885,15 @@ def _parse_adapter(adapter: str, path: Path, relative_path: str) -> dict[str, An
                 f"{adapter} requires exact path {MINECRAFT_SERVER_PATH}",
             )
         return _parse_minecraft_server(path, _read_source(path))
-    if adapter == CONNECTION_TARGETS_V3_ADAPTER:
+    if adapter in {CONNECTION_TARGETS_V3_ADAPTER, CONNECTION_TARGETS_V4_ADAPTER}:
         if relative_path != CONNECTION_TARGETS_PATH:
             _fail(
                 "operator_input_path_invalid",
                 path,
                 f"{adapter} requires exact path {CONNECTION_TARGETS_PATH}",
             )
+        if adapter == CONNECTION_TARGETS_V4_ADAPTER:
+            return _parse_connection_targets_v4(path, _read_source(path))
         return _parse_connection_targets_v3(path, _read_source(path))
     if adapter == MINECRAFT_PLUGINS_ADAPTER:
         if relative_path != MINECRAFT_PLUGINS_PATH:

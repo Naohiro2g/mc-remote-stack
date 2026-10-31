@@ -1,6 +1,6 @@
 """Test-owned public VPS deployment fixture for vps-server@12 / compose@13,
 vps-server@13 / compose@15, vps-server@14 / compose@16, vps-server@15 /
-compose@17, and vps-server@16 / compose@18.
+compose@17, vps-server@16 / compose@18, and vps-server@17 / compose@19.
 
 Mechanism tests (render, apply, doctor, world restore, artifact fetch) build on
 this fixture instead of copying product presets, so adding or retiring a
@@ -299,6 +299,36 @@ body = "fixture notice"
     ),
 }
 
+CONNECTION_TARGETS_V4_SOURCE = """[[targets]]
+id = "beta"
+label = "公開ベータ"
+sandbox = "sb-beta.mc-remote.example"
+
+[[targets]]
+id = "stable"
+label = "安定版"
+sandbox = "sb.mc-remote.example"
+
+[[targets]]
+id = "unused"
+label = "未掲載"
+sandbox = "unused.mc-remote.example"
+
+[[notices]]
+heading = "お知らせ"
+body = "fixture notice"
+
+[[selections]]
+scratch = "scratch-beta.mc-remote.example"
+target_ids = ["beta"]
+default_target = "beta"
+
+[[selections]]
+scratch = "scratch.mc-remote.example"
+target_ids = ["stable", "beta"]
+default_target = "stable"
+"""
+
 
 @dataclass(frozen=True)
 class VpsFixture:
@@ -391,6 +421,12 @@ def build_vps_fixture(
     inputs = dict(OPERATOR_INPUTS)
     if f'adapter = "{PUBLIC_ROUTES_V3[0]}"' in profile_source:
         inputs["public-routes"] = PUBLIC_ROUTES_V3
+    if 'adapter = "connection-targets@4"' in profile_source:
+        inputs["connection-targets"] = (
+            "connection-targets@4",
+            "operator/connection-targets/targets.toml",
+            CONNECTION_TARGETS_V4_SOURCE,
+        )
     inputs["minecraft-plugins"] = (
         "minecraft-plugins@1",
         "operator/minecraft-plugins/plugins.toml",
