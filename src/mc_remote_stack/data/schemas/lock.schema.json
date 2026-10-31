@@ -661,6 +661,9 @@
           "$ref": "#/$defs/connectionTargetsV3Input"
         },
         {
+          "$ref": "#/$defs/connectionTargetsV4Input"
+        },
+        {
           "$ref": "#/$defs/minecraftPluginsInput"
         },
         {
@@ -731,7 +734,7 @@
           "const": "connection-targets"
         },
         "adapter": {
-          "enum": ["connection-targets@3"]
+          "enum": ["connection-targets@3", "connection-targets@4"]
         },
         "required": {
           "type": "boolean"
@@ -1202,6 +1205,112 @@
               "maxItems": 16,
               "items": {
                 "$ref": "#/$defs/scratchNotice"
+              }
+            }
+          }
+        }
+      }
+    },
+    "connectionTargetsV4Input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "role",
+        "adapter",
+        "path",
+        "semantic_sha256",
+        "semantic"
+      ],
+      "properties": {
+        "role": {
+          "const": "connection-targets"
+        },
+        "adapter": {
+          "const": "connection-targets@4"
+        },
+        "path": {
+          "const": "operator/connection-targets/targets.toml"
+        },
+        "semantic_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "semantic": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "targets",
+            "notices",
+            "selections"
+          ],
+          "properties": {
+            "targets": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 32,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "id",
+                  "label",
+                  "sandbox"
+                ],
+                "properties": {
+                  "id": {
+                    "$ref": "#/$defs/token"
+                  },
+                  "label": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  },
+                  "sandbox": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              }
+            },
+            "notices": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 16,
+              "items": {
+                "$ref": "#/$defs/scratchNotice"
+              }
+            },
+            "selections": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 5,
+              "uniqueItems": true,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "scratch",
+                  "target_ids",
+                  "default_target"
+                ],
+                "properties": {
+                  "scratch": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 253
+                  },
+                  "target_ids": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 32,
+                    "uniqueItems": true,
+                    "items": {
+                      "$ref": "#/$defs/token"
+                    }
+                  },
+                  "default_target": {
+                    "$ref": "#/$defs/token"
+                  }
+                }
               }
             }
           }

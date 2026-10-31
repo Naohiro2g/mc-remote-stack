@@ -14,6 +14,12 @@ operatorが編集する入力は`mc-remote.toml`一つである。`apply <mc-rem
 
 生成したlockとrenderはoperator入力ではなく、既定では`$XDG_STATE_HOME/mc-remote/deployments/<deployment>/`へ置く。`MC_REMOTE_STATE_HOME`を指定した場合は、そのdirectoryの`deployments/`以下を使う。artifact storeは既存のcontent-addressed cache契約を使う。
 
+## 公開VPSの組別接続先
+
+公開VPSの`vps-server@17`／`compose@19`は、`connection-targets@4`の共通接続先台帳と組別selectionから、Scratchごとに一覧と既定を生成する。配信する全Scratch host名にselectionを一つずつ要求し、各既定はその一覧の接続先から選ぶ。WireScopeの対応は`public-routes@3`の組を使い、noticeは共通とする。doctorは各組の生成物と配信runtimeを照合する。
+
+Bridge allowlistとMinecraftの内部DNS別名は、全組で選択した接続先の和集合から生成する。Bridgeの既定は主Scratchの既定とする。組別selectionは組別の認可や外部hostへの経路を追加しない。既存profileの生成仕様は維持する。入力例と更新手順は[組別接続先の設定手順](scratch-connection-selections-guide_ja.md)を参照する。
+
 ## Scratch contract handoffの取込
 
 Stackへの正式入力は、Scratch GitHub Releaseへ添付された`manifest.json`と`contracts.tar.gz`である。manifestがrole別に確定するsource commit、Scratch／Bridge image digestを個別のテキスト票として会話やhandoffから聞き出す運用はしない（`00-hub/deployment-interface-design_ja.md`§4）。
