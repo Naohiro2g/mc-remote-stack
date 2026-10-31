@@ -128,6 +128,25 @@ def test_init_creates_one_environment_order_without_placeholder_lock(tmp_path: P
     assert "environments" not in order
 
 
+def test_order_accepts_explicit_minecraft_heap_for_profiles_that_require_it(tmp_path: Path) -> None:
+    order = _write_order(tmp_path / "heap", _valid_order().replace(
+        "[world]", "[minecraft]\nheap = \"3G\"\n\n[world]"
+    ))
+
+    loaded = load_order(order.parent)
+
+    assert loaded.order["minecraft"] == {"heap": "3G"}
+
+
+@pytest.mark.parametrize("heap", ["0G", "03G", "3g", "3G extra", "${HEAP}"])
+def test_order_rejects_invalid_minecraft_heap(tmp_path: Path, heap: str) -> None:
+    content = _valid_order().replace("[world]", f'[minecraft]\nheap = "{heap}"\n\n[world]')
+    order = _write_order(tmp_path / "bad-heap", content)
+
+    with pytest.raises(ProjectOrderError, match="minecraft.heap"):
+        load_order(order.parent)
+
+
 def test_init_clamps_project_permissions_with_a_permissive_umask(
     tmp_path: Path,
 ) -> None:

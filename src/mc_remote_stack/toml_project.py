@@ -32,6 +32,7 @@ ROOT_KEYS = frozenset(
         "deployment",
         "environment",
         "runtime",
+        "minecraft",
         "world",
         "network",
         "agreements",
@@ -42,6 +43,7 @@ ROOT_KEYS = frozenset(
 DEPLOYMENT_KEYS = frozenset({"name", "profile"})
 ENVIRONMENT_KEYS = frozenset({"identity", "channel", "exposure", "purpose", "preset"})
 RUNTIME_KEYS = frozenset({"artifact_store", "volumes"})
+MINECRAFT_KEYS = frozenset({"heap"})
 RUNTIME_VOLUME_KEYS = frozenset({"role", "identity"})
 WORLD_KEYS = frozenset({"identity"})
 NETWORK_KEYS = frozenset({"bind_address", "java_port", "mcremote_port"})
@@ -277,6 +279,20 @@ def _validate_order(order: object, order_path: Path) -> dict[str, Any]:
     deployment = _require_table(order, "deployment", order_path)
     environment = _require_table(order, "environment", order_path)
     runtime = _require_table(order, "runtime", order_path)
+    minecraft = order.get("minecraft")
+    if minecraft is not None:
+        if not isinstance(minecraft, dict):
+            _fail("order_schema_invalid", order_path, "minecraft must be a table")
+        _reject_unknown_keys(
+            minecraft, allowed=MINECRAFT_KEYS, logical_path="minecraft", order_path=order_path
+        )
+        heap = minecraft.get("heap")
+        if not isinstance(heap, str) or not re.fullmatch(r"[1-9][0-9]*[MG]", heap):
+            _fail(
+                "order_schema_invalid",
+                order_path,
+                "minecraft.heap must be a positive integer followed by M or G",
+            )
     world = _require_table(order, "world", order_path)
     network = _require_table(order, "network", order_path)
     agreements = _require_table(order, "agreements", order_path)

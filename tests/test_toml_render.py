@@ -975,3 +975,16 @@ def test_public_render_moves_from_compose_v16_to_v17_in_one_output(tmp_path: Pat
     assert (output / "runtime/web-pairs/scratch.mc-remote.example.json").is_file()
     assert render(source) == ("replaced", "16")
     assert not (output / "runtime/web-pairs").exists()
+
+
+def test_compose_v20_uses_locked_heap_for_minecraft(tmp_path: Path) -> None:
+    fixture = build_vps_fixture(
+        tmp_path, profile="vps-server@18", minecraft_heap="3G"
+    )
+
+    render_toml_project(fixture.project, fixture.output, data_root=fixture.data_root)
+
+    compose = yaml.safe_load((fixture.output / "compose.yaml").read_text(encoding="utf-8"))
+    environment = compose["services"]["minecraft"]["environment"]
+    assert environment["INIT_MEMORY"] == "3G"
+    assert environment["MEMORY"] == "3G"
