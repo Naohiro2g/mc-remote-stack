@@ -72,9 +72,11 @@ cp -a "$SOURCE_PROJECT/operator" "$NEXT_PROJECT/operator"
 | profile／preset | 対応する公開VPS構成と、今回照合するrelease |
 | public routes／port | 切替後に利用する入口。現在と同じ入口なら停止後に使う |
 | Minecraft設定／connection targets／notice | 今回の利用条件に合う内容 |
-| plugin入力 | 引き継ぐJARのfilename、origin、SHA-256。周辺pluginの更新は必要なものを選ぶ |
+| plugin入力 | 対象環境に合う周辺pluginの最新版を照合し、採用するJARのfilename、origin、SHA-256を記録する |
 | backup入力 | 次セット専用の、存在するhost directory |
 | リリース候補の置き場所 | `vps-server@13`以降は、artifact storeの一つ上の`candidates`ディレクトリが要る。無ければ[リリース候補を配る](release-candidate-downloads-guide_ja.md)の手順で作る |
+
+周辺pluginは基本的に最新版に追従し、問題がないか確認します。リリース前後で検証工数が取れない場合などは、理由を残して実績のある版に留めてよいものとします。Geyserなどbuild単位で配布されるものはbuild番号まで確認し、今回の採用版とSHA-256を固定します。
 
 `vps-server@15`以降は、public routesの`[[web_pairs]]`に、同じセットで出すScratchとWireScopeの名前の組を足せます（4組まで）。どの組も同じBridgeとMinecraftへつなぎ、Scratchは同じ組のWireScopeを開きます。足す名前は、先にDNSでこのhostへ向けます。CaddyがTLSの証明書を取るためです。組が無いときは`web_pairs = []`と書きます。
 

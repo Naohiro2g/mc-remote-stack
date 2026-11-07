@@ -1,0 +1,35 @@
+[[plugins]]
+filename = "advanced-portals-2.8.0-spigot.jar"
+sha256 = "abd3e4be48c1f34bc60530aaa344ab8bffd4146281b8ad33fc83628c93e7287d"
+
+[[plugins]]
+filename = "DiscordSRV-Build-1.30.5.jar"
+sha256 = "ef2fa1f2eb146c7c77412b7190a7dd33f1fc91282683fe45407739554c8aefef"
+
+[[plugins]]
+filename = "floodgate-spigot.jar"
+sha256 = "21570aff9ce17d6983928e8552777760e1ede5050026b04c686b0ae112e6fd7e"
+
+[[plugins]]
+filename = "Geyser-Spigot.jar"
+sha256 = "71c9ebd88fb729ff8dd881de5846a1cea04eb4ce89dc1004e67002d8a5077e4c"
+
+[[plugins]]
+filename = "LuckPerms-Bukkit-5.5.91.jar"
+sha256 = "2a6834c51830b133ec8763703391b20240f7a3b4748746503251a45d70cf1b39"
+
+[[plugins]]
+filename = "ServerBackup-2.10.0.jar"
+sha256 = "961e77895a31980b129307f14081231b6b12e84f064a8b74765478d526d4fc1e"
+
+[[plugins]]
+filename = "ViaBackwards-5.12.2.jar"
+sha256 = "9a148a80ea22074f4bd1626cdbe254a4cd998bf44e7ceaff4e285a1b6b35da42"
+
+[[plugins]]
+filename = "ViaVersion-5.12.2.jar"
+sha256 = "24e4876fefe73e08a4c87cd6c457ee0916e62dd69656631caf41e26f909d504b"
+
+[[plugins]]
+filename = "worldedit-bukkit-7.4.6.jar"
+sha256 = "e0ce67d870ad1fef8a40dd9d7926360caf3bb44722438545d6b20b55f82a0c91"
