@@ -7,6 +7,27 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
+def test_peripheral_plugin_selection_tracks_latest_with_proven_version_fallback() -> None:
+    guide = (REPO_ROOT / "docs" / "public-vps-preparation-guide_ja.md").read_text(encoding="utf-8")
+
+    assert "最新版に追従" in guide
+    assert "問題がないか確認" in guide
+    assert "検証工数" in guide
+    assert "実績のある版" in guide
+    assert "理由を残" in guide
+
+
+def test_scratch_page_intake_accepts_ancestor_only_with_unchanged_definitions_and_tag_bytes() -> None:
+    guide = (REPO_ROOT / "docs" / "scratch-api-page-intake-guide_ja.md").read_text(encoding="utf-8")
+
+    assert "sourceCommit" in guide
+    assert "祖先" in guide
+    assert "ブロックの定義の変更がない" in guide
+    assert "tagの`site/`と同じbytes" in guide
+    assert "公開済みrelease" in guide
+    assert "candidateのページを公開版として取り込みません" in guide
+
+
 def _shell_blocks(source: str) -> list[str]:
     return re.findall(r"(?ms)^```sh\n(.*?)^```$", source)
 

@@ -9,7 +9,7 @@
 | 公開URL | `https://mc-remote.com/api/scratch/` |
 
 1. Scratchの生成済みページを取得し、取得元のcommitを記録します。取得には対象commitのGitHub archiveまたは使い捨てのread-only cloneを使います。利用者の作業中checkoutは変更しません。
-2. `blocks.json`の`release`、`sourceRef`、`sourceCommit`を確認し、公開済みreleaseのtag targetと一致することをGitHub APIまたはGitで確かめます。ページを取得したcommitと、ページが説明するreleaseの`sourceCommit`は区別して記録します。
+2. `blocks.json`の`release`が取り込む公開済みreleaseに対応し、`sourceRef`を解決したcommitが`sourceCommit`と一致することをGitHub APIまたはGitで確かめます。`sourceCommit`は公開tagのtarget自身または祖先であり、両commit間にブロックの定義の変更がないこと、取り込むfileがtagの`site/`と同じbytesであることを確認します。生成後のページを後続commitで収容するため、生成元とtag targetが同じcommitである必要はありません。ページを取得したcommit、生成元の`sourceCommit`、公開tagのtargetは区別して記録します。
 3. `index.html`、`blocks.json`、`page.js`、`style.css`、`images/`を含むdirectory全体を、knowledge側のホームページ正本と比較します。差分があればknowledge側の作業として`api/scratch/`を置き換え、追加・削除も反映します。ほかのホームページ内容と合わせて`main`へ反映し、リモートへの反映を確認します。差分がなければ、同じ内容であることを記録して次へ進みます。
 4. 取り込み先のfile集合と各fileのbytes／SHA-256が生成元に一致し、ページが参照する画像・JS・CSSが揃っていることを確かめます。
 
