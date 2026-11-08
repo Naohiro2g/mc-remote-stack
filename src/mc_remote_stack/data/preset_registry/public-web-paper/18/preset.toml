@@ -1,12 +1,10 @@
-# 公開Release待ちの草案。必須のoriginが未記入のため、registry/catalogへ登録しない。
-# Scratchは2321.1-set-2。source_commit・image digest・contractを公開manifestと再照合する。
 
 schema_version = 1
 
 [preset]
 name = "public-web-paper"
 revision = "18"
-description = "McRemote／Scratch 2321.1.0の公開VPSセット草案（公開Release照合待ち）"
+description = "McRemote／Scratch 2321.1.0の公開VPS stableセット（Paper 26.3 #244／Temurin 25.0.5+8）"
 
 [requirements]
 profile_capabilities = [
@@ -153,4 +151,4 @@ kind = "https-file"
 version = "2321.1.0"
 filename = "mc-remote-2321.1.0.jar"
 sha256 = "cd1fff723b2b8349f45184b940cd5da1ca3cdcacc9bad988fa71cd00ea960112"
-# 公開後にRelease manifest・assetを照合してoriginを記入する。CI artifactのURLは使用しない。
+origin = "https://github.com/Naohiro2g/McRemote/releases/download/v2321.1.0/mc-remote-2321.1.0.jar"

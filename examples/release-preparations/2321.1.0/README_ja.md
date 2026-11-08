@@ -1,27 +1,17 @@
-# 2321.1.0 公開前のStack準備
+# 2321.1.0 公開VPSのplugin入力
 
-`public-web-paper@18.toml`は、公開Releaseを待つpresetの草案です。
-McRemoteの`origin`が未記入なので、そのまま解決・配備するpresetではありません。
-公開catalogやregistryへはまだ登録していません。
+正式presetは[`public-web-paper@18`](../../../src/mc_remote_stack/data/preset_registry/public-web-paper/18/preset.toml)です。
+McRemote／Scratchの公開Release `v2321.1.0`から配布物とmanifestを照合し、registry/catalogへ収容しました。
+契約はknowledge `ccc4a6c6f614c354ce6b5f04a075e951ecf92e49`のStack箱庭作業票です。
 
-基準はStack main `2b5c04842e78b9767c31903e9d8328d7554ce702`、knowledgeの作業契約は
-`202d2a7dbda21536fbeffa76462a5eb0d64bb42c`の`2321.1-set-2`とStackへの作業指示です。
+`plugins.toml`はMcRemoteを除く9本のtyped inputです。DirectionHUD／OtterLibを外し、Geyserを2.12.1-b1294、LuckPermsを5.5.91へ更新します。ほか7本は現行と同じ版です。
+Geyserは公式APIのSHA-256と取得JARを照合し、LuckPermsは公式download build 1678のJARを計測しています。
 
-- profileは`vps-server@18`を継続します。runtime、heap、world、Bridge、WireScopeは継続します。
-- Paperは26.3 #244、McRemoteは2321.1.0、Scratchは指定された候補OCIへ更新する草案です。
-- `plugins.toml`は、McRemoteを除く9本のtyped inputです。DirectionHUD／OtterLibを外し、Geyserを2.12.1-b1294、LuckPermsを5.5.91へ更新します。ほか7本は現行と同じ版です。
-- Geyserは公式APIのSHA-256と取得JARを照合しました。LuckPermsは公式downloadのbuild 1678のJARからSHA-256を計測しました。
+profileは`vps-server@18`を継続し、runtime、heap、world、Bridge、WireScopeは変えません。
+公開箱庭では[通常の更新手順](../../../docs/public-vps-bootstrap-guide_ja.md)に従い、入力をproject外のreview用fileへ収容して`deployment update plan --replace-input`で渡します。
+mergeとapplyの実施時期はhuman ownerが決めます。
 
-公開後、次の確認を終えてから正式presetを追加します。
-
-1. [Release収集手順](../../../docs/release-preset-preparation-guide_ja.md)に従い、McRemoteの公開manifest・assetを取り直し、凍結JARのbytes／SHA-256と照合して`origin`を埋めます。CI artifactのURLは正式presetへ入れません。
-2. Scratchのブロック一覧の追加を含むset-2と公開manifestを確認し、草案の`source_commit`、OCI digest、runtime contractを照合します。contractのschema／fixtureが同じでも、公開manifestのsource commitに対応する収容が必要です。
-3. 完成したpresetを`src/mc_remote_stack/data/preset_registry/public-web-paper/18/preset.toml`へ追加し、Scratch contractを収容してcatalogを再生成します。`@17`は変更しません。
-4. pytest、ruff、catalog／append-only検査を通します。mergeと公開箱庭への適用は別の作業指示に従います。
-
-pluginの取得元：
-
-- [Geyser 2.12.1-b1294の公式metadata](https://download.geysermc.org/v2/projects/geyser/versions/2.12.1/builds/1294)
+- [Geyser b1294の公式metadata](https://download.geysermc.org/v2/projects/geyser/versions/2.12.1/builds/1294)
 - [LuckPerms 5.5.91の公式download](https://download.luckperms.net/1678/bukkit/loader/LuckPerms-Bukkit-5.5.91.jar)
 
-このdirectoryには公開VPSの接続先、config、world、credential、Discordのtokenを収容しません。
+このdirectoryに公開VPSの接続先、config、world、credential、Discordのtokenを収容しません。
