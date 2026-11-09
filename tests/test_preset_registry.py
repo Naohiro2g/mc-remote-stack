@@ -524,6 +524,7 @@ def test_bundled_registry_offers_only_current_profiles_and_presets() -> None:
         "public-web-paper@15",
         "public-web-paper@16",
         "public-web-paper@17",
+        "public-web-paper@18",
     ]
     assert public.data["renderer"] == {"name": "compose", "revision": "13"}
     assert load_profile("vps-server@14").data["renderer"] == {"name": "compose", "revision": "16"}
@@ -560,6 +561,33 @@ def test_public_web_paper_15_pins_the_published_rc1_set_on_paper_1_21_11() -> No
     assert preset.data["scratch_runtime_contract"]["source_commit"] == (
         "ec79b3b0e364e722d6926a0932eb4bf088ddd3a1"
     )
+
+
+def test_public_web_paper_18_uses_official_release_and_preserves_foundation() -> None:
+    from mc_remote_stack.scratch_contract import load_runtime_config_schema
+
+    preset = load_preset("public-web-paper@18")
+    previous = load_preset("public-web-paper@17")
+    artifacts = {item["id"]: item for item in preset.data["artifacts"]}
+    old_artifacts = {item["id"]: item for item in previous.data["artifacts"]}
+
+    assert artifacts["mcremote-jar"]["origin"] == (
+        "https://github.com/Naohiro2g/McRemote/releases/download/"
+        "v2321.1.0/mc-remote-2321.1.0.jar"
+    )
+    assert artifacts["mcremote-jar"]["sha256"] == (
+        "cd1fff723b2b8349f45184b940cd5da1ca3cdcacc9bad988fa71cd00ea960112"
+    )
+    assert artifacts["paper-jar"]["version"] == "26.3-244"
+    assert artifacts["scratch-image"]["digest"] == (
+        "sha256:f3bcf6a6e9ae939e8a8781628ad1e9b40507286da34224f91dfba711a4920c67"
+    )
+    for role in ("bridge-image", "wirescope-zip", "wirescope-manifest", "minecraft-image", "caddy-image"):
+        assert artifacts[role] == old_artifacts[role]
+    contract = preset.data["scratch_runtime_contract"]
+    assert contract["source_commit"] == "57fb7691bb5d9a5895785b200ae78734240ebfa6"
+    assert contract["image_digest"] == artifacts["scratch-image"]["digest"]
+    assert load_runtime_config_schema(contract)["type"] == "object"
 
 
 def test_public_web_paper_16_pins_rc2_on_paper_26_3_and_java_25() -> None:
