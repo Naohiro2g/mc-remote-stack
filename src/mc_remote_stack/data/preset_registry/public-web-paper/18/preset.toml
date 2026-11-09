@@ -1,12 +1,10 @@
-# 公開Release待ちの草案。必須のoriginが未記入のため、registry/catalogへ登録しない。
-# Scratchの凍結取り直し後、source_commit・image digest・contractを公開manifestと再照合する。
 
 schema_version = 1
 
 [preset]
 name = "public-web-paper"
 revision = "18"
-description = "McRemote／Scratch 2321.1.0の公開VPSセット草案（公開Release照合待ち）"
+description = "McRemote／Scratch 2321.1.0の公開VPS stableセット（Paper 26.3 #244／Temurin 25.0.5+8）"
 
 [requirements]
 profile_capabilities = [
@@ -30,12 +28,12 @@ required_claims = [
 ]
 
 [scratch_runtime_contract]
-source_commit = "07f98ebf9be84db5ad2467cebe2c166bbe4c43f5"
+source_commit = "57fb7691bb5d9a5895785b200ae78734240ebfa6"
 source_directory = "packages/scratch-gui/contracts/runtime-config"
 directory_tree_sha = "ecb669a02ac6c8e502b44850e6dd28260c5adad4"
 schema_sha256 = "4e1f8489dc6ea03800f5cf0fefd2f078fd6d71c8efda581f1711f68e384f99e4"
 container_mount_path = "/usr/share/nginx/html/mc-remote-runtime-config.json"
-image_digest = "sha256:7f79830e7b625ab7d90dccbd5be949bbacd93d83686a3f4c16c9feb4a9dddb6a"
+image_digest = "sha256:f3bcf6a6e9ae939e8a8781628ad1e9b40507286da34224f91dfba711a4920c67"
 accepted_fixtures = ["fixtures/disabled.json", "fixtures/valid.json"]
 rejected_fixtures = [
   "fixtures/invalid/enabled-missing-targets.json",
@@ -107,7 +105,7 @@ id = "scratch-image"
 kind = "oci"
 version = "2321.1.0"
 locator = "ghcr.io/naohiro2g/mc-remote-scratch"
-digest = "sha256:7f79830e7b625ab7d90dccbd5be949bbacd93d83686a3f4c16c9feb4a9dddb6a"
+digest = "sha256:f3bcf6a6e9ae939e8a8781628ad1e9b40507286da34224f91dfba711a4920c67"
 
 [[artifacts]]
 id = "bridge-image"
@@ -153,4 +151,4 @@ kind = "https-file"
 version = "2321.1.0"
 filename = "mc-remote-2321.1.0.jar"
 sha256 = "cd1fff723b2b8349f45184b940cd5da1ca3cdcacc9bad988fa71cd00ea960112"
-# 公開後にRelease manifest・assetを照合してoriginを記入する。CI artifactのURLは使用しない。
+origin = "https://github.com/Naohiro2g/McRemote/releases/download/v2321.1.0/mc-remote-2321.1.0.jar"
