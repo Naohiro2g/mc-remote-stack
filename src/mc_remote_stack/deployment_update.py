@@ -187,7 +187,7 @@ class DeploymentUpdateHost(Protocol):
     def verify_source(self, plan: DeploymentUpdatePlan, source_output: Path) -> None: ...
 
 
-def _atomic_replace(path: Path, content: bytes) -> None:
+def _atomic_replace(path: Path, content: bytes, *, mode: int | None = None) -> None:
     descriptor, temporary_name = tempfile.mkstemp(
         prefix=f".{path.name}.",
         suffix=".tmp",
@@ -195,7 +195,7 @@ def _atomic_replace(path: Path, content: bytes) -> None:
     )
     temporary = Path(temporary_name)
     try:
-        os.fchmod(descriptor, path.stat().st_mode & 0o7777)
+        os.fchmod(descriptor, path.stat().st_mode & 0o7777 if mode is None else mode)
         with os.fdopen(descriptor, "wb") as stream:
             stream.write(content)
             stream.flush()
@@ -967,7 +967,7 @@ def _prepare_transaction(
     shutil.copytree(source_output, temporary_root / "source-render")
     preserved_root = temporary_root / "preserved-compose"
     if plan.preserved_compose_files:
-        preserved_root.mkdir()
+        preserved_root.mkdir(mode=0o700)
     state = _state_from_plan(plan)
     for item, source in zip(
         state["preserved_compose_files"],
@@ -980,7 +980,10 @@ def _prepare_transaction(
                 source,
                 "additional Compose input changed while preparing the plan",
             )
-        shutil.copyfile(source, preserved_root / item["snapshot"])
+        _atomic_replace(
+            preserved_root / item["snapshot"], source.read_bytes(),
+            mode=source.stat().st_mode & 0o7777,
+        )
     _write_json(temporary_root / "state.json", state)
     os.replace(temporary_root, destination)
     _write_json(_active_path(plan.project_root), {"plan_id": plan.plan_id})
@@ -1421,7 +1424,10 @@ def _publish_project(
         if target.exists():
             _atomic_replace(target, (source / relative).read_bytes())
         else:
-            shutil.copyfile(source / relative, target)
+            _atomic_replace(
+                target, (source / relative).read_bytes(),
+                mode=(source / relative).stat().st_mode & 0o7777,
+            )
     for relative_source in sorted(previous_inputs - next_inputs):
         relative = Path(relative_source)
         target = destination / relative
