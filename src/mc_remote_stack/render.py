@@ -17,6 +17,7 @@ from typing import Any
 import yaml
 
 from .preset_registry import semantic_sha256
+from .render_modes import render_modes_equal, rendered_file_mode, set_render_modes
 from .resolver import inspect_lock, load_lock
 from .scratch_contract import (
     ScratchContractError,
@@ -1524,9 +1525,10 @@ def _compose_v14(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str]]:
     return compose, files_to_render
 
 
-def _write_synced(path: Path, content: bytes) -> None:
+def _write_synced(path: Path, content: bytes, *, mode: int = 0o600) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("wb") as stream:
+        os.fchmod(stream.fileno(), mode)
         stream.write(content)
         stream.flush()
         os.fsync(stream.fileno())
@@ -1553,7 +1555,7 @@ def _stage_auth_enforced_compose(
         yaml.safe_dump(compose, sort_keys=False, allow_unicode=True).encode("utf-8"),
     )
     for relative, content in rendered_files.items():
-        _write_synced(staging / PurePosixPath(relative), content.encode("utf-8"))
+        _write_synced(staging / PurePosixPath(relative), content.encode("utf-8"), mode=rendered_file_mode(relative))
     rendered_paths = ("compose.yaml", *rendered_files)
     manifest = {
         "schema_version": 1,
@@ -1594,14 +1596,14 @@ def _stage_compose_public(lock: dict[str, Any], staging: Path) -> tuple[str, ...
         yaml.safe_dump(compose, sort_keys=False, allow_unicode=True).encode("utf-8"),
     )
     for relative, content in rendered_files.items():
-        _write_synced(staging / PurePosixPath(relative), content.encode("utf-8"))
+        _write_synced(staging / PurePosixPath(relative), content.encode("utf-8"), mode=rendered_file_mode(relative))
     wirescope_paths: list[str] = []
     for relative, content in assets:
         output_path = f"wirescope/{relative}"
-        _write_synced(staging / PurePosixPath(output_path), content)
+        _write_synced(staging / PurePosixPath(output_path), content, mode=0o644)
         wirescope_paths.append(output_path)
     detached_path = "wirescope/wirescope-app.manifest.json"
-    _write_synced(staging / detached_path, manifest_source)
+    _write_synced(staging / detached_path, manifest_source, mode=0o644)
     wirescope_paths.append(detached_path)
     rendered_paths = ("compose.yaml", *rendered_files, *wirescope_paths)
     manifest = {
@@ -1641,14 +1643,17 @@ def _stage_compose_v14(lock: dict[str, Any], staging: Path) -> tuple[str, ...]:
 def _stage_current(lock: dict[str, Any], staging: Path) -> tuple[str, ...]:
     revision = lock["render_plan"]["adapter_revision"]
     if revision in PUBLIC_RENDERER_REVISIONS:
-        return _stage_compose_public(lock, staging)
-    if revision == "14":
-        return _stage_compose_v14(lock, staging)
-    _render_fail(
-        "unsupported_adapter",
-        "render_plan.adapter_revision",
-        f"compose@{revision} is not a supported renderer revision",
-    )
+        rendered_paths = _stage_compose_public(lock, staging)
+    elif revision == "14":
+        rendered_paths = _stage_compose_v14(lock, staging)
+    else:
+        _render_fail(
+            "unsupported_adapter",
+            "render_plan.adapter_revision",
+            f"compose@{revision} is not a supported renderer revision",
+        )
+    set_render_modes(staging)
+    return rendered_paths
 
 
 def _output_files(root: Path) -> set[str]:
@@ -1754,7 +1759,19 @@ def _validate_output_boundary(project_root: Path, output: Path, artifact_store: 
 
 def _publish_staging(staging: Path, output: Path, *, managed: bool) -> str:
     if managed and _trees_equal(staging, output):
-        return "unchanged"
+        if render_modes_equal(staging, output):
+            return "unchanged"
+        # A permission-only repair must not turn an unchanged seed into a
+        # newer input for Minecraft's SYNC_SKIP_NEWER_IN_DESTINATION sync.
+        for relative in _output_files(staging):
+            previous_stat = (output / relative).stat()
+            target = staging / relative
+            os.utime(target, ns=(previous_stat.st_atime_ns, previous_stat.st_mtime_ns))
+            descriptor = os.open(target, os.O_RDONLY)
+            try:
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
     output.parent.mkdir(parents=True, exist_ok=True)
     if not managed:
         os.replace(staging, output)

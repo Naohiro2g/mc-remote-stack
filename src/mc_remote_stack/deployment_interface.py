@@ -31,6 +31,7 @@ from .preset_registry import (
     load_catalog_policy,
     semantic_sha256,
 )
+from .render_modes import rendered_file_mode, set_render_modes
 
 EXACT_REF = re.compile(r"^(?P<name>[a-z0-9][a-z0-9-]{0,62})@(?P<revision>[1-9][0-9]*)$")
 IDENTITY = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
@@ -771,11 +772,12 @@ def write_interface_preview(prepared: PreparedDeployment, output: Path) -> Path:
     if output.exists() and (not output.is_dir() or any(output.iterdir())):
         _fail("preview_output_not_empty", output, "choose an empty preview directory")
     for relative, content in prepared.files.items():
-        _atomic_write(output / PurePosixPath(relative), content.encode("utf-8"))
+        _atomic_write(output / PurePosixPath(relative), content.encode("utf-8"), mode=rendered_file_mode(relative))
     _atomic_write(
         output / "mc-remote.lock.json",
         (json.dumps(prepared.lock, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode(),
     )
+    set_render_modes(output)
     return output
 
 
@@ -817,11 +819,12 @@ def detect_apply_mode(
     return "update"
 
 
-def _atomic_write(path: Path, content: bytes) -> None:
+def _atomic_write(path: Path, content: bytes, *, mode: int = 0o600) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     descriptor, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
     temporary = Path(temporary_name)
     try:
+        os.fchmod(descriptor, mode)
         with os.fdopen(descriptor, "wb") as stream:
             stream.write(content)
             stream.flush()
@@ -835,11 +838,12 @@ def _publish_render(prepared: PreparedDeployment, state_root: Path) -> Path:
     lock_suffix = prepared.lock["lock_identity"].removeprefix("sha256:")
     render_root = state_root / prepared.lock["deployment"] / "renders" / lock_suffix
     for relative, content in prepared.files.items():
-        _atomic_write(render_root / PurePosixPath(relative), content.encode("utf-8"))
+        _atomic_write(render_root / PurePosixPath(relative), content.encode("utf-8"), mode=rendered_file_mode(relative))
     _atomic_write(
         render_root / "mc-remote.lock.json",
         (json.dumps(prepared.lock, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode(),
     )
+    set_render_modes(render_root)
     return render_root
 
 
