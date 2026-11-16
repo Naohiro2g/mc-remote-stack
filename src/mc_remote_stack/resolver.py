@@ -220,6 +220,16 @@ def _build_candidate(
     environment = order["environment"]
     profile = profile_record.data
     preset = preset_record.data
+    services = copy.deepcopy(profile["services"])
+    for item in operator_inputs:
+        if item["role"] == "unity-sandboxes":
+            for sandbox in item["semantic"]["sandboxes"]:
+                services.append(
+                    {
+                        "id": f"unity-sandbox-{sandbox['id']}",
+                        "role": "unity-sandbox",
+                    }
+                )
     render_payload = {
         "adapter": profile["renderer"]["name"],
         "adapter_revision": profile["renderer"]["revision"],
@@ -229,7 +239,7 @@ def _build_candidate(
         "world": order["world"],
         "network": order["network"],
         "agreements": order["agreements"],
-        "services": profile["services"],
+        "services": services,
         "volume_roles": profile["volume_roles"],
         "required_security_controls": sorted(profile["policy"]["required_security_controls"]),
         "operator_input_roles": copy.deepcopy(profile.get("operator_input_roles", [])),
@@ -247,7 +257,7 @@ def _build_candidate(
         "adapter": profile["renderer"]["name"],
         "adapter_revision": profile["renderer"]["revision"],
         "semantic_sha256": semantic_sha256(render_payload),
-        "services": copy.deepcopy(profile["services"]),
+        "services": copy.deepcopy(services),
         "volume_roles": copy.deepcopy(profile["volume_roles"]),
         "required_security_controls": sorted(profile["policy"]["required_security_controls"]),
         "operator_input_roles": copy.deepcopy(profile.get("operator_input_roles", [])),

@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 import tomlkit
+import yaml
 
 from .apply import (
     DOCKER_CONTEXT,
@@ -29,8 +30,9 @@ from .apply import (
 )
 from .artifacts import fetch_locked_artifacts
 from .doctor import doctor_toml_project, probe_protocol_hello
+from .operator_inputs import UNITY_SANDBOXES_PATH
 from .preset_registry import load_profile
-from .render import render_toml_project, verify_toml_render_output
+from .render import UNITY_SANDBOX_REVISIONS, render_toml_project, verify_toml_render_output
 from .resolver import load_lock, resolve_project
 from .runtime_artifacts import (
     RuntimeArtifactContractError,
@@ -294,6 +296,66 @@ def _update_operator_input_scalar(
     _atomic_replace(path, tomlkit.dumps(document).encode("utf-8"))
 
 
+OPTIONAL_OPERATOR_INPUT_PATHS = {"unity-sandboxes": UNITY_SANDBOXES_PATH}
+
+
+def _read_replacement_input_bytes(source_path: Path) -> bytes:
+    if source_path.is_symlink() or not source_path.is_file():
+        _fail(
+            "update_input_file_invalid",
+            source_path,
+            "replacement input must be one existing regular non-symlink file",
+        )
+    try:
+        return source_path.read_bytes()
+    except OSError as exc:
+        _fail("update_input_file_invalid", source_path, str(exc))
+
+
+def _ensure_optional_operator_input(
+    project_root: Path,
+    role: str,
+    adapter: str,
+    *,
+    source_path: Path | None,
+) -> None:
+    loaded = load_order(project_root)
+    matching = [
+        item for item in loaded.order.get("operator_inputs", []) if item["role"] == role
+    ]
+    if matching:
+        _update_operator_adapter(project_root, role, adapter)
+        return
+    if source_path is None:
+        return
+    standard_path = OPTIONAL_OPERATOR_INPUT_PATHS.get(role)
+    if standard_path is None:
+        _fail(
+            "update_operator_input_missing",
+            f"operator_inputs.{role}",
+            "optional operator input role has no registered default path",
+        )
+    content = _read_replacement_input_bytes(source_path)
+    target = project_root / standard_path
+    target.parent.mkdir(parents=True, exist_ok=True)
+    _atomic_replace(target, content, mode=0o600)
+    document = tomlkit.parse(loaded.source_bytes.decode("utf-8"))
+    inputs = document.get("operator_inputs")
+    if inputs is None:
+        inputs = tomlkit.aot()
+        document["operator_inputs"] = inputs
+    entry = tomlkit.table()
+    entry["role"] = role
+    entry["adapter"] = adapter
+    entry["path"] = standard_path
+    inputs.append(entry)
+    _atomic_replace(
+        project_root / "mc-remote.toml",
+        tomlkit.dumps(document).encode("utf-8"),
+    )
+    load_order(project_root)
+
+
 def _replace_operator_input_file(
     project_root: Path,
     role: str,
@@ -311,18 +373,10 @@ def _replace_operator_input_file(
             f"operator_inputs.{role}",
             "input replacement requires exactly one existing operator input role",
         )
-    if source_path.is_symlink() or not source_path.is_file():
-        _fail(
-            "update_input_file_invalid",
-            source_path,
-            "replacement input must be one existing regular non-symlink file",
-        )
-    try:
-        content = source_path.read_bytes()
-    except OSError as exc:
-        _fail("update_input_file_invalid", source_path, str(exc))
+    content = _read_replacement_input_bytes(source_path)
     target = project_root / matching[0]["path"]
-    _atomic_replace(target, content)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    _atomic_replace(target, content, mode=None if target.exists() else 0o600)
 
 
 def _adapt_candidate_order(
@@ -339,9 +393,17 @@ def _adapt_candidate_order(
     update_order_scalar(destination, ("deployment", "profile"), target_profile)
     update_order_scalar(destination, ("environment", "preset"), target_preset)
     profile = load_profile(target_profile, data_root=data_root)
-    for required in profile.data.get("operator_input_roles", []):
-        _update_operator_adapter(destination, required["id"], required["adapter"])
     replacements = {} if input_files is None else input_files
+    for role_spec in profile.data.get("operator_input_roles", []):
+        if role_spec.get("required", True):
+            _update_operator_adapter(destination, role_spec["id"], role_spec["adapter"])
+        else:
+            _ensure_optional_operator_input(
+                destination,
+                role_spec["id"],
+                role_spec["adapter"],
+                source_path=replacements.get(role_spec["id"]),
+            )
     overlapping = {role for role, _key in input_overrides} & set(replacements)
     if overlapping:
         _fail(
@@ -478,9 +540,17 @@ def _validate_in_place_transition(
     retained_inputs = {
         role: path for role, path in target_inputs.items() if role in source_inputs
     }
+    source_render = source["render_plan"]
+    target_render = target["render_plan"]
+    allowed_additions = set(allowed_operator_input_additions)
+    if (
+        target_render["adapter_revision"] in UNITY_SANDBOX_REVISIONS
+        and target_inputs.get("unity-sandboxes") == UNITY_SANDBOXES_PATH
+    ):
+        allowed_additions.add("unity-sandboxes")
     if (
         retained_inputs != source_inputs
-        or added_inputs != set(allowed_operator_input_additions)
+        or not added_inputs.issubset(allowed_additions)
     ):
         _fail(
             "update_operator_input_shape_changed",
@@ -488,17 +558,20 @@ def _validate_in_place_transition(
             "release projection changed typed-input roles or retained paths outside "
             "the reviewed allowance",
         )
-    source_render = source["render_plan"]
-    target_render = target["render_plan"]
+    if target_render["adapter_revision"] in UNITY_SANDBOX_REVISIONS:
+        services_match = (
+            [s for s in source_render["services"] if s["role"] != "unity-sandbox"]
+            == [s for s in target_render["services"] if s["role"] != "unity-sandbox"]
+        )
+    else:
+        services_match = source_render["services"] == target_render["services"]
     if (
-        source_render["services"],
-        source_render["volume_roles"],
-    ) != (
-        target_render["services"],
-        target_render["volume_roles"],
-    ) or (
-        not allow_renderer_adapter_change
-        and source_render["adapter"] != target_render["adapter"]
+        not services_match
+        or source_render["volume_roles"] != target_render["volume_roles"]
+        or (
+            not allow_renderer_adapter_change
+            and source_render["adapter"] != target_render["adapter"]
+        )
     ):
         _fail(
             "update_runtime_shape_changed",
@@ -1161,7 +1234,12 @@ class _DockerUpdateHost:
             path="docker.compose",
         )
 
-    def _start(self, plan: DeploymentUpdatePlan, output: Path, reason: str) -> None:
+    def _start(
+        self,
+        services: tuple[str, ...],
+        output: Path,
+        reason: str,
+    ) -> None:
         _run(
             self.runner,
             self._compose(output)
@@ -1174,7 +1252,7 @@ class _DockerUpdateHost:
                 "--no-build",
                 "--pull",
                 "never",
-                *plan.services,
+                *services,
             ],
             timeout=self.wait_timeout + 60,
             reason=reason,
@@ -1182,7 +1260,7 @@ class _DockerUpdateHost:
         )
 
     def start_target(self, plan: DeploymentUpdatePlan, target_output: Path) -> None:
-        self._start(plan, target_output, "update_target_start_failed")
+        self._start(plan.services, target_output, "update_target_start_failed")
 
     def verify_target(self, plan: DeploymentUpdatePlan, target_output: Path) -> None:
         del target_output
@@ -1196,7 +1274,10 @@ class _DockerUpdateHost:
         )
 
     def start_source(self, plan: DeploymentUpdatePlan, source_output: Path) -> None:
-        self._start(plan, source_output, "update_source_restart_failed")
+        del plan
+        compose = yaml.safe_load((source_output / "compose.yaml").read_text(encoding="utf-8"))
+        services = tuple(compose["services"])
+        self._start(services, source_output, "update_source_restart_failed")
 
     def verify_source(self, plan: DeploymentUpdatePlan, source_output: Path) -> None:
         del source_output

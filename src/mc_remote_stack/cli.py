@@ -1054,6 +1054,8 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
         print(f"OK doctor scratch-runtime=current{pair_suffix}")
     if result.wirescope_status == "current":
         print(f"OK doctor wirescope=current handoff=cross-origin{pair_suffix}")
+    if result.unity_sandbox_status == "healthy":
+        print(f"OK doctor unity-sandbox=healthy count={result.unity_sandbox_count}")
     return 0
 
 

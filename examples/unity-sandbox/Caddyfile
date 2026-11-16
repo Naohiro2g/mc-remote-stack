@@ -1,0 +1,24 @@
+scratch.example.org {
+    header Referrer-Policy "strict-origin-when-cross-origin"
+    reverse_proxy scratch:8080
+}
+
+bridge.example.org {
+    reverse_proxy bridge:8080
+}
+
+wirescope.example.org {
+    root * /srv/wirescope
+    header {
+        Cross-Origin-Opener-Policy "unsafe-none"
+        Referrer-Policy "no-referrer"
+        X-Content-Type-Options "nosniff"
+        Cache-Control "no-store"
+        Content-Security-Policy "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+    }
+    file_server
+}
+
+unity-sb.example.org {
+    reverse_proxy unity-sandbox:8080
+}
