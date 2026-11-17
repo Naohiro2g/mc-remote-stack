@@ -690,7 +690,13 @@ UNITY_SANDBOX_REVISIONS = frozenset({"21"})
 GEYSER_PORT = 19132
 
 
-def locked_unity_sandboxes(lock: dict[str, Any]) -> list[dict[str, str]]:
+def unity_sandbox_hostnames(sandbox: dict[str, Any]) -> list[str]:
+    """Return every hostname (primary and aliases) routed to one Unity sandbox container."""
+
+    return [sandbox["hostname"], *sandbox["aliases"]]
+
+
+def locked_unity_sandboxes(lock: dict[str, Any]) -> list[dict[str, Any]]:
     """Return validated Unity sandbox containers from a vps-server@19+ lock."""
 
     operator_inputs = lock["operator_inputs"]
@@ -736,26 +742,37 @@ def locked_unity_sandboxes(lock: dict[str, Any]) -> list[dict[str, str]]:
         )
     seen_ids: set[str] = set()
     seen_hostnames: set[str] = set()
-    validated: list[dict[str, str]] = []
+    validated: list[dict[str, Any]] = []
     for entry in sandboxes:
         if (
             not isinstance(entry, dict)
-            or set(entry) != {"id", "hostname", "image"}
+            or set(entry) != {"id", "hostname", "aliases", "image"}
             or not all(isinstance(entry[key], str) and entry[key] for key in ("id", "hostname", "image"))
+            or not isinstance(entry["aliases"], list)
+            or len(entry["aliases"]) > 8
+            or not all(isinstance(alias, str) and alias for alias in entry["aliases"])
+            or entry["aliases"] != sorted(entry["aliases"])
             or entry["id"] in seen_ids
-            or entry["hostname"] in seen_hostnames
         ):
             _render_fail(
                 "render_plan_invalid",
                 "operator_inputs.unity-sandboxes.semantic.sandboxes",
                 "locked Unity sandbox entry is invalid or duplicated",
             )
+        hostnames = unity_sandbox_hostnames(entry)
+        if len(set(hostnames)) != len(hostnames) or any(name in seen_hostnames for name in hostnames):
+            _render_fail(
+                "render_plan_invalid",
+                "operator_inputs.unity-sandboxes.semantic.sandboxes",
+                "locked Unity sandbox entry is invalid or duplicated",
+            )
         seen_ids.add(entry["id"])
-        seen_hostnames.add(entry["hostname"])
+        seen_hostnames.update(hostnames)
         validated.append(
             {
                 "id": entry["id"],
                 "hostname": entry["hostname"],
+                "aliases": list(entry["aliases"]),
                 "image": entry["image"],
             }
         )
@@ -1036,7 +1053,9 @@ def _compose_public(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str
         routes["minecraft"],
         *(name for pair in pairs for name in (pair["scratch"], pair["wirescope"])),
     }
-    unity_hostnames = {sandbox["hostname"] for sandbox in unity_sandboxes}
+    unity_hostnames = {
+        name for sandbox in unity_sandboxes for name in unity_sandbox_hostnames(sandbox)
+    }
     if route_hostnames & unity_hostnames:
         _render_fail(
             "render_plan_invalid",
@@ -1202,7 +1221,7 @@ def _compose_public(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str
     wirescope_domains = ", ".join(pair["wirescope"] for pair in pairs)
     unity_sandbox_sites = "".join(
         f"""
-{sandbox["hostname"]} {{
+{", ".join(unity_sandbox_hostnames(sandbox))} {{
     reverse_proxy unity-sandbox-{sandbox["id"]}:8080
 }}
 """
@@ -1246,7 +1265,7 @@ def _compose_public(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str
             "restart": "unless-stopped",
             "command": ["--tcp-port", "25575"],
             "networks": {
-                "app": {"aliases": [sandbox["hostname"]]},
+                "app": {"aliases": unity_sandbox_hostnames(sandbox)},
             },
             "labels": {
                 **common_labels,

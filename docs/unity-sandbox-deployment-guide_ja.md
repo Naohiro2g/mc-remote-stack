@@ -26,7 +26,7 @@ cp examples/unity-sandbox/runtime/scratch.json ~/unity-sandbox/runtime/scratch.j
 
 ### 1-2. ドメイン名とイメージタグを書き換える
 
-`Caddyfile`・`compose.yaml`・`runtime/scratch.json` 内の `*.example.org` を自分のドメインへ置き換え、`unity-sandbox` のイメージタグ（例：`ghcr.io/naohiro2g/mc-remote-unity-sandbox:v2321.3.0`）を指定します。
+`Caddyfile`・`compose.yaml`・`runtime/scratch.json` 内の `*.example.org` を自分のドメインへ置き換え、`unity-sandbox` のイメージタグ（例：`ghcr.io/naohiro2g/mc-remote-unity-sandbox:v2321.2.0`）を指定します。
 
 - Unity箱庭の WebGL 画面は、ブラウザの現在ホストのルート `/ws/sync` へ WebSocket 接続します。そのためパス分け（`/unity/` 等）ではなく、**`unity-sb.example.org` のような独立したオリジン（ホスト名またはポート）** を割り当てます。
 - 独自ドメインの公開 VPS では、Caddy が `80/443` で Let's Encrypt 証明書を自動取得します。
@@ -68,24 +68,20 @@ docker compose ps
 mcrctl operator check --docker-context default
 ```
 
-作業用の一時ディレクトリへ `sandboxes.toml` と更新用の `targets.toml` を用意します。次は最新版（無印）と長期固定版（`-lts`）を 2 コンテナ独立で並べる例です。
+作業用の一時ディレクトリへ `sandboxes.toml` と更新用の `targets.toml` を用意します。版が同じ間は `aliases` で 1 コンテナへ複数ホスト名を向け、最新版と長期固定版（`-lts`）を分けるときは 2 コンテナを並記できます（前者は `doctor` で `count=1`、後者は `count=2`）。
 
 ```sh
 REVIEW_DIR="$(mktemp -d "${TMPDIR:-/tmp}/mc-remote-unity.XXXXXX")"
 cat <<'EOF' > "$REVIEW_DIR/sandboxes.toml"
 [[sandboxes]]
-id = "latest"
+id = "unity"
 hostname = "unity-sb.example.org"
-image = "ghcr.io/naohiro2g/mc-remote-unity-sandbox:v2321.3.0@sha256:0000000000000000000000000000000000000000000000000000000000000000"
-
-[[sandboxes]]
-id = "lts"
-hostname = "unity-sb-lts.example.org"
-image = "ghcr.io/naohiro2g/mc-remote-unity-sandbox:v2321.3.0@sha256:0000000000000000000000000000000000000000000000000000000000000000"
+aliases = ["unity-sb-lts.example.org"]
+image = "ghcr.io/naohiro2g/mc-remote-unity-sandbox:v2321.2.0@sha256:0000000000000000000000000000000000000000000000000000000000000000"
 EOF
 ```
 
-`image` の `@sha256:...` には `docker buildx imagetools inspect` 等で確認した実際のダイジェストを指定します。公開ホスト名（`unity-sb.example.org`、`unity-sb-lts.example.org`）は、事前に DNS（CNAME または A レコード）で対象 VPS へ向けておきます。
+トラックごとに別コンテナ（独立ワールド）にする場合は、同じ `sandboxes.toml` に複数の `[[sandboxes]]`（例：`id = "latest"` と `id = "lts"`）を並記します。`image` の `@sha256:...` には `docker buildx imagetools inspect` 等で確認した実際のダイジェストを指定します。公開ホスト名（`unity-sb.example.org`、`unity-sb-lts.example.org`）は、事前に DNS（CNAME または A レコード）で対象 VPS へ向けておきます。
 
 あわせて既存の `operator/connection-targets/targets.toml` をベースに、Unity箱庭の接続先と各 Scratch オリジンの選択肢を追加します（[組別接続先の設定手順](scratch-connection-selections-guide_ja.md) も参照してください）。
 
@@ -107,7 +103,7 @@ mcrctl deployment update plan \
   --replace-input "connection-targets=$REVIEW_DIR/targets.toml"
 ```
 
-出力された `plan` ID を使って適用し、`doctor` でコンテナ稼働と各 `https://<hostname>/healthz` の正常応答（`OK doctor unity-sandbox=healthy count=2`）を確認します。詳細な更新運用の流れは [VPSを新しいpresetへ更新する](public-vps-bootstrap-guide_ja.md) を参照してください。
+出力された `plan` ID を使って適用し、`doctor` でコンテナ稼働と各 `https://<hostname>/healthz` の正常応答（`OK doctor unity-sandbox=healthy count=<コンテナ数>`）を確認します。詳細な更新運用の流れは [VPSを新しいpresetへ更新する](public-vps-bootstrap-guide_ja.md) を参照してください。
 
 ```sh
 PLAN_ID="sha256:<planが出力したID>"

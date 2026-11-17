@@ -903,7 +903,7 @@
               "items": {
                 "type": "object",
                 "additionalProperties": false,
-                "required": ["id", "hostname", "image"],
+                "required": ["id", "hostname", "aliases", "image"],
                 "properties": {
                   "id": {
                     "type": "string",
@@ -913,6 +913,16 @@
                     "type": "string",
                     "minLength": 1,
                     "maxLength": 253
+                  },
+                  "aliases": {
+                    "type": "array",
+                    "maxItems": 8,
+                    "uniqueItems": true,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 253
+                    }
                   },
                   "image": {
                     "type": "string",

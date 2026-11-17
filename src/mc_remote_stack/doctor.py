@@ -26,6 +26,7 @@ from .render import (
     RenderContractError,
     _locked_public_routes,
     locked_unity_sandboxes,
+    unity_sandbox_hostnames,
     verify_toml_render_output,
     web_pair_runtime_path,
     web_pairs,
@@ -1164,7 +1165,7 @@ def doctor_toml_project(
     scratch_runtime_status = "not-applicable"
     wirescope_status = "not-applicable"
     unity_sandbox_status = "not-applicable"
-    unity_sandboxes: list[dict[str, str]] = []
+    unity_sandboxes: list[dict[str, Any]] = []
     pairs: list[dict[str, str]] = []
     if lock["render_plan"]["adapter_revision"] in PUBLIC_RENDERER_REVISIONS:
         routes = _locked_public_routes(lock)
@@ -1251,10 +1252,11 @@ def doctor_toml_project(
             unity_sandboxes = locked_unity_sandboxes(lock)
             if unity_sandboxes:
                 for sandbox in unity_sandboxes:
-                    unity_health_probe(
-                        f"https://{sandbox['hostname']}/healthz",
-                        timeout=timeout,
-                    )
+                    for hostname in unity_sandbox_hostnames(sandbox):
+                        unity_health_probe(
+                            f"https://{hostname}/healthz",
+                            timeout=timeout,
+                        )
                 unity_sandbox_status = "healthy"
 
     network = lock["network"]

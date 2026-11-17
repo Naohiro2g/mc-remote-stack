@@ -54,7 +54,7 @@ services:
       - app
 
   unity-sandbox:
-    image: ghcr.io/naohiro2g/mc-remote-unity-sandbox:v2321.3.0
+    image: ghcr.io/naohiro2g/mc-remote-unity-sandbox:v2321.2.0
     restart: unless-stopped
     networks:
       app:

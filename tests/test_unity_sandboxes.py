@@ -146,10 +146,24 @@ def test_unity_sandboxes_parser_accepts_zero_one_two_and_normalizes_order(
             {
                 "id": "only",
                 "hostname": "unity.mc-remote.example",
+                "aliases": [],
                 "image": f"ghcr.io/naohiro2g/mc-remote-unity-sandbox@{LATEST_DIGEST}",
             }
         ]
     }
+
+    aliased_source = (
+        '[[sandboxes]]\n'
+        'id = "unity"\n'
+        'hostname = "unity-sb.mc-remote.example"\n'
+        'aliases = ["z-alias.mc-remote.example", "unity-sb-lts.mc-remote.example"]\n'
+        f'image = "ghcr.io/naohiro2g/mc-remote-unity-sandbox@{LATEST_DIGEST}"\n'
+    ).encode()
+    aliased = _parse_unity_sandboxes(tmp_path / "sandboxes.toml", aliased_source)
+    assert aliased["sandboxes"][0]["aliases"] == [
+        "unity-sb-lts.mc-remote.example",
+        "z-alias.mc-remote.example",
+    ]
 
     reversed_source = f"""[[sandboxes]]
 id = "z-lts"
@@ -217,6 +231,31 @@ image = "ghcr.io/naohiro2g/mc-remote-unity-sandbox:v2321.3.0@{LATEST_DIGEST}"
             ),
             "operator_input_parse_failed",
         ),
+        (
+            '[[sandboxes]]\nid = "unity"\nhostname = "unity-sb.mc-remote.example"\n'
+            'aliases = ["unity-sb.mc-remote.example"]\n'
+            f'image = "ghcr.io/naohiro2g/mc-remote-unity-sandbox@{LATEST_DIGEST}"\n',
+            "operator_input_parse_failed",
+        ),
+        (
+            f"{SANDBOXES_TWO_SOURCE}"
+            'aliases = ["unity-sb.mc-remote.example"]\n',
+            "operator_input_parse_failed",
+        ),
+        (
+            '[[sandboxes]]\nid = "unity"\nhostname = "unity-sb.mc-remote.example"\n'
+            'aliases = "unity-sb-lts.mc-remote.example"\n'
+            f'image = "ghcr.io/naohiro2g/mc-remote-unity-sandbox@{LATEST_DIGEST}"\n',
+            "operator_input_parse_failed",
+        ),
+        (
+            '[[sandboxes]]\nid = "unity"\nhostname = "unity-sb.mc-remote.example"\n'
+            'aliases = ['
+            + ", ".join(f'"a{index}.mc-remote.example"' for index in range(9))
+            + "]\n"
+            f'image = "ghcr.io/naohiro2g/mc-remote-unity-sandbox@{LATEST_DIGEST}"\n',
+            "operator_input_parse_failed",
+        ),
     ],
     ids=[
         "missing_digest",
@@ -228,6 +267,10 @@ image = "ghcr.io/naohiro2g/mc-remote-unity-sandbox:v2321.3.0@{LATEST_DIGEST}"
         "env_interpolation",
         "unknown_key",
         "too_many_sandboxes",
+        "alias_duplicates_own_hostname",
+        "alias_duplicates_other_sandbox",
+        "aliases_not_list",
+        "too_many_aliases",
     ],
 )
 def test_unity_sandboxes_parser_rejects_invalid_inputs(
@@ -309,6 +352,71 @@ def test_vps_server_19_renders_two_independent_unity_sandboxes(tmp_path: Path) -
     assert "unity-sb-lts.mc-remote.example {\n    reverse_proxy unity-sandbox-lts:8080\n}" in caddy
 
 
+def test_vps_server_19_renders_shared_unity_sandbox_with_aliases(tmp_path: Path) -> None:
+    fixture = build_vps_fixture(tmp_path, profile="vps-server@19", minecraft_heap="3G")
+    shared_source = (
+        '[[sandboxes]]\n'
+        'id = "unity"\n'
+        'hostname = "unity-sb.mc-remote.example"\n'
+        'aliases = ["unity-sb-lts.mc-remote.example"]\n'
+        f'image = "ghcr.io/naohiro2g/mc-remote-unity-sandbox:v2321.2.0@{LATEST_DIGEST}"\n'
+    )
+    _attach_unity_sandboxes(fixture, sandboxes_source=shared_source)
+
+    render_toml_project(fixture.project, fixture.output, data_root=fixture.data_root)
+
+    lock = load_lock(fixture.project, data_root=fixture.data_root)
+    assert [service["id"] for service in lock["render_plan"]["services"]] == [
+        "caddy",
+        "scratch",
+        "bridge",
+        "minecraft",
+        "unity-sandbox-unity",
+    ]
+    compose = yaml.safe_load((fixture.output / "compose.yaml").read_text(encoding="utf-8"))
+    services = compose["services"]
+    assert list(services) == [
+        "caddy",
+        "scratch",
+        "bridge",
+        "minecraft",
+        "unity-sandbox-unity",
+    ]
+    assert services["unity-sandbox-unity"]["networks"] == {
+        "app": {"aliases": ["unity-sb.mc-remote.example", "unity-sb-lts.mc-remote.example"]}
+    }
+    assert services["minecraft"]["networks"]["app"]["aliases"] == [
+        "sb-lts.mc-remote.example",
+        "sb.mc-remote.example",
+    ]
+    assert services["bridge"]["environment"]["BRIDGE_SANDBOX_ALLOWLIST"] == (
+        "sb-lts.mc-remote.example,sb.mc-remote.example,"
+        "unity-sb-lts.mc-remote.example,unity-sb.mc-remote.example"
+    )
+    caddy = (fixture.output / "Caddyfile").read_text(encoding="utf-8")
+    assert (
+        "unity-sb.mc-remote.example, unity-sb-lts.mc-remote.example {\n"
+        "    reverse_proxy unity-sandbox-unity:8080\n}"
+    ) in caddy
+
+
+def test_vps_server_19_rejects_unity_alias_colliding_with_public_routes(tmp_path: Path) -> None:
+    fixture = build_vps_fixture(tmp_path, profile="vps-server@19", minecraft_heap="3G")
+    bad_sandboxes = (
+        '[[sandboxes]]\n'
+        'id = "unity"\n'
+        'hostname = "unity-sb.mc-remote.example"\n'
+        'aliases = ["scratch.mc-remote.example"]\n'
+        f'image = "ghcr.io/naohiro2g/mc-remote-unity-sandbox@{LATEST_DIGEST}"\n'
+    )
+    _attach_unity_sandboxes(fixture, sandboxes_source=bad_sandboxes)
+
+    with pytest.raises(RenderContractError) as exc_info:
+        render_toml_project(fixture.project, fixture.output, data_root=fixture.data_root)
+
+    assert exc_info.value.reason == "render_plan_invalid"
+
+
 @pytest.mark.parametrize(
     "colliding_hostname",
     [
@@ -382,6 +490,77 @@ def test_doctor_validates_six_containers_and_unity_healthz_probes(
     monkeypatch.setattr("mc_remote_stack.cli.doctor_toml_project", lambda *_a, **_k: result)
     assert main(["doctor", "--project", str(fixture.project)]) == 0
     assert "OK doctor unity-sandbox=healthy count=2" in capsys.readouterr().out
+
+
+def test_doctor_validates_unity_aliases_and_fails_on_unhealthy_alias(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    fixture = build_vps_fixture(tmp_path, profile="vps-server@19", minecraft_heap="3G")
+    shared_source = (
+        '[[sandboxes]]\n'
+        'id = "unity"\n'
+        'hostname = "unity-sb.mc-remote.example"\n'
+        'aliases = ["unity-sb-lts.mc-remote.example"]\n'
+        f'image = "ghcr.io/naohiro2g/mc-remote-unity-sandbox:v2321.2.0@{LATEST_DIGEST}"\n'
+    )
+    _attach_unity_sandboxes(fixture, sandboxes_source=shared_source)
+    render_toml_project(fixture.project, fixture.output, data_root=fixture.data_root)
+    lock = load_lock(fixture.project, data_root=fixture.data_root)
+
+    containers = rendered_containers(fixture.output)
+    assert len(containers) == 5
+    from .test_toml_apply import FakeDocker
+
+    runner = FakeDocker(_vps_doctor_responses(fixture.output, lock, containers=containers))
+    probes = _vps_public_probes(fixture.output)
+    probed_urls: list[str] = []
+
+    def fake_unity_probe(url: str, timeout: int) -> None:
+        assert timeout == 5
+        probed_urls.append(url)
+
+    result = doctor_toml_project(
+        fixture.project,
+        fixture.output,
+        docker_context="default",
+        data_root=fixture.data_root,
+        runner=runner,
+        hello_probe=lambda *_args, **_kwargs: ProtocolHelloResult(
+            status="auth-required", protocol=None, minecraft_version=None
+        ),
+        unity_health_probe=fake_unity_probe,
+        **probes,
+    )
+
+    assert result.unity_sandbox_status == "healthy"
+    assert result.unity_sandbox_count == 1
+    assert probed_urls == [
+        "https://unity-sb.mc-remote.example/healthz",
+        "https://unity-sb-lts.mc-remote.example/healthz",
+    ]
+    monkeypatch.setattr("mc_remote_stack.cli.doctor_toml_project", lambda *_a, **_k: result)
+    assert main(["doctor", "--project", str(fixture.project)]) == 0
+    assert "OK doctor unity-sandbox=healthy count=1" in capsys.readouterr().out
+
+    def fail_alias_probe(url: str, timeout: int) -> None:
+        del timeout
+        if "unity-sb-lts.mc-remote.example" in url:
+            raise DoctorContractError("doctor_unity_sandbox_unhealthy", url, "injected")
+
+    with pytest.raises(DoctorContractError) as exc_info:
+        doctor_toml_project(
+            fixture.project,
+            fixture.output,
+            docker_context="default",
+            data_root=fixture.data_root,
+            runner=FakeDocker(_vps_doctor_responses(fixture.output, lock, containers=containers)),
+            hello_probe=lambda *_args, **_kwargs: ProtocolHelloResult(
+                status="auth-required", protocol=None, minecraft_version=None
+            ),
+            unity_health_probe=fail_alias_probe,
+            **probes,
+        )
+    assert exc_info.value.reason == "doctor_unity_sandbox_unhealthy"
 
 
 @pytest.mark.parametrize(

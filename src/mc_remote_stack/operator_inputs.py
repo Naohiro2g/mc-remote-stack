@@ -68,7 +68,10 @@ WEB_PAIR_KEYS = frozenset({"scratch", "wirescope"})
 MAX_WEB_PAIRS = 4
 CONNECTION_TARGET_KEYS = frozenset({"id", "label", "sandbox"})
 LAN_ROUTES_KEYS = frozenset({"hostname", "scratch_port", "bridge_port"})
-UNITY_SANDBOX_KEYS = frozenset({"id", "hostname", "image"})
+UNITY_SANDBOX_REQUIRED_KEYS = frozenset({"id", "hostname", "image"})
+UNITY_SANDBOX_OPTIONAL_KEYS = frozenset({"aliases"})
+UNITY_SANDBOX_KEYS = UNITY_SANDBOX_REQUIRED_KEYS | UNITY_SANDBOX_OPTIONAL_KEYS
+MAX_UNITY_SANDBOX_ALIASES = 8
 UNITY_SANDBOX_ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,46}$")
 OCI_PINNED_IMAGE = re.compile(
     r"^[a-z0-9][a-z0-9._/-]*(?::[A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?@sha256:[0-9a-f]{64}$"
@@ -882,15 +885,18 @@ def _parse_unity_sandboxes(path: Path, source: bytes) -> dict[str, Any]:
             path,
             f"sandboxes must contain 0 through {MAX_UNITY_SANDBOXES} entries",
         )
-    normalized: list[dict[str, str]] = []
+    normalized: list[dict[str, Any]] = []
     seen_ids: set[str] = set()
     seen_hostnames: set[str] = set()
     for index, entry in enumerate(sandboxes):
-        if not isinstance(entry, dict) or set(entry) != UNITY_SANDBOX_KEYS:
+        if (
+            not isinstance(entry, dict)
+            or not (UNITY_SANDBOX_REQUIRED_KEYS <= set(entry) <= UNITY_SANDBOX_KEYS)
+        ):
             _fail(
                 "operator_input_parse_failed",
                 path,
-                f"sandboxes[{index}] must contain only id, hostname, and image",
+                f"sandboxes[{index}] must contain id, hostname, image, and optional aliases",
             )
         sandbox_id = entry["id"]
         if not isinstance(sandbox_id, str) or UNITY_SANDBOX_ID.fullmatch(sandbox_id) is None:
@@ -912,6 +918,25 @@ def _parse_unity_sandboxes(path: Path, source: bytes) -> dict[str, Any]:
                 path,
                 f"duplicate Unity sandbox hostname: {hostname}",
             )
+        seen_hostnames.add(hostname)
+        raw_aliases = entry.get("aliases", [])
+        if not isinstance(raw_aliases, list) or len(raw_aliases) > MAX_UNITY_SANDBOX_ALIASES:
+            _fail(
+                "operator_input_parse_failed",
+                path,
+                f"sandboxes[{index}].aliases must contain at most {MAX_UNITY_SANDBOX_ALIASES} hostnames",
+            )
+        aliases: list[str] = []
+        for alias_index, raw_alias in enumerate(raw_aliases):
+            alias = _public_dns_name(path, f"sandboxes[{index}].aliases[{alias_index}]", raw_alias)
+            if alias in seen_hostnames:
+                _fail(
+                    "operator_input_parse_failed",
+                    path,
+                    f"duplicate Unity sandbox hostname: {alias}",
+                )
+            seen_hostnames.add(alias)
+            aliases.append(alias)
         image = entry["image"]
         if not isinstance(image, str):
             _fail(
@@ -932,8 +957,14 @@ def _parse_unity_sandboxes(path: Path, source: bytes) -> dict[str, Any]:
                 f"sandboxes[{index}].image must be a lowercase OCI reference pinned by @sha256 digest",
             )
         seen_ids.add(sandbox_id)
-        seen_hostnames.add(hostname)
-        normalized.append({"id": sandbox_id, "hostname": hostname, "image": image})
+        normalized.append(
+            {
+                "id": sandbox_id,
+                "hostname": hostname,
+                "aliases": sorted(aliases),
+                "image": image,
+            }
+        )
     return {"sandboxes": sorted(normalized, key=lambda item: item["id"])}
 
 
