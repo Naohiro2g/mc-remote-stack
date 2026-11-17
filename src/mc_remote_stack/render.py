@@ -172,6 +172,13 @@ def _locked_minecraft_motd(
     return motd
 
 
+def _allowed_public_input_roles(lock: dict[str, Any]) -> frozenset[str]:
+    roles = PUBLIC_INPUT_ROLES | {"minecraft-motd"}
+    if lock["render_plan"]["adapter_revision"] in UNITY_SANDBOX_REVISIONS:
+        return roles | {"unity-sandboxes"}
+    return roles
+
+
 def _locked_public_routes(lock: dict[str, Any]) -> dict[str, Any]:
     operator_inputs = lock["operator_inputs"]
     if operator_inputs != lock["render_plan"]["operator_inputs"]:
@@ -181,18 +188,9 @@ def _locked_public_routes(lock: dict[str, Any]) -> dict[str, Any]:
             "render plan operator inputs must exactly match the lock projection",
         )
     matches = [item for item in operator_inputs if item["role"] == "public-routes"]
+    allowed_roles = _allowed_public_input_roles(lock)
     if len(matches) != 1 or any(
-        item["role"]
-        not in {
-            "public-routes",
-            "minecraft-motd",
-            "minecraft-server",
-            "connection-targets",
-            "minecraft-plugins",
-            "homepage-static",
-            "minecraft-backup",
-        }
-        for item in operator_inputs
+        item["role"] not in allowed_roles for item in operator_inputs
     ):
         _render_fail(
             "render_plan_invalid",
@@ -665,12 +663,12 @@ def _locked_composition_input(
 
 # compose@13 (vps-server@12), compose@15 (vps-server@13), compose@16
 # (vps-server@14), compose@17 (vps-server@15), compose@18 (vps-server@16),
-# compose@19 (vps-server@17), and compose@20 (vps-server@18)
-# render the public VPS; compose@14 renders the home set.
-PUBLIC_RENDERER_REVISIONS = frozenset({"13", "15", "16", "17", "18", "19", "20"})
+# compose@19 (vps-server@17), compose@20 (vps-server@18), and compose@21
+# (vps-server@19) render the public VPS; compose@14 renders the home set.
+PUBLIC_RENDERER_REVISIONS = frozenset({"13", "15", "16", "17", "18", "19", "20", "21"})
 SUPPORTED_RENDERER_REVISIONS = PUBLIC_RENDERER_REVISIONS | {"14"}
 # Revisions that serve the fixed /candidates/ route beside the homepage.
-CANDIDATE_ROUTE_REVISIONS = frozenset({"15", "16", "17", "18", "19", "20"})
+CANDIDATE_ROUTE_REVISIONS = frozenset({"15", "16", "17", "18", "19", "20", "21"})
 # Revisions that set every container clock; earlier ones stay on UTC.
 CONTAINER_TIME_ZONE = {
     "16": "Asia/Tokyo",
@@ -678,16 +676,107 @@ CONTAINER_TIME_ZONE = {
     "18": "Asia/Tokyo",
     "19": "Asia/Tokyo",
     "20": "Asia/Tokyo",
+    "21": "Asia/Tokyo",
 }
 # Revisions that serve extra Scratch/WireScope name pairs from public-routes@3.
-WEB_PAIR_REVISIONS = frozenset({"17", "18", "19", "20"})
-PER_ORIGIN_TARGET_REVISIONS = frozenset({"19", "20"})
-HEAP_ENV_REVISIONS = frozenset({"20"})
+WEB_PAIR_REVISIONS = frozenset({"17", "18", "19", "20", "21"})
+PER_ORIGIN_TARGET_REVISIONS = frozenset({"19", "20", "21"})
+HEAP_ENV_REVISIONS = frozenset({"20", "21"})
 # Revisions that give Geyser its own port over TCP and UDP. NetherNet signaling
 # needs TCP on the Geyser port, which Java already holds on 25565; earlier
 # revisions publish Geyser as UDP on the Java port number.
-GEYSER_PORT_REVISIONS = frozenset({"18", "19", "20"})
+GEYSER_PORT_REVISIONS = frozenset({"18", "19", "20", "21"})
+UNITY_SANDBOX_REVISIONS = frozenset({"21"})
 GEYSER_PORT = 19132
+
+
+def unity_sandbox_hostnames(sandbox: dict[str, Any]) -> list[str]:
+    """Return every hostname (primary and aliases) routed to one Unity sandbox container."""
+
+    return [sandbox["hostname"], *sandbox["aliases"]]
+
+
+def locked_unity_sandboxes(lock: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return validated Unity sandbox containers from a vps-server@19+ lock."""
+
+    operator_inputs = lock["operator_inputs"]
+    if operator_inputs != lock["render_plan"]["operator_inputs"]:
+        _render_fail(
+            "render_plan_invalid",
+            "render_plan.operator_inputs",
+            "render plan operator inputs must exactly match the lock projection",
+        )
+    matches = [item for item in operator_inputs if item["role"] == "unity-sandboxes"]
+    if not matches:
+        return []
+    if len(matches) > 1 or lock["render_plan"]["adapter_revision"] not in UNITY_SANDBOX_REVISIONS:
+        _render_fail(
+            "render_plan_invalid",
+            "operator_inputs.unity-sandboxes",
+            "unity-sandboxes is supported once on compose@21 and later",
+        )
+    item = matches[0]
+    semantic = item["semantic"]
+    if (
+        item["adapter"] != "unity-sandboxes@1"
+        or item["path"] != "operator/unity-sandboxes/sandboxes.toml"
+        or item["semantic_sha256"] != semantic_sha256(semantic)
+    ):
+        _render_fail(
+            "render_plan_invalid",
+            "operator_inputs.unity-sandboxes",
+            "locked unity-sandboxes adapter identity or semantic digest is invalid",
+        )
+    if not isinstance(semantic, dict) or set(semantic) != {"sandboxes"}:
+        _render_fail(
+            "render_plan_invalid",
+            "operator_inputs.unity-sandboxes.semantic",
+            "locked unity-sandboxes must contain only sandboxes",
+        )
+    sandboxes = semantic["sandboxes"]
+    if not isinstance(sandboxes, list):
+        _render_fail(
+            "render_plan_invalid",
+            "operator_inputs.unity-sandboxes.semantic.sandboxes",
+            "locked sandboxes must be an array",
+        )
+    seen_ids: set[str] = set()
+    seen_hostnames: set[str] = set()
+    validated: list[dict[str, Any]] = []
+    for entry in sandboxes:
+        if (
+            not isinstance(entry, dict)
+            or set(entry) != {"id", "hostname", "aliases", "image"}
+            or not all(isinstance(entry[key], str) and entry[key] for key in ("id", "hostname", "image"))
+            or not isinstance(entry["aliases"], list)
+            or len(entry["aliases"]) > 8
+            or not all(isinstance(alias, str) and alias for alias in entry["aliases"])
+            or entry["aliases"] != sorted(entry["aliases"])
+            or entry["id"] in seen_ids
+        ):
+            _render_fail(
+                "render_plan_invalid",
+                "operator_inputs.unity-sandboxes.semantic.sandboxes",
+                "locked Unity sandbox entry is invalid or duplicated",
+            )
+        hostnames = unity_sandbox_hostnames(entry)
+        if len(set(hostnames)) != len(hostnames) or any(name in seen_hostnames for name in hostnames):
+            _render_fail(
+                "render_plan_invalid",
+                "operator_inputs.unity-sandboxes.semantic.sandboxes",
+                "locked Unity sandbox entry is invalid or duplicated",
+            )
+        seen_ids.add(entry["id"])
+        seen_hostnames.update(hostnames)
+        validated.append(
+            {
+                "id": entry["id"],
+                "hostname": entry["hostname"],
+                "aliases": list(entry["aliases"]),
+                "image": entry["image"],
+            }
+        )
+    return validated
 
 PUBLIC_SERVICES = [
     {"id": "caddy", "role": "caddy-edge"},
@@ -875,11 +964,23 @@ def _compose_public(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str
     (vps-server@18) adds a required, locked Minecraft heap setting.
     """
 
-    if lock["render_plan"]["services"] != PUBLIC_SERVICES:
+    revision = lock["render_plan"]["adapter_revision"]
+    unity_sandboxes = (
+        locked_unity_sandboxes(lock) if revision in UNITY_SANDBOX_REVISIONS else []
+    )
+    expected_services = [
+        *PUBLIC_SERVICES,
+        *(
+            {"id": f"unity-sandbox-{sandbox['id']}", "role": "unity-sandbox"}
+            for sandbox in unity_sandboxes
+        ),
+    ]
+    if lock["render_plan"]["services"] != expected_services:
         _render_fail(
             "render_plan_invalid",
             "render_plan.services",
-            "the public renderer requires the canonical caddy, scratch, bridge, and minecraft services",
+            "the public renderer requires the canonical caddy, scratch, bridge, "
+            "minecraft, and declared Unity sandbox services",
         )
     if lock["render_plan"]["volume_roles"] != PUBLIC_VOLUME_ROLES:
         _render_fail(
@@ -911,9 +1012,8 @@ def _compose_public(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str
             "public publication requires the explicit IPv4 wildcard address",
         )
     # Validates that the locked inputs are exactly the render plan's public roles.
-    _locked_minecraft_motd(lock, allowed_roles=PUBLIC_INPUT_ROLES | {"minecraft-motd"})
+    _locked_minecraft_motd(lock, allowed_roles=_allowed_public_input_roles(lock))
 
-    revision = lock["render_plan"]["adapter_revision"]
     adapter = f"compose@{revision}"
     _, caddy_image = _oci_image(lock, "caddy-edge", adapter=adapter)
     scratch_artifact, scratch_image = _oci_image(lock, "scratch-runtime", adapter=adapter)
@@ -946,6 +1046,22 @@ def _compose_public(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str
     routes = _locked_public_routes(lock)
     _verified_wirescope_assets(lock)
     pairs = web_pairs(routes)
+    route_hostnames = {
+        routes["homepage"],
+        *routes["homepage_aliases"],
+        routes["bridge"],
+        routes["minecraft"],
+        *(name for pair in pairs for name in (pair["scratch"], pair["wirescope"])),
+    }
+    unity_hostnames = {
+        name for sandbox in unity_sandboxes for name in unity_sandbox_hostnames(sandbox)
+    }
+    if route_hostnames & unity_hostnames:
+        _render_fail(
+            "render_plan_invalid",
+            "operator_inputs.unity-sandboxes.semantic.sandboxes",
+            "Unity sandbox hostnames must not collide with public-routes hostnames",
+        )
     runtimes = {pair["scratch"]: _public_runtime_config(lock, routes, scratch_artifact, pair=pair) for pair in pairs}
     runtime = runtimes[routes["scratch"]]
     sandbox_allowlist = {target["sandbox"] for config in runtimes.values() for target in config["connection_targets"]}
@@ -957,7 +1073,7 @@ def _compose_public(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str
             f"compose@{revision} cannot serve extra Scratch/WireScope name pairs",
         )
     if revision in WEB_PAIR_REVISIONS:
-        minecraft_aliases = sorted(sandbox_allowlist)
+        minecraft_aliases = sorted(sandbox_allowlist - unity_hostnames) or [routes["minecraft"]]
     else:
         minecraft_aliases = [routes["minecraft"]]
 
@@ -1103,6 +1219,14 @@ def _compose_public(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str
         for pair in extra_pairs
     )
     wirescope_domains = ", ".join(pair["wirescope"] for pair in pairs)
+    unity_sandbox_sites = "".join(
+        f"""
+{", ".join(unity_sandbox_hostnames(sandbox))} {{
+    reverse_proxy unity-sandbox-{sandbox["id"]}:8080
+}}
+"""
+        for sandbox in unity_sandboxes
+    )
     caddyfile = f"""# Generated by mcrctl {adapter}. Do not edit.
 {homepage_domains} {{
 {homepage_site}
@@ -1128,12 +1252,28 @@ def _compose_public(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str
     }}
     file_server
 }}
-"""
+{unity_sandbox_sites}"""
     common_labels = {
         "io.mc-remote.deployment": deployment_name,
         "io.mc-remote.environment": lock["environment"]["identity"],
         "io.mc-remote.world": lock["world"]["identity"],
         "io.mc-remote.lock": lock["lock_identity"],
+    }
+    unity_services = {
+        f"unity-sandbox-{sandbox['id']}": {
+            "image": sandbox["image"],
+            "restart": "unless-stopped",
+            "command": ["--tcp-port", "25575"],
+            "networks": {
+                "app": {"aliases": unity_sandbox_hostnames(sandbox)},
+            },
+            "labels": {
+                **common_labels,
+                "io.mc-remote.unity-sandbox-id": sandbox["id"],
+                "io.mc-remote.unity-sandbox-hostname": sandbox["hostname"],
+            },
+        }
+        for sandbox in unity_sandboxes
     }
     compose = {
         "name": deployment_name,
@@ -1228,6 +1368,7 @@ def _compose_public(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str
                     "io.mc-remote.peripheral-plugins": plugin_input["semantic_sha256"],
                 },
             },
+            **unity_services,
         },
         "networks": {
             "edge": {"internal": False, "enable_ipv6": False},

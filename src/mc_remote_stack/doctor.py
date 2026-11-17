@@ -22,8 +22,11 @@ from .render import (
     GEYSER_PORT_REVISIONS,
     PUBLIC_RENDERER_REVISIONS,
     SUPPORTED_RENDERER_REVISIONS,
+    UNITY_SANDBOX_REVISIONS,
     RenderContractError,
     _locked_public_routes,
+    locked_unity_sandboxes,
+    unity_sandbox_hostnames,
     verify_toml_render_output,
     web_pair_runtime_path,
     web_pairs,
@@ -42,6 +45,7 @@ from .scratch_contract import (
 
 MAX_HELLO_BYTES = 64 * 1024
 MAX_SCRATCH_RUNTIME_BYTES = 64 * 1024
+MAX_UNITY_HEALTH_BYTES = 16 * 1024
 MAX_HOMEPAGE_INDEX_BYTES = 1024 * 1024
 MAX_WIRESCOPE_INDEX_BYTES = 1024 * 1024
 MCREMOTE_B2_SHA256 = "ad2674fa93645cc3c4c0d2b6aa5b37f11a8f9519162f61ac00b8be7122b023c7"
@@ -99,6 +103,8 @@ class TomlDoctorResult:
     scratch_runtime_status: str = "not-applicable"
     wirescope_status: str = "not-applicable"
     web_pair_count: int = 0
+    unity_sandbox_status: str = "not-applicable"
+    unity_sandbox_count: int = 0
 
 
 class DoctorContractError(ValueError):
@@ -146,6 +152,49 @@ def _run(
     if result.returncode != 0:
         _fail(reason, path, f"Docker command failed with exit status {result.returncode}")
     return result
+
+
+def probe_unity_sandbox_health(url: str, timeout: int) -> None:
+    """Fetch one public Unity sandbox /healthz document and verify tcpPort 25575."""
+
+    request = Request(
+        url,
+        headers={"Accept": "application/json", "User-Agent": "mcrctl-doctor/1"},
+    )
+    try:
+        with urlopen(request, timeout=timeout) as response:
+            source = response.read(MAX_UNITY_HEALTH_BYTES + 1)
+    except (HTTPError, URLError, TimeoutError, OSError) as exc:
+        _fail(
+            "doctor_unity_sandbox_unavailable",
+            url,
+            f"cannot fetch the public Unity sandbox health endpoint: {exc}",
+        )
+    if len(source) > MAX_UNITY_HEALTH_BYTES:
+        _fail(
+            "doctor_unity_sandbox_invalid",
+            url,
+            "Unity sandbox health response exceeded the 16 KiB limit",
+        )
+    try:
+        payload = json.loads(source)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        _fail(
+            "doctor_unity_sandbox_invalid",
+            url,
+            f"Unity sandbox health response is not valid UTF-8 JSON: {exc}",
+        )
+    if (
+        not isinstance(payload, dict)
+        or payload.get("status") != "ok"
+        or isinstance(payload.get("tcpPort"), bool)
+        or payload.get("tcpPort") != 25575
+    ):
+        _fail(
+            "doctor_unity_sandbox_unhealthy",
+            url,
+            "Unity sandbox health endpoint did not report status=ok and tcpPort=25575",
+        )
 
 
 def probe_scratch_runtime_config(url: str, timeout: int) -> object:
@@ -939,11 +988,21 @@ def doctor_toml_project(
     timeout: int = 5,
     runner: CommandRunner = _default_runner,
     hello_probe=probe_protocol_hello,
-    homepage_probe=probe_homepage_public,
-    scratch_runtime_probe=probe_scratch_runtime_config,
-    wirescope_probe=probe_wirescope_public_handoff,
+    homepage_probe=None,
+    scratch_runtime_probe=None,
+    wirescope_probe=None,
+    unity_health_probe=None,
 ) -> TomlDoctorResult:
     """Check one current Compose runtime without mutating host state."""
+
+    if homepage_probe is None:
+        homepage_probe = probe_homepage_public
+    if scratch_runtime_probe is None:
+        scratch_runtime_probe = probe_scratch_runtime_config
+    if wirescope_probe is None:
+        wirescope_probe = probe_wirescope_public_handoff
+    if unity_health_probe is None:
+        unity_health_probe = probe_unity_sandbox_health
 
     if not DOCKER_CONTEXT.fullmatch(docker_context):
         _fail(
@@ -1105,6 +1164,8 @@ def doctor_toml_project(
     homepage_status = "not-applicable"
     scratch_runtime_status = "not-applicable"
     wirescope_status = "not-applicable"
+    unity_sandbox_status = "not-applicable"
+    unity_sandboxes: list[dict[str, Any]] = []
     pairs: list[dict[str, str]] = []
     if lock["render_plan"]["adapter_revision"] in PUBLIC_RENDERER_REVISIONS:
         routes = _locked_public_routes(lock)
@@ -1187,6 +1248,16 @@ def doctor_toml_project(
             )
         scratch_runtime_status = "current"
         wirescope_status = "current"
+        if lock["render_plan"]["adapter_revision"] in UNITY_SANDBOX_REVISIONS:
+            unity_sandboxes = locked_unity_sandboxes(lock)
+            if unity_sandboxes:
+                for sandbox in unity_sandboxes:
+                    for hostname in unity_sandbox_hostnames(sandbox):
+                        unity_health_probe(
+                            f"https://{hostname}/healthz",
+                            timeout=timeout,
+                        )
+                unity_sandbox_status = "healthy"
 
     network = lock["network"]
     hello = hello_probe(
@@ -1229,4 +1300,6 @@ def doctor_toml_project(
         scratch_runtime_status=scratch_runtime_status,
         wirescope_status=wirescope_status,
         web_pair_count=len(pairs),
+        unity_sandbox_status=unity_sandbox_status,
+        unity_sandbox_count=len(unity_sandboxes),
     )
