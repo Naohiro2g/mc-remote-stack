@@ -52,6 +52,7 @@ release待ちの間に、別のセットを用意する場合は[公開VPSの構
 - [ホームページを更新する](docs/homepage-sync-guide_ja.md)
 - [backupを転送する・復元する](docs/backup-and-restore-guide_ja.md)
 - [リリース候補を配る](docs/release-candidate-downloads-guide_ja.md)（試験の間だけ`/candidates/`に置く）
+- [private opsリポで運用情報を管理する](docs/private-ops-guide_ja.md)（ホスト台帳と構成控えの持ち方）
 
 ホームのPCにセットを置く手順は、[ホーム用ケータリング手順](docs/home-catering-guide_ja.md)にあります。設定ファイルを一つ用意し、`mcrctl apply`と`mcrctl doctor`で構築と確認をする方式です。今あるpresetは公開済みのb7.post2向けです。
 
@@ -67,7 +68,7 @@ Stackとbackstageは協調して働き、どちらが実務を持つかを厳密
 
 設計の正本はknowledgeの[deployment interface設計](https://github.com/Naohiro2g/mc-remote-knowledge/blob/main/00-hub/deployment-interface-design_ja.md)で、今のコードが扱う範囲は[deployment interface実装境界](docs/deployment-interface-implementation_ja.md)にあります。
 
-OSSとして使う場合は、非公開の運用情報を置くprivate opsリポを自分で持ちます。公開テンプレートは作らず、その立ち上げの仕組みをStackに置く予定です。
+OSSとして使う場合は、非公開の運用情報を置くprivate opsリポを自分で持ちます。公開テンプレートリポは使わず、[private opsリポで運用情報を管理する](docs/private-ops-guide_ja.md)と[`examples/private-ops/`](examples/private-ops/README.md)から立ち上げます。
 
 ## 開発
 
