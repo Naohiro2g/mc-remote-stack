@@ -1,0 +1,28 @@
+# Secret values and private key material
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+
+# Backups, state archives, and raw logs belong outside Git
+*.age
+*.sqlite
+*.sqlite-*
+*.tar
+*.tar.gz
+*.zip
+raw/
+raw-logs/
+captures/
+dumps/
+tmp/
+
+# Local/editor noise
+.DS_Store
+.idea/
+.vscode/

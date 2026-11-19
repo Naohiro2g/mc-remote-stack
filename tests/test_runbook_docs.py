@@ -259,3 +259,27 @@ def test_fresh_host_guide_returns_to_the_single_deployment_runbook() -> None:
     assert "mcrctl resolve" not in guide
     assert "mcrctl render" not in guide
     assert "mcrctl apply" not in guide
+
+
+def test_private_ops_guide_and_starter_example_exist_and_stay_concise() -> None:
+    readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+    guide = (REPO_ROOT / "docs" / "private-ops-guide_ja.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert "docs/private-ops-guide_ja.md" in readme
+    assert len(guide.splitlines()) <= 160
+    assert "examples/private-ops/" in guide
+    assert "inventory.md" in guide
+    assert "deployments/" in guide
+    assert "秘密実値" in guide
+
+    starter_root = REPO_ROOT / "examples" / "private-ops"
+    for relative in (
+        ".gitignore",
+        "README.md",
+        "AGENTS.md",
+        "inventory.md",
+        "deployments/README.md",
+    ):
+        assert (starter_root / relative).is_file(), relative
