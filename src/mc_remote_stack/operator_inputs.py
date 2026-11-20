@@ -31,7 +31,9 @@ MINECRAFT_BACKUP_PATH = "operator/minecraft-backup/backup.toml"
 LAN_ROUTES_ADAPTER = "lan-routes@1"
 LAN_ROUTES_PATH = "operator/lan-routes/routes.toml"
 UNITY_SANDBOXES_ADAPTER = "unity-sandboxes@1"
+UNITY_SANDBOXES_V2_ADAPTER = "unity-sandboxes@2"
 UNITY_SANDBOXES_PATH = "operator/unity-sandboxes/sandboxes.toml"
+RESERVED_PUBLIC_PORTS = frozenset({80, 443, 19132})
 MAX_MOTD_SOURCE_BYTES = 4096
 MAX_MOTD_CHARACTERS = 256
 MAX_CONNECTION_TARGETS = 32
@@ -56,6 +58,7 @@ SUPPORTED_ADAPTERS = frozenset(
         MINECRAFT_BACKUP_ADAPTER,
         LAN_ROUTES_ADAPTER,
         UNITY_SANDBOXES_ADAPTER,
+        UNITY_SANDBOXES_V2_ADAPTER,
     }
 )
 PUBLIC_ROUTE_KEYS = frozenset(
@@ -70,7 +73,9 @@ CONNECTION_TARGET_KEYS = frozenset({"id", "label", "sandbox"})
 LAN_ROUTES_KEYS = frozenset({"hostname", "scratch_port", "bridge_port"})
 UNITY_SANDBOX_REQUIRED_KEYS = frozenset({"id", "hostname", "image"})
 UNITY_SANDBOX_OPTIONAL_KEYS = frozenset({"aliases"})
+UNITY_SANDBOX_V2_OPTIONAL_KEYS = UNITY_SANDBOX_OPTIONAL_KEYS | {"tcp_port"}
 UNITY_SANDBOX_KEYS = UNITY_SANDBOX_REQUIRED_KEYS | UNITY_SANDBOX_OPTIONAL_KEYS
+UNITY_SANDBOX_V2_KEYS = UNITY_SANDBOX_REQUIRED_KEYS | UNITY_SANDBOX_V2_OPTIONAL_KEYS
 MAX_UNITY_SANDBOX_ALIASES = 8
 UNITY_SANDBOX_ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,46}$")
 OCI_PINNED_IMAGE = re.compile(
@@ -870,13 +875,17 @@ def _parse_lan_routes(path: Path, source: bytes) -> dict[str, Any]:
     }
 
 
-def _parse_unity_sandboxes(path: Path, source: bytes) -> dict[str, Any]:
+def _parse_unity_sandboxes(
+    path: Path, source: bytes, *, allow_tcp_port: bool = False
+) -> dict[str, Any]:
     value = _parse_toml_document(path, source)
+    adapter_label = UNITY_SANDBOXES_V2_ADAPTER if allow_tcp_port else UNITY_SANDBOXES_ADAPTER
+    allowed_keys = UNITY_SANDBOX_V2_KEYS if allow_tcp_port else UNITY_SANDBOX_KEYS
     if set(value) != {"sandboxes"}:
         _fail(
             "operator_input_parse_failed",
             path,
-            "unity-sandboxes@1 requires exactly the sandboxes array",
+            f"{adapter_label} requires exactly the sandboxes array",
         )
     sandboxes = value["sandboxes"]
     if not isinstance(sandboxes, list) or len(sandboxes) > MAX_UNITY_SANDBOXES:
@@ -888,15 +897,17 @@ def _parse_unity_sandboxes(path: Path, source: bytes) -> dict[str, Any]:
     normalized: list[dict[str, Any]] = []
     seen_ids: set[str] = set()
     seen_hostnames: set[str] = set()
+    seen_tcp_ports: set[int] = set()
     for index, entry in enumerate(sandboxes):
         if (
             not isinstance(entry, dict)
-            or not (UNITY_SANDBOX_REQUIRED_KEYS <= set(entry) <= UNITY_SANDBOX_KEYS)
+            or not (UNITY_SANDBOX_REQUIRED_KEYS <= set(entry) <= allowed_keys)
         ):
+            extra = "aliases, and tcp_port" if allow_tcp_port else "aliases"
             _fail(
                 "operator_input_parse_failed",
                 path,
-                f"sandboxes[{index}] must contain id, hostname, image, and optional aliases",
+                f"sandboxes[{index}] must contain id, hostname, image, and optional {extra}",
             )
         sandbox_id = entry["id"]
         if not isinstance(sandbox_id, str) or UNITY_SANDBOX_ID.fullmatch(sandbox_id) is None:
@@ -956,16 +967,41 @@ def _parse_unity_sandboxes(path: Path, source: bytes) -> dict[str, Any]:
                 path,
                 f"sandboxes[{index}].image must be a lowercase OCI reference pinned by @sha256 digest",
             )
+        item: dict[str, Any] = {
+            "id": sandbox_id,
+            "hostname": hostname,
+            "aliases": sorted(aliases),
+            "image": image,
+        }
+        if "tcp_port" in entry:
+            raw_port = entry["tcp_port"]
+            if (
+                isinstance(raw_port, bool)
+                or not isinstance(raw_port, int)
+                or not (1 <= raw_port <= 65535)
+            ):
+                _fail(
+                    "operator_input_parse_failed",
+                    path,
+                    f"sandboxes[{index}].tcp_port must be an integer between 1 and 65535",
+                )
+            if raw_port in RESERVED_PUBLIC_PORTS:
+                _fail(
+                    "operator_input_parse_failed",
+                    path,
+                    f"sandboxes[{index}].tcp_port must not use reserved port {raw_port}",
+                )
+            if raw_port in seen_tcp_ports:
+                _fail(
+                    "operator_input_parse_failed",
+                    path,
+                    f"duplicate Unity sandbox tcp_port: {raw_port}",
+                )
+            seen_tcp_ports.add(raw_port)
+            item["tcp_port"] = raw_port
         seen_ids.add(sandbox_id)
-        normalized.append(
-            {
-                "id": sandbox_id,
-                "hostname": hostname,
-                "aliases": sorted(aliases),
-                "image": image,
-            }
-        )
-    return {"sandboxes": sorted(normalized, key=lambda item: item["id"])}
+        normalized.append(item)
+    return {"sandboxes": sorted(normalized, key=lambda entry_item: entry_item["id"])}
 
 
 def _parse_adapter(adapter: str, path: Path, relative_path: str) -> dict[str, Any]:
@@ -1037,14 +1073,18 @@ def _parse_adapter(adapter: str, path: Path, relative_path: str) -> dict[str, An
                 f"{adapter} requires exact path {LAN_ROUTES_PATH}",
             )
         return _parse_lan_routes(path, _read_source(path))
-    if adapter == UNITY_SANDBOXES_ADAPTER:
+    if adapter in {UNITY_SANDBOXES_ADAPTER, UNITY_SANDBOXES_V2_ADAPTER}:
         if relative_path != UNITY_SANDBOXES_PATH:
             _fail(
                 "operator_input_path_invalid",
                 path,
                 f"{adapter} requires exact path {UNITY_SANDBOXES_PATH}",
             )
-        return _parse_unity_sandboxes(path, _read_source(path))
+        return _parse_unity_sandboxes(
+            path,
+            _read_source(path),
+            allow_tcp_port=(adapter == UNITY_SANDBOXES_V2_ADAPTER),
+        )
     _fail(
         "unsupported_operator_input_adapter",
         adapter,

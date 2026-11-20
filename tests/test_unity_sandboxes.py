@@ -20,13 +20,14 @@ from mc_remote_stack.doctor import (
     ProtocolHelloResult,
     doctor_toml_project,
     probe_unity_sandbox_health,
+    probe_unity_sandbox_tcp_auth,
 )
 from mc_remote_stack.operator_inputs import (
     OperatorInputError,
     _parse_unity_sandboxes,
 )
 from mc_remote_stack.render import RenderContractError, render_toml_project
-from mc_remote_stack.resolver import load_lock, resolve_project
+from mc_remote_stack.resolver import ResolutionError, load_lock, resolve_project
 from mc_remote_stack.scratch_contract import load_runtime_config_schema, validate_runtime_config
 
 from .test_doctor import _vps_doctor_responses, _vps_public_probes
@@ -85,21 +86,27 @@ default_target = "stable"
 """
 
 
-def _copy_profile_19(fixture: VpsFixture) -> None:
-    target = fixture.data_root / "profiles/vps-server/19/profile.toml"
+def _copy_profile(fixture: VpsFixture, revision: str) -> None:
+    target = fixture.data_root / f"profiles/vps-server/{revision}/profile.toml"
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(
         files("mc_remote_stack")
-        .joinpath("data/profiles/vps-server/19/profile.toml")
+        .joinpath(f"data/profiles/vps-server/{revision}/profile.toml")
         .read_text(encoding="utf-8"),
         encoding="utf-8",
     )
+
+
+def _copy_profile_19(fixture: VpsFixture) -> None:
+    _copy_profile(fixture, "19")
 
 
 def _attach_unity_sandboxes(
     fixture: VpsFixture,
     sandboxes_source: str = SANDBOXES_TWO_SOURCE,
     targets_source: str = FOUR_TARGETS_SOURCE,
+    *,
+    adapter: str = "unity-sandboxes@1",
 ) -> None:
     targets_path = fixture.project / "operator/connection-targets/targets.toml"
     targets_path.write_text(targets_source, encoding="utf-8")
@@ -115,7 +122,7 @@ def _attach_unity_sandboxes(
         + (
             '\n[[operator_inputs]]\n'
             'role = "unity-sandboxes"\n'
-            'adapter = "unity-sandboxes@1"\n'
+            f'adapter = "{adapter}"\n'
             f'path = "{sandboxes_rel}"\n'
         ),
         encoding="utf-8",
@@ -329,6 +336,8 @@ def test_vps_server_19_renders_two_independent_unity_sandboxes(tmp_path: Path) -
     lts = services["unity-sandbox-lts"]
     assert "ports" not in latest
     assert "ports" not in lts
+    assert "mem_limit" not in latest
+    assert "mem_limit" not in lts
     assert latest["command"] == ["--tcp-port", "25575"]
     assert lts["command"] == ["--tcp-port", "25575"]
     assert latest["environment"]["TZ"] == "Asia/Tokyo"
@@ -762,13 +771,27 @@ def test_deployment_update_adds_unity_sandboxes_and_rolls_back_to_four_services(
     assert len(load_lock(fixture.project, data_root=fixture.data_root)["render_plan"]["services"]) == 6
 
 
+def _assert_unity_isolation_limits(service: dict) -> None:
+    assert service["mem_limit"] == "512m"
+    assert service["memswap_limit"] == "512m"
+    assert service["cpus"] == 0.5
+    assert service["pids_limit"] == 256
+    assert service["ulimits"] == {"nofile": {"soft": 1024, "hard": 1024}}
+    assert service["logging"] == {
+        "driver": "json-file",
+        "options": {"max-size": "10m", "max-file": "3"},
+    }
+
+
 def test_standalone_unity_sandbox_example_is_valid_yaml_and_matches_scratch_schema() -> None:
     example_dir = REPO_ROOT / "examples/unity-sandbox"
     compose = yaml.safe_load((example_dir / "compose.yaml").read_text(encoding="utf-8"))
-    assert "ports" not in compose["services"]["unity-sandbox"]
-    assert compose["services"]["unity-sandbox"]["networks"] == {
+    unity_service = compose["services"]["unity-sandbox"]
+    assert "ports" not in unity_service
+    assert unity_service["networks"] == {
         "app": {"aliases": ["unity-sb.example.org"]}
     }
+    _assert_unity_isolation_limits(unity_service)
 
     scratch_config = json.loads(
         (example_dir / "runtime/scratch.json").read_text(encoding="utf-8")
@@ -812,3 +835,515 @@ def test_standalone_unity_sandbox_example_is_valid_yaml_and_matches_scratch_sche
         data_root=REPO_ROOT / "src/mc_remote_stack/data",
     )
     validate_runtime_config(scratch_config, schema)
+
+
+SANDBOXES_V2_PORTS_SOURCE = f"""[[sandboxes]]
+id = "lts"
+hostname = "unity-sb-lts.mc-remote.example"
+tcp_port = 25585
+image = "ghcr.io/naohiro2g/mc-remote-unity-sandbox:v2321.2.0@{LTS_DIGEST}"
+
+[[sandboxes]]
+id = "latest"
+hostname = "unity-sb.mc-remote.example"
+tcp_port = 25586
+image = "ghcr.io/naohiro2g/mc-remote-unity-sandbox:2400.0.0rc1@{LATEST_DIGEST}"
+"""
+
+
+def test_unity_sandboxes_v2_parser_accepts_optional_tcp_port(tmp_path: Path) -> None:
+    source = (
+        f"{SANDBOXES_V2_PORTS_SOURCE}"
+        '\n[[sandboxes]]\n'
+        'id = "internal-only"\n'
+        'hostname = "unity-internal.mc-remote.example"\n'
+        f'image = "ghcr.io/naohiro2g/mc-remote-unity-sandbox@{LATEST_DIGEST}"\n'
+    ).encode()
+
+    parsed = _parse_unity_sandboxes(
+        tmp_path / "sandboxes.toml", source, allow_tcp_port=True
+    )
+
+    assert parsed == {
+        "sandboxes": [
+            {
+                "id": "internal-only",
+                "hostname": "unity-internal.mc-remote.example",
+                "aliases": [],
+                "image": f"ghcr.io/naohiro2g/mc-remote-unity-sandbox@{LATEST_DIGEST}",
+            },
+            {
+                "id": "latest",
+                "hostname": "unity-sb.mc-remote.example",
+                "aliases": [],
+                "tcp_port": 25586,
+                "image": f"ghcr.io/naohiro2g/mc-remote-unity-sandbox:2400.0.0rc1@{LATEST_DIGEST}",
+            },
+            {
+                "id": "lts",
+                "hostname": "unity-sb-lts.mc-remote.example",
+                "aliases": [],
+                "tcp_port": 25585,
+                "image": f"ghcr.io/naohiro2g/mc-remote-unity-sandbox:v2321.2.0@{LTS_DIGEST}",
+            },
+        ]
+    }
+
+
+@pytest.mark.parametrize(
+    ("source", "allow_tcp_port"),
+    [
+        (
+            '[[sandboxes]]\nid = "lts"\nhostname = "unity-sb-lts.mc-remote.example"\n'
+            f'tcp_port = 25585\nimage = "ghcr.io/naohiro2g/mc-remote-unity-sandbox@{LTS_DIGEST}"\n',
+            False,
+        ),
+        (
+            '[[sandboxes]]\nid = "lts"\nhostname = "unity-sb-lts.mc-remote.example"\n'
+            f'tcp_port = true\nimage = "ghcr.io/naohiro2g/mc-remote-unity-sandbox@{LTS_DIGEST}"\n',
+            True,
+        ),
+        (
+            '[[sandboxes]]\nid = "lts"\nhostname = "unity-sb-lts.mc-remote.example"\n'
+            f'tcp_port = 0\nimage = "ghcr.io/naohiro2g/mc-remote-unity-sandbox@{LTS_DIGEST}"\n',
+            True,
+        ),
+        (
+            '[[sandboxes]]\nid = "lts"\nhostname = "unity-sb-lts.mc-remote.example"\n'
+            f'tcp_port = 65536\nimage = "ghcr.io/naohiro2g/mc-remote-unity-sandbox@{LTS_DIGEST}"\n',
+            True,
+        ),
+        (
+            SANDBOXES_V2_PORTS_SOURCE.replace("tcp_port = 25586", "tcp_port = 25585"),
+            True,
+        ),
+        (
+            '[[sandboxes]]\nid = "lts"\nhostname = "unity-sb-lts.mc-remote.example"\n'
+            f'tcp_port = 80\nimage = "ghcr.io/naohiro2g/mc-remote-unity-sandbox@{LTS_DIGEST}"\n',
+            True,
+        ),
+        (
+            '[[sandboxes]]\nid = "lts"\nhostname = "unity-sb-lts.mc-remote.example"\n'
+            f'tcp_port = 443\nimage = "ghcr.io/naohiro2g/mc-remote-unity-sandbox@{LTS_DIGEST}"\n',
+            True,
+        ),
+        (
+            '[[sandboxes]]\nid = "lts"\nhostname = "unity-sb-lts.mc-remote.example"\n'
+            f'tcp_port = 19132\nimage = "ghcr.io/naohiro2g/mc-remote-unity-sandbox@{LTS_DIGEST}"\n',
+            True,
+        ),
+    ],
+    ids=[
+        "v1_rejects_tcp_port",
+        "bool_tcp_port",
+        "zero_tcp_port",
+        "overflow_tcp_port",
+        "duplicate_tcp_port",
+        "reserved_80",
+        "reserved_443",
+        "reserved_19132",
+    ],
+)
+def test_unity_sandboxes_tcp_port_rejects_invalid_values(
+    tmp_path: Path, source: str, allow_tcp_port: bool
+) -> None:
+    with pytest.raises(OperatorInputError) as exc_info:
+        _parse_unity_sandboxes(
+            tmp_path / "sandboxes.toml",
+            source.encode("utf-8"),
+            allow_tcp_port=allow_tcp_port,
+        )
+    assert exc_info.value.reason == "operator_input_parse_failed"
+
+
+@pytest.mark.parametrize("colliding_port", [25565, 25575])
+def test_vps_server_20_resolver_rejects_minecraft_port_collision(
+    tmp_path: Path, colliding_port: int
+) -> None:
+    fixture = build_vps_fixture(tmp_path, profile="vps-server@20", minecraft_heap="3G")
+    bad_source = (
+        '[[sandboxes]]\n'
+        'id = "lts"\n'
+        'hostname = "unity-sb-lts.mc-remote.example"\n'
+        f"tcp_port = {colliding_port}\n"
+        f'image = "ghcr.io/naohiro2g/mc-remote-unity-sandbox@{LTS_DIGEST}"\n'
+    )
+    with pytest.raises(ResolutionError) as exc_info:
+        _attach_unity_sandboxes(
+            fixture,
+            sandboxes_source=bad_source,
+            adapter="unity-sandboxes@2",
+        )
+    assert exc_info.value.reason == "port_conflict"
+
+
+def test_vps_server_20_renders_external_and_internal_unity_tcp_ports(tmp_path: Path) -> None:
+    fixture = build_vps_fixture(tmp_path, profile="vps-server@20", minecraft_heap="3G")
+    source = (
+        f"{SANDBOXES_V2_PORTS_SOURCE}"
+        '\n[[sandboxes]]\n'
+        'id = "internal"\n'
+        'hostname = "unity-internal.mc-remote.example"\n'
+        f'image = "ghcr.io/naohiro2g/mc-remote-unity-sandbox@{LATEST_DIGEST}"\n'
+    )
+    targets = FOUR_TARGETS_SOURCE.replace(
+        "[[notices]]",
+        (
+            '[[targets]]\nid = "unity-internal"\nlabel = "内部"\n'
+            'sandbox = "unity-internal.mc-remote.example"\n\n[[notices]]'
+        ),
+    )
+    _attach_unity_sandboxes(
+        fixture,
+        sandboxes_source=source,
+        targets_source=targets,
+        adapter="unity-sandboxes@2",
+    )
+
+    render_toml_project(fixture.project, fixture.output, data_root=fixture.data_root)
+    lock = load_lock(fixture.project, data_root=fixture.data_root)
+    assert lock["render_plan"]["adapter_revision"] == "22"
+
+    compose = yaml.safe_load((fixture.output / "compose.yaml").read_text(encoding="utf-8"))
+    services = compose["services"]
+
+    lts = services["unity-sandbox-lts"]
+    assert lts["command"] == ["--tcp-port", "25575"]
+    assert lts["ports"] == ["0.0.0.0:25585:25575/tcp"]
+    assert lts["networks"] == {"app": {"aliases": ["unity-sb-lts.mc-remote.example"]}, "edge": {}}
+    assert lts["labels"]["io.mc-remote.unity-sandbox-tcp-port"] == "25585"
+    _assert_unity_isolation_limits(lts)
+
+    latest = services["unity-sandbox-latest"]
+    assert latest["command"] == ["--tcp-port", "25575"]
+    assert latest["ports"] == ["0.0.0.0:25586:25575/tcp"]
+    assert latest["networks"] == {"app": {"aliases": ["unity-sb.mc-remote.example"]}, "edge": {}}
+    assert latest["labels"]["io.mc-remote.unity-sandbox-tcp-port"] == "25586"
+    _assert_unity_isolation_limits(latest)
+
+    internal = services["unity-sandbox-internal"]
+    assert internal["command"] == ["--tcp-port", "25575"]
+    assert "ports" not in internal
+    assert internal["networks"] == {"app": {"aliases": ["unity-internal.mc-remote.example"]}}
+    assert "io.mc-remote.unity-sandbox-tcp-port" not in internal["labels"]
+    _assert_unity_isolation_limits(internal)
+
+
+class _SequentialSocket:
+    def __init__(self, response: bytes) -> None:
+        self.response = response
+        self.sent = b""
+
+    def __enter__(self) -> _SequentialSocket:
+        return self
+
+    def __exit__(self, *_args: object) -> None:
+        return None
+
+    def sendall(self, value: bytes) -> None:
+        self.sent += value
+
+    def recv(self, _size: int) -> bytes:
+        value, self.response = self.response, b""
+        return value
+
+
+def test_probe_unity_sandbox_tcp_auth_handles_v23_v24_and_failures() -> None:
+    sent_requests: list[dict] = []
+
+    def v23_connector(address: tuple[str, int], timeout: int) -> _SequentialSocket:
+        assert address == ("0.0.0.0", 25585)
+        assert timeout == 5
+        sock = _SequentialSocket(
+            (
+                json.dumps(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "error": {
+                            "code": -32000,
+                            "message": "auth required",
+                            "data": {"reason": "auth_required"},
+                        },
+                    }
+                )
+                + "\n"
+            ).encode()
+        )
+        orig_sendall = sock.sendall
+
+        def capture(v: bytes) -> None:
+            orig_sendall(v)
+            sent_requests.append(json.loads(v))
+
+        sock.sendall = capture  # type: ignore[method-assign]
+        return sock
+
+    probe_unity_sandbox_tcp_auth("0.0.0.0", 25585, 5, connector=v23_connector)
+    assert sent_requests == [
+        {"jsonrpc": "2.0", "id": 1, "method": "hello", "params": {"protocol": "23.3.0"}}
+    ]
+
+    v24_sent: list[dict] = []
+    v24_responses = [
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "error": {
+                "code": -32000,
+                "message": "protocol mismatch",
+                "data": {
+                    "reason": "protocol_mismatch",
+                    "server": "24.0.0",
+                    "client_requires": "23.3.0",
+                },
+            },
+        },
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "error": {
+                "code": -32000,
+                "message": "auth required",
+                "data": {"reason": "auth_required"},
+            },
+        },
+    ]
+
+    def v24_connector(_address: tuple[str, int], _timeout: int) -> _SequentialSocket:
+        payload = v24_responses.pop(0)
+        sock = _SequentialSocket((json.dumps(payload) + "\n").encode())
+        orig_sendall = sock.sendall
+
+        def capture(v: bytes) -> None:
+            orig_sendall(v)
+            v24_sent.append(json.loads(v))
+
+        sock.sendall = capture  # type: ignore[method-assign]
+        return sock
+
+    probe_unity_sandbox_tcp_auth("0.0.0.0", 25586, 5, connector=v24_connector)
+    assert v24_sent == [
+        {"jsonrpc": "2.0", "id": 1, "method": "hello", "params": {"protocol": "23.3.0"}},
+        {"jsonrpc": "2.0", "id": 1, "method": "hello", "params": {"protocol": "24.0.0"}},
+    ]
+
+    def unauth_connector(_address: tuple[str, int], _timeout: int) -> _SequentialSocket:
+        return _SequentialSocket(
+            (
+                json.dumps(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "result": {"protocol": "23.3.0"},
+                    }
+                )
+                + "\n"
+            ).encode()
+        )
+
+    with pytest.raises(DoctorContractError) as exc_info:
+        probe_unity_sandbox_tcp_auth("0.0.0.0", 25585, 5, connector=unauth_connector)
+    assert exc_info.value.reason == "doctor_auth_not_enforced"
+
+    def unreachable_connector(_address: tuple[str, int], _timeout: int) -> _SequentialSocket:
+        raise OSError("connection refused")
+
+    with pytest.raises(DoctorContractError) as exc_info:
+        probe_unity_sandbox_tcp_auth("0.0.0.0", 25585, 5, connector=unreachable_connector)
+    assert exc_info.value.reason == "doctor_unity_sandbox_tcp_unavailable"
+
+
+def test_doctor_validates_vps_server_20_unity_tcp_ports_and_probes(tmp_path: Path) -> None:
+    fixture = build_vps_fixture(tmp_path, profile="vps-server@20", minecraft_heap="3G")
+    _attach_unity_sandboxes(
+        fixture,
+        sandboxes_source=SANDBOXES_V2_PORTS_SOURCE,
+        adapter="unity-sandboxes@2",
+    )
+    render_toml_project(fixture.project, fixture.output, data_root=fixture.data_root)
+    lock = load_lock(fixture.project, data_root=fixture.data_root)
+    containers = rendered_containers(fixture.output)
+    from .test_toml_apply import FakeDocker
+
+    probed_tcp: list[tuple[str, int, int]] = []
+    probes = _vps_public_probes(fixture.output)
+
+    result = doctor_toml_project(
+        fixture.project,
+        fixture.output,
+        docker_context="default",
+        data_root=fixture.data_root,
+        runner=FakeDocker(_vps_doctor_responses(fixture.output, lock, containers=containers)),
+        hello_probe=lambda *_args, **_kwargs: ProtocolHelloResult("auth-required", None, None),
+        unity_health_probe=lambda *_args, **_kwargs: None,
+        unity_tcp_probe=lambda address, port, timeout: probed_tcp.append((address, port, timeout)),
+        **probes,
+    )
+
+    assert result.unity_sandbox_status == "healthy"
+    assert result.unity_sandbox_count == 2
+    assert probed_tcp == [("0.0.0.0", 25586, 5), ("0.0.0.0", 25585, 5)]
+
+    bad_containers = rendered_containers(fixture.output)
+    for container in bad_containers:
+        if container["Config"]["Labels"]["com.docker.compose.service"] == "unity-sandbox-lts":
+            container["NetworkSettings"]["Ports"] = {}
+
+    with pytest.raises(DoctorContractError) as exc_info:
+        doctor_toml_project(
+            fixture.project,
+            fixture.output,
+            docker_context="default",
+            data_root=fixture.data_root,
+            runner=FakeDocker(_vps_doctor_responses(fixture.output, lock, containers=bad_containers)),
+            hello_probe=lambda *_args, **_kwargs: ProtocolHelloResult("auth-required", None, None),
+            unity_health_probe=lambda *_args, **_kwargs: None,
+            unity_tcp_probe=lambda *_args, **_kwargs: None,
+            **probes,
+        )
+    assert exc_info.value.reason == "doctor_network_mismatch"
+
+
+def test_deployment_update_upgrades_vps_server_19_to_20_and_rolls_back(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fixture = build_vps_fixture(tmp_path, profile="vps-server@19", minecraft_heap="3G")
+    _attach_unity_sandboxes(fixture)
+    _copy_profile(fixture, "20")
+    render_toml_project(fixture.project, fixture.output, data_root=fixture.data_root)
+    source_lock = load_lock(fixture.project, data_root=fixture.data_root)
+    source_containers = rendered_containers(fixture.output)
+
+    sandboxes_v2_input = tmp_path / "reviewed-sandboxes-v2.toml"
+    sandboxes_v2_input.write_text(SANDBOXES_V2_PORTS_SOURCE, encoding="utf-8")
+
+    up_services: list[list[str]] = []
+    candidate_state: dict[str, object] = {}
+
+    def runner(command: list[str], timeout: int):
+        del timeout
+        cmd = tuple(command)
+        if cmd == ("docker", "context", "inspect", "default"):
+            return _result(
+                cmd,
+                stdout=json.dumps([{"Endpoints": {"docker": {"Host": "unix:///var/run/docker.sock"}}}]) + "\n",
+            )
+        if cmd == ("docker", "--context", "default", "version", "--format", "{{.Server.Version}}"):
+            return _result(cmd, stdout="29.1.3\n")
+        if cmd == ("docker", "--context", "default", "compose", "version", "--short"):
+            return _result(cmd, stdout="2.40.3\n")
+        if cmd[:4] == ("docker", "--context", "default", "ps"):
+            current = candidate_state.get("active_containers", source_containers)
+            return _result(cmd, stdout="".join(f"{c['Id']}\n" for c in current))
+        if cmd[:4] == ("docker", "--context", "default", "inspect"):
+            cid = cmd[4]
+            current = candidate_state.get("active_containers", source_containers)
+            for c in current:
+                if c["Id"] == cid:
+                    return _result(cmd, stdout=json.dumps([c]) + "\n")
+            raise AssertionError(f"unknown container id {cid}")
+        if cmd[:5] == ("docker", "--context", "default", "volume", "inspect"):
+            vol = cmd[5]
+            return _result(
+                cmd,
+                stdout=json.dumps(
+                    [
+                        {
+                            "Name": vol,
+                            "Driver": "local",
+                            "Labels": {
+                                "io.mc-remote.owner": "mcrctl",
+                                "io.mc-remote.deployment": source_lock["deployment"]["name"],
+                                "io.mc-remote.environment": source_lock["environment"]["identity"],
+                                "io.mc-remote.world": source_lock["world"]["identity"],
+                                "io.mc-remote.created-by-lock": source_lock["lock_identity"],
+                            },
+                        }
+                    ]
+                )
+                + "\n",
+            )
+        if "compose" in cmd and "config" in cmd:
+            if "--format" in cmd and "json" in cmd:
+                compose_path = Path(cmd[cmd.index("--file") + 1])
+                compose_obj = yaml.safe_load(compose_path.read_text(encoding="utf-8"))
+                for service in compose_obj.get("services", {}).values():
+                    for volume in service.get("volumes", []):
+                        if isinstance(volume, dict) and volume.get("type") == "bind":
+                            src = Path(volume["source"])
+                            if not src.is_absolute():
+                                volume["source"] = str((compose_path.parent / src).resolve())
+                return _result(cmd, stdout=json.dumps(compose_obj))
+            return _result(cmd)
+        if "compose" in cmd and ("pull" in cmd or "down" in cmd):
+            return _result(cmd)
+        if "compose" in cmd and "up" in cmd:
+            never_idx = cmd.index("never", cmd.index("up"))
+            up_services.append(list(cmd[never_idx + 1 :]))
+            candidate_state["active_containers"] = rendered_containers(fixture.output)
+            return _result(cmd)
+        raise AssertionError(f"unexpected command: {command!r}")
+
+    def fake_scratch_probe(url: str, timeout: int):
+        del timeout
+        host = url.split("/")[2]
+        pair_file = fixture.output / "runtime/web-pairs" / f"{host}.json"
+        if pair_file.exists():
+            return json.loads(pair_file.read_text(encoding="utf-8"))
+        return json.loads((fixture.output / "runtime/scratch.json").read_text(encoding="utf-8"))
+
+    monkeypatch.setattr("mc_remote_stack.doctor.probe_homepage_public", lambda *_a, **_k: None)
+    monkeypatch.setattr("mc_remote_stack.doctor.probe_scratch_runtime_config", fake_scratch_probe)
+    monkeypatch.setattr("mc_remote_stack.doctor.probe_wirescope_public_handoff", lambda *_a, **_k: None)
+    monkeypatch.setattr("mc_remote_stack.doctor.probe_unity_sandbox_health", lambda *_a, **_k: None)
+    tcp_calls: list[int] = []
+    fail_tcp_once = {"fail": True}
+
+    def fake_tcp_probe(address: str, port: int, timeout: int) -> None:
+        del address, timeout
+        tcp_calls.append(port)
+        if fail_tcp_once["fail"]:
+            raise DoctorContractError("doctor_unity_sandbox_tcp_unavailable", f"0.0.0.0:{port}", "blocked")
+
+    monkeypatch.setattr("mc_remote_stack.doctor.probe_unity_sandbox_tcp_auth", fake_tcp_probe)
+
+    plan = plan_deployment_update(
+        fixture.project,
+        fixture.output,
+        target_profile="vps-server@20",
+        target_preset=PRESET,
+        input_overrides={},
+        input_files={"unity-sandboxes": sandboxes_v2_input},
+        docker_context="default",
+        data_root=fixture.data_root,
+        allow_unverified=True,
+        runner=runner,
+        hello_probe=lambda *_a, **_k: ProtocolHelloResult("auth-required", None, None),
+    )
+
+    with pytest.raises(DeploymentUpdateContractError) as exc_info:
+        apply_deployment_update(
+            fixture.project,
+            plan_id=plan.plan_id,
+            confirmed=True,
+            data_root=fixture.data_root,
+            runner=runner,
+            hello_probe=lambda *_a, **_k: ProtocolHelloResult("auth-required", None, None),
+        )
+    assert exc_info.value.reason == "doctor_unity_sandbox_tcp_unavailable"
+    assert len(up_services) == 2
+
+    fail_tcp_once["fail"] = False
+    tcp_calls.clear()
+    result = apply_deployment_update(
+        fixture.project,
+        plan_id=plan.plan_id,
+        confirmed=True,
+        data_root=fixture.data_root,
+        runner=runner,
+        hello_probe=lambda *_a, **_k: ProtocolHelloResult("auth-required", None, None),
+    )
+    assert result.phase == "complete"
+    assert sorted(tcp_calls) == [25585, 25586]
+    assert load_lock(fixture.project, data_root=fixture.data_root)["render_plan"]["adapter_revision"] == "22"

@@ -154,6 +154,111 @@ def _run(
     return result
 
 
+UNITY_TCP_PROBE_PROTOCOL = "23.3.0"
+PROTOCOL_VERSION = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
+
+
+def _exchange_jsonrpc_line(
+    address: str,
+    port: int,
+    request: dict[str, Any],
+    timeout: int,
+    *,
+    connector: Connector,
+    unavailable_reason: str,
+    timeout_reason: str,
+    invalid_reason: str,
+    unavailable_message: str,
+    path: str,
+) -> dict[str, Any]:
+    payload = json.dumps(request, separators=(",", ":")).encode() + b"\n"
+    received = bytearray()
+    try:
+        with connector((address, port), timeout) as connection:
+            connection.sendall(payload)
+            while b"\n" not in received:
+                chunk = connection.recv(min(4096, MAX_HELLO_BYTES + 1 - len(received)))
+                if not chunk:
+                    break
+                received.extend(chunk)
+                if len(received) > MAX_HELLO_BYTES:
+                    _fail(invalid_reason, path, "response exceeded the 64 KiB limit")
+    except DoctorContractError:
+        raise
+    except TimeoutError:
+        _fail(timeout_reason, f"{address}:{port}", f"server did not answer hello within {timeout} seconds")
+    except OSError:
+        _fail(unavailable_reason, f"{address}:{port}", unavailable_message)
+
+    line, separator, _remainder = bytes(received).partition(b"\n")
+    if not separator or not line or len(line) > MAX_HELLO_BYTES:
+        _fail(invalid_reason, path, "server did not return one bounded LF-terminated response")
+    try:
+        response = json.loads(line)
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        _fail(invalid_reason, path, "server response is not valid UTF-8 JSON")
+    if not isinstance(response, dict) or response.get("jsonrpc") != "2.0" or response.get("id") != 1:
+        _fail(invalid_reason, path, "response does not contain the expected JSON-RPC envelope")
+    return response
+
+
+def probe_unity_sandbox_tcp_auth(
+    address: str,
+    port: int,
+    timeout: int,
+    *,
+    connector: Connector = socket.create_connection,
+) -> None:
+    """Verify one exposed Unity sandbox TCP endpoint rejects token-free hello."""
+
+    if timeout < 1 or timeout > 30:
+        _fail("doctor_timeout_invalid", "doctor.timeout", "protocol timeout must be between 1 and 30 seconds")
+
+    target = f"{address}:{port}"
+
+    def _send_hello(protocol_version: str) -> dict[str, Any]:
+        return _exchange_jsonrpc_line(
+            address,
+            port,
+            {"jsonrpc": "2.0", "id": 1, "method": "hello", "params": {"protocol": protocol_version}},
+            timeout,
+            connector=connector,
+            unavailable_reason="doctor_unity_sandbox_tcp_unavailable",
+            timeout_reason="doctor_unity_sandbox_tcp_unavailable",
+            invalid_reason="doctor_unity_sandbox_invalid",
+            unavailable_message="cannot connect to the exposed Unity sandbox TCP endpoint",
+            path=target,
+        )
+
+    response = _send_hello(UNITY_TCP_PROBE_PROTOCOL)
+    for attempt in range(2):
+        if "result" in response:
+            _fail(
+                "doctor_auth_not_enforced",
+                target,
+                "Unity sandbox TCP endpoint accepted token-free hello",
+            )
+        error = response.get("error")
+        data = error.get("data") if isinstance(error, dict) else None
+        reason = data.get("reason") if isinstance(data, dict) else None
+        if reason == "auth_required":
+            return
+        server_protocol = data.get("server") if isinstance(data, dict) else None
+        if (
+            attempt == 0
+            and reason == "protocol_mismatch"
+            and isinstance(server_protocol, str)
+            and PROTOCOL_VERSION.fullmatch(server_protocol)
+        ):
+            response = _send_hello(server_protocol)
+            continue
+        _fail(
+            "doctor_unity_sandbox_unhealthy",
+            target,
+            "Unity sandbox TCP endpoint did not report auth_required on token-free hello",
+        )
+
+
 def probe_unity_sandbox_health(url: str, timeout: int) -> None:
     """Fetch one public Unity sandbox /healthz document and verify tcpPort 25575."""
 
@@ -823,6 +928,18 @@ def _validate_container(
             "80/tcp": [{"HostIp": "0.0.0.0", "HostPort": "80"}],
             "443/tcp": [{"HostIp": "0.0.0.0", "HostPort": "443"}],
         }
+    elif (
+        service.startswith("unity-sandbox-")
+        and lock["render_plan"]["adapter_revision"] in UNITY_SANDBOX_REVISIONS
+    ):
+        for sandbox in locked_unity_sandboxes(lock):
+            if f"unity-sandbox-{sandbox['id']}" == service and "tcp_port" in sandbox:
+                expected_ports = {
+                    "25575/tcp": [
+                        {"HostIp": address, "HostPort": str(sandbox["tcp_port"])}
+                    ]
+                }
+                break
     published = {key: value for key, value in ports.items() if value}
     if published != expected_ports:
         _fail(
@@ -919,58 +1036,23 @@ def probe_protocol_hello(
             "doctor.timeout",
             "protocol timeout must be between 1 and 30 seconds",
         )
-    request = {
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "hello",
-        "params": {"protocol": protocol},
-    }
-    payload = json.dumps(request, separators=(",", ":")).encode() + b"\n"
-    received = bytearray()
-    try:
-        with connector((address, port), timeout) as connection:
-            connection.sendall(payload)
-            while b"\n" not in received:
-                chunk = connection.recv(min(4096, MAX_HELLO_BYTES + 1 - len(received)))
-                if not chunk:
-                    break
-                received.extend(chunk)
-                if len(received) > MAX_HELLO_BYTES:
-                    _fail(
-                        "protocol_hello_invalid",
-                        "protocol.hello",
-                        "response exceeded the 64 KiB limit",
-                    )
-    except DoctorContractError:
-        raise
-    except TimeoutError:
-        _fail(
-            "protocol_hello_timeout",
-            f"{address}:{port}",
-            f"server did not answer hello within {timeout} seconds",
-        )
-    except OSError:
-        _fail(
-            "protocol_hello_unavailable",
-            f"{address}:{port}",
-            "cannot connect to the locked McRemote endpoint",
-        )
-
-    line, separator, _remainder = bytes(received).partition(b"\n")
-    if not separator or not line or len(line) > MAX_HELLO_BYTES:
-        _fail(
-            "protocol_hello_invalid",
-            "protocol.hello",
-            "server did not return one bounded LF-terminated response",
-        )
-    try:
-        response = json.loads(line)
-    except (UnicodeDecodeError, json.JSONDecodeError):
-        _fail(
-            "protocol_hello_invalid",
-            "protocol.hello",
-            "server response is not valid UTF-8 JSON",
-        )
+    response = _exchange_jsonrpc_line(
+        address,
+        port,
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "hello",
+            "params": {"protocol": protocol},
+        },
+        timeout,
+        connector=connector,
+        unavailable_reason="protocol_hello_unavailable",
+        timeout_reason="protocol_hello_timeout",
+        invalid_reason="protocol_hello_invalid",
+        unavailable_message="cannot connect to the locked McRemote endpoint",
+        path="protocol.hello",
+    )
     return _validate_hello_result(
         response,
         protocol=protocol,
@@ -992,6 +1074,7 @@ def doctor_toml_project(
     scratch_runtime_probe=None,
     wirescope_probe=None,
     unity_health_probe=None,
+    unity_tcp_probe=None,
 ) -> TomlDoctorResult:
     """Check one current Compose runtime without mutating host state."""
 
@@ -1003,6 +1086,8 @@ def doctor_toml_project(
         wirescope_probe = probe_wirescope_public_handoff
     if unity_health_probe is None:
         unity_health_probe = probe_unity_sandbox_health
+    if unity_tcp_probe is None:
+        unity_tcp_probe = probe_unity_sandbox_tcp_auth
 
     if not DOCKER_CONTEXT.fullmatch(docker_context):
         _fail(
@@ -1256,6 +1341,12 @@ def doctor_toml_project(
                         unity_health_probe(
                             f"https://{hostname}/healthz",
                             timeout=timeout,
+                        )
+                    if "tcp_port" in sandbox:
+                        unity_tcp_probe(
+                            lock["network"]["bind_address"],
+                            sandbox["tcp_port"],
+                            timeout,
                         )
                 unity_sandbox_status = "healthy"
 

@@ -688,6 +688,9 @@
         },
         {
           "$ref": "#/$defs/unitySandboxesInput"
+        },
+        {
+          "$ref": "#/$defs/unitySandboxesV2Input"
         }
       ]
     },
@@ -828,7 +831,7 @@
           "const": "unity-sandboxes"
         },
         "adapter": {
-          "const": "unity-sandboxes@1"
+          "enum": ["unity-sandboxes@1", "unity-sandboxes@2"]
         },
         "required": {
           "type": "boolean"
@@ -927,6 +930,71 @@
                   "image": {
                     "type": "string",
                     "pattern": "^[a-z0-9][a-z0-9._/-]*(?::[A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?@sha256:[0-9a-f]{64}$"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "unitySandboxesV2Input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "adapter", "path", "semantic_sha256", "semantic"],
+      "properties": {
+        "role": {
+          "const": "unity-sandboxes"
+        },
+        "adapter": {
+          "const": "unity-sandboxes@2"
+        },
+        "path": {
+          "const": "operator/unity-sandboxes/sandboxes.toml"
+        },
+        "semantic_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "semantic": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["sandboxes"],
+          "properties": {
+            "sandboxes": {
+              "type": "array",
+              "maxItems": 8,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["id", "hostname", "aliases", "image"],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "pattern": "^[a-z0-9][a-z0-9-]{0,46}$"
+                  },
+                  "hostname": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 253
+                  },
+                  "aliases": {
+                    "type": "array",
+                    "maxItems": 8,
+                    "uniqueItems": true,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 253
+                    }
+                  },
+                  "image": {
+                    "type": "string",
+                    "pattern": "^[a-z0-9][a-z0-9._/-]*(?::[A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?@sha256:[0-9a-f]{64}$"
+                  },
+                  "tcp_port": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 65535
                   }
                 }
               }

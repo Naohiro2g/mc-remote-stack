@@ -221,9 +221,17 @@ def _build_candidate(
     profile = profile_record.data
     preset = preset_record.data
     services = copy.deepcopy(profile["services"])
+    minecraft_ports = {order["network"]["java_port"], order["network"]["mcremote_port"]}
     for item in operator_inputs:
         if item["role"] == "unity-sandboxes":
             for sandbox in item["semantic"]["sandboxes"]:
+                tcp_port = sandbox.get("tcp_port")
+                if tcp_port is not None and tcp_port in minecraft_ports:
+                    _fail(
+                        "port_conflict",
+                        "operator_inputs.unity-sandboxes",
+                        f"Unity sandbox {sandbox['id']} tcp_port {tcp_port} collides with a declared Minecraft port",
+                    )
                 services.append(
                     {
                         "id": f"unity-sandbox-{sandbox['id']}",
