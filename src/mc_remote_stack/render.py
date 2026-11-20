@@ -1,5 +1,6 @@
 """Render validated deployment state into deterministic runtime files."""
 
+import copy
 import hashlib
 import json
 import os
@@ -663,12 +664,13 @@ def _locked_composition_input(
 
 # compose@13 (vps-server@12), compose@15 (vps-server@13), compose@16
 # (vps-server@14), compose@17 (vps-server@15), compose@18 (vps-server@16),
-# compose@19 (vps-server@17), compose@20 (vps-server@18), and compose@21
-# (vps-server@19) render the public VPS; compose@14 renders the home set.
-PUBLIC_RENDERER_REVISIONS = frozenset({"13", "15", "16", "17", "18", "19", "20", "21"})
+# compose@19 (vps-server@17), compose@20 (vps-server@18), compose@21
+# (vps-server@19), and compose@22 (vps-server@20) render the public VPS;
+# compose@14 renders the home set.
+PUBLIC_RENDERER_REVISIONS = frozenset({"13", "15", "16", "17", "18", "19", "20", "21", "22"})
 SUPPORTED_RENDERER_REVISIONS = PUBLIC_RENDERER_REVISIONS | {"14"}
 # Revisions that serve the fixed /candidates/ route beside the homepage.
-CANDIDATE_ROUTE_REVISIONS = frozenset({"15", "16", "17", "18", "19", "20", "21"})
+CANDIDATE_ROUTE_REVISIONS = frozenset({"15", "16", "17", "18", "19", "20", "21", "22"})
 # Revisions that set every container clock; earlier ones stay on UTC.
 CONTAINER_TIME_ZONE = {
     "16": "Asia/Tokyo",
@@ -677,17 +679,32 @@ CONTAINER_TIME_ZONE = {
     "19": "Asia/Tokyo",
     "20": "Asia/Tokyo",
     "21": "Asia/Tokyo",
+    "22": "Asia/Tokyo",
 }
 # Revisions that serve extra Scratch/WireScope name pairs from public-routes@3.
-WEB_PAIR_REVISIONS = frozenset({"17", "18", "19", "20", "21"})
-PER_ORIGIN_TARGET_REVISIONS = frozenset({"19", "20", "21"})
-HEAP_ENV_REVISIONS = frozenset({"20", "21"})
+WEB_PAIR_REVISIONS = frozenset({"17", "18", "19", "20", "21", "22"})
+PER_ORIGIN_TARGET_REVISIONS = frozenset({"19", "20", "21", "22"})
+HEAP_ENV_REVISIONS = frozenset({"20", "21", "22"})
 # Revisions that give Geyser its own port over TCP and UDP. NetherNet signaling
 # needs TCP on the Geyser port, which Java already holds on 25565; earlier
 # revisions publish Geyser as UDP on the Java port number.
-GEYSER_PORT_REVISIONS = frozenset({"18", "19", "20", "21"})
-UNITY_SANDBOX_REVISIONS = frozenset({"21"})
+GEYSER_PORT_REVISIONS = frozenset({"18", "19", "20", "21", "22"})
+UNITY_SANDBOX_REVISIONS = frozenset({"21", "22"})
+UNITY_SANDBOX_V2_REVISIONS = frozenset({"22"})
 GEYSER_PORT = 19132
+UNITY_SANDBOX_ISOLATION_LIMITS: dict[str, Any] = {
+    "mem_limit": "512m",
+    "memswap_limit": "512m",
+    "cpus": 0.5,
+    "pids_limit": 256,
+    "ulimits": {
+        "nofile": {"soft": 1024, "hard": 1024},
+    },
+    "logging": {
+        "driver": "json-file",
+        "options": {"max-size": "10m", "max-file": "3"},
+    },
+}
 
 
 def unity_sandbox_hostnames(sandbox: dict[str, Any]) -> list[str]:
@@ -709,16 +726,19 @@ def locked_unity_sandboxes(lock: dict[str, Any]) -> list[dict[str, Any]]:
     matches = [item for item in operator_inputs if item["role"] == "unity-sandboxes"]
     if not matches:
         return []
-    if len(matches) > 1 or lock["render_plan"]["adapter_revision"] not in UNITY_SANDBOX_REVISIONS:
+    revision = lock["render_plan"]["adapter_revision"]
+    if len(matches) > 1 or revision not in UNITY_SANDBOX_REVISIONS:
         _render_fail(
             "render_plan_invalid",
             "operator_inputs.unity-sandboxes",
             "unity-sandboxes is supported once on compose@21 and later",
         )
+    v2 = revision in UNITY_SANDBOX_V2_REVISIONS
+    expected_adapter = "unity-sandboxes@2" if v2 else "unity-sandboxes@1"
     item = matches[0]
     semantic = item["semantic"]
     if (
-        item["adapter"] != "unity-sandboxes@1"
+        item["adapter"] != expected_adapter
         or item["path"] != "operator/unity-sandboxes/sandboxes.toml"
         or item["semantic_sha256"] != semantic_sha256(semantic)
     ):
@@ -740,13 +760,18 @@ def locked_unity_sandboxes(lock: dict[str, Any]) -> list[dict[str, Any]]:
             "operator_inputs.unity-sandboxes.semantic.sandboxes",
             "locked sandboxes must be an array",
         )
+    required_keys = {"id", "hostname", "aliases", "image"}
+    allowed_keys = required_keys | ({"tcp_port"} if v2 else set())
+    minecraft_ports = {lock["network"]["java_port"], lock["network"]["mcremote_port"]}
+    reserved_ports = {80, 443, GEYSER_PORT}
     seen_ids: set[str] = set()
     seen_hostnames: set[str] = set()
+    seen_tcp_ports: set[int] = set()
     validated: list[dict[str, Any]] = []
     for entry in sandboxes:
         if (
             not isinstance(entry, dict)
-            or set(entry) != {"id", "hostname", "aliases", "image"}
+            or not (required_keys <= set(entry) <= allowed_keys)
             or not all(isinstance(entry[key], str) and entry[key] for key in ("id", "hostname", "image"))
             or not isinstance(entry["aliases"], list)
             or len(entry["aliases"]) > 8
@@ -766,17 +791,66 @@ def locked_unity_sandboxes(lock: dict[str, Any]) -> list[dict[str, Any]]:
                 "operator_inputs.unity-sandboxes.semantic.sandboxes",
                 "locked Unity sandbox entry is invalid or duplicated",
             )
+        record: dict[str, Any] = {
+            "id": entry["id"],
+            "hostname": entry["hostname"],
+            "aliases": list(entry["aliases"]),
+            "image": entry["image"],
+        }
+        if "tcp_port" in entry:
+            tcp_port = entry["tcp_port"]
+            if (
+                isinstance(tcp_port, bool)
+                or not isinstance(tcp_port, int)
+                or not (1 <= tcp_port <= 65535)
+                or tcp_port in reserved_ports
+                or tcp_port in minecraft_ports
+                or tcp_port in seen_tcp_ports
+            ):
+                _render_fail(
+                    "render_plan_invalid",
+                    "operator_inputs.unity-sandboxes.semantic.sandboxes",
+                    "locked Unity sandbox tcp_port is invalid, reserved, or collides with another declared port",
+                )
+            seen_tcp_ports.add(tcp_port)
+            record["tcp_port"] = tcp_port
         seen_ids.add(entry["id"])
         seen_hostnames.update(hostnames)
-        validated.append(
-            {
-                "id": entry["id"],
-                "hostname": entry["hostname"],
-                "aliases": list(entry["aliases"]),
-                "image": entry["image"],
-            }
-        )
+        validated.append(record)
     return validated
+
+
+def _unity_sandbox_service(
+    sandbox: dict[str, Any],
+    *,
+    common_labels: dict[str, str],
+    include_v2_options: bool,
+) -> dict[str, Any]:
+    """Build one Compose service entry for a locked Unity sandbox container."""
+
+    networks: dict[str, Any] = {
+        "app": {"aliases": unity_sandbox_hostnames(sandbox)},
+    }
+    labels = {
+        **common_labels,
+        "io.mc-remote.unity-sandbox-id": sandbox["id"],
+        "io.mc-remote.unity-sandbox-hostname": sandbox["hostname"],
+    }
+    service: dict[str, Any] = {
+        "image": sandbox["image"],
+        "restart": "unless-stopped",
+        "command": ["--tcp-port", "25575"],
+    }
+    if include_v2_options:
+        service.update(copy.deepcopy(UNITY_SANDBOX_ISOLATION_LIMITS))
+        if "tcp_port" in sandbox:
+            tcp_port = sandbox["tcp_port"]
+            service["ports"] = [f"0.0.0.0:{tcp_port}:25575/tcp"]
+            networks["edge"] = {}
+            labels["io.mc-remote.unity-sandbox-tcp-port"] = str(tcp_port)
+    service["networks"] = networks
+    service["labels"] = labels
+    return service
 
 PUBLIC_SERVICES = [
     {"id": "caddy", "role": "caddy-edge"},
@@ -961,7 +1035,10 @@ def _compose_public(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str
 
     compose@19 (vps-server@17) selects targets and a default for each Scratch
     origin, using the common connection-targets@4 catalog. compose@20
-    (vps-server@18) adds a required, locked Minecraft heap setting.
+    (vps-server@18) adds a required, locked Minecraft heap setting. compose@21
+    (vps-server@19) adds internal Unity sandbox containers via unity-sandboxes@1.
+    compose@22 (vps-server@20) adds unity-sandboxes@2 optional external tcp_port
+    publication and container resource isolation limits for Unity sandboxes.
     """
 
     revision = lock["render_plan"]["adapter_revision"]
@@ -1259,20 +1336,13 @@ def _compose_public(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str
         "io.mc-remote.world": lock["world"]["identity"],
         "io.mc-remote.lock": lock["lock_identity"],
     }
+    include_unity_v2_options = revision in UNITY_SANDBOX_V2_REVISIONS
     unity_services = {
-        f"unity-sandbox-{sandbox['id']}": {
-            "image": sandbox["image"],
-            "restart": "unless-stopped",
-            "command": ["--tcp-port", "25575"],
-            "networks": {
-                "app": {"aliases": unity_sandbox_hostnames(sandbox)},
-            },
-            "labels": {
-                **common_labels,
-                "io.mc-remote.unity-sandbox-id": sandbox["id"],
-                "io.mc-remote.unity-sandbox-hostname": sandbox["hostname"],
-            },
-        }
+        f"unity-sandbox-{sandbox['id']}": _unity_sandbox_service(
+            sandbox,
+            common_labels=common_labels,
+            include_v2_options=include_unity_v2_options,
+        )
         for sandbox in unity_sandboxes
     }
     compose = {

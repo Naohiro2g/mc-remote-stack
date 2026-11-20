@@ -56,6 +56,21 @@ services:
   unity-sandbox:
     image: ghcr.io/naohiro2g/mc-remote-unity-sandbox:v2321.2.0
     restart: unless-stopped
+    mem_limit: "512m"
+    memswap_limit: "512m"
+    cpus: 0.5
+    pids_limit: 256
+    ulimits:
+      nofile:
+        soft: 1024
+        hard: 1024
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    # Python 等の外部クライアントから直接 TCP 接続を受ける場合は
+    # ports (例: ["0.0.0.0:25585:25585/tcp"]) と edge ネットワークを追加する。
     networks:
       app:
         aliases:
