@@ -18,13 +18,19 @@ from urllib.request import Request, urlopen
 from .apply import DOCKER_CONTEXT, compose_render_status
 from .render import (
     CANDIDATE_ROUTE_REVISIONS,
+    DUAL_LINE_REVISIONS,
     GEYSER_PORT,
     GEYSER_PORT_REVISIONS,
     PUBLIC_RENDERER_REVISIONS,
     SUPPORTED_RENDERER_REVISIONS,
     UNITY_SANDBOX_REVISIONS,
     RenderContractError,
+    _locked_connection_input,
     _locked_public_routes,
+    connection_target_external,
+    connection_target_host,
+    connection_target_port,
+    locked_lts_web,
     locked_unity_sandboxes,
     unity_sandbox_hostnames,
     verify_toml_render_output,
@@ -105,6 +111,9 @@ class TomlDoctorResult:
     web_pair_count: int = 0
     unity_sandbox_status: str = "not-applicable"
     unity_sandbox_count: int = 0
+    lts_web_status: str = "not-applicable"
+    external_target_status: str = "not-applicable"
+    external_target_count: int = 0
 
 
 class DoctorContractError(ValueError):
@@ -202,15 +211,19 @@ def _exchange_jsonrpc_line(
     return response
 
 
-def probe_unity_sandbox_tcp_auth(
+def _probe_tcp_hello_auth(
     address: str,
     port: int,
     timeout: int,
     *,
-    connector: Connector = socket.create_connection,
+    connector: Connector,
+    unavailable_reason: str,
+    invalid_reason: str,
+    unhealthy_reason: str,
+    unavailable_message: str,
+    unhealthy_message: str,
+    accepted_message: str,
 ) -> None:
-    """Verify one exposed Unity sandbox TCP endpoint rejects token-free hello."""
-
     if timeout < 1 or timeout > 30:
         _fail("doctor_timeout_invalid", "doctor.timeout", "protocol timeout must be between 1 and 30 seconds")
 
@@ -223,21 +236,17 @@ def probe_unity_sandbox_tcp_auth(
             {"jsonrpc": "2.0", "id": 1, "method": "hello", "params": {"protocol": protocol_version}},
             timeout,
             connector=connector,
-            unavailable_reason="doctor_unity_sandbox_tcp_unavailable",
-            timeout_reason="doctor_unity_sandbox_tcp_unavailable",
-            invalid_reason="doctor_unity_sandbox_invalid",
-            unavailable_message="cannot connect to the exposed Unity sandbox TCP endpoint",
+            unavailable_reason=unavailable_reason,
+            timeout_reason=unavailable_reason,
+            invalid_reason=invalid_reason,
+            unavailable_message=unavailable_message,
             path=target,
         )
 
     response = _send_hello(UNITY_TCP_PROBE_PROTOCOL)
     for attempt in range(2):
         if "result" in response:
-            _fail(
-                "doctor_auth_not_enforced",
-                target,
-                "Unity sandbox TCP endpoint accepted token-free hello",
-            )
+            _fail("doctor_auth_not_enforced", target, accepted_message)
         error = response.get("error")
         data = error.get("data") if isinstance(error, dict) else None
         reason = data.get("reason") if isinstance(data, dict) else None
@@ -252,11 +261,53 @@ def probe_unity_sandbox_tcp_auth(
         ):
             response = _send_hello(server_protocol)
             continue
-        _fail(
-            "doctor_unity_sandbox_unhealthy",
-            target,
-            "Unity sandbox TCP endpoint did not report auth_required on token-free hello",
-        )
+        _fail(unhealthy_reason, target, unhealthy_message)
+
+
+def probe_unity_sandbox_tcp_auth(
+    address: str,
+    port: int,
+    timeout: int,
+    *,
+    connector: Connector = socket.create_connection,
+) -> None:
+    """Verify one exposed Unity sandbox TCP endpoint rejects token-free hello."""
+
+    _probe_tcp_hello_auth(
+        address,
+        port,
+        timeout,
+        connector=connector,
+        unavailable_reason="doctor_unity_sandbox_tcp_unavailable",
+        invalid_reason="doctor_unity_sandbox_invalid",
+        unhealthy_reason="doctor_unity_sandbox_unhealthy",
+        unavailable_message="cannot connect to the exposed Unity sandbox TCP endpoint",
+        unhealthy_message="Unity sandbox TCP endpoint did not report auth_required on token-free hello",
+        accepted_message="Unity sandbox TCP endpoint accepted token-free hello",
+    )
+
+
+def probe_external_mcremote_auth(
+    address: str,
+    port: int,
+    timeout: int,
+    *,
+    connector: Connector = socket.create_connection,
+) -> None:
+    """Verify one external McRemote TCP endpoint enforces authentication."""
+
+    _probe_tcp_hello_auth(
+        address,
+        port,
+        timeout,
+        connector=connector,
+        unavailable_reason="doctor_external_target_unavailable",
+        invalid_reason="doctor_external_target_invalid",
+        unhealthy_reason="doctor_external_target_unhealthy",
+        unavailable_message="cannot connect to the external McRemote endpoint",
+        unhealthy_message="external McRemote endpoint did not report auth_required on token-free hello",
+        accepted_message="external McRemote endpoint accepted token-free hello",
+    )
 
 
 def probe_unity_sandbox_health(url: str, timeout: int) -> None:
@@ -473,35 +524,76 @@ def validate_scratch_runtime_config(
             "scratch.runtime.connection_targets",
             "connection_targets must be a non-empty array",
         )
-    sandboxes: set[str] = set()
     ids: set[str] = set()
-    for index, target in enumerate(targets):
-        if not isinstance(target, dict) or set(target) != {"id", "label", "sandbox"}:
+    if observed.get("schema_version") == 2:
+        endpoints: set[tuple[str, int]] = set()
+        for index, target in enumerate(targets):
+            if not isinstance(target, dict) or set(target) != {"id", "label", "host", "port"}:
+                _fail(
+                    "doctor_scratch_runtime_invalid",
+                    f"scratch.runtime.connection_targets[{index}]",
+                    "v2 target must contain exactly id, label, host, and port",
+                )
+            if any(
+                not isinstance(target[key], str) or not target[key].strip()
+                for key in ("id", "label", "host")
+            ):
+                _fail(
+                    "doctor_scratch_runtime_invalid",
+                    f"scratch.runtime.connection_targets[{index}]",
+                    "target string fields must be non-empty",
+                )
+            port = target["port"]
+            if isinstance(port, bool) or not isinstance(port, int) or not (1 <= port <= 65535):
+                _fail(
+                    "doctor_scratch_runtime_invalid",
+                    f"scratch.runtime.connection_targets[{index}].port",
+                    "v2 target port must be an integer between 1 and 65535",
+                )
+            endpoint = (target["host"], port)
+            if target["id"] in ids or endpoint in endpoints:
+                _fail(
+                    "doctor_scratch_runtime_invalid",
+                    f"scratch.runtime.connection_targets[{index}]",
+                    "target ids and (host, port) endpoints must be unique",
+                )
+            ids.add(target["id"])
+            endpoints.add(endpoint)
+        if observed.get("default_target_id") not in ids:
             _fail(
                 "doctor_scratch_runtime_invalid",
-                f"scratch.runtime.connection_targets[{index}]",
-                "target must contain exactly id, label, and sandbox",
+                "scratch.runtime.default_target_id",
+                "default_target_id must reference a target in connection_targets",
             )
-        if any(not isinstance(target[key], str) or not target[key].strip() for key in target):
+    else:
+        sandboxes: set[str] = set()
+        for index, target in enumerate(targets):
+            if not isinstance(target, dict) or set(target) != {"id", "label", "sandbox"}:
+                _fail(
+                    "doctor_scratch_runtime_invalid",
+                    f"scratch.runtime.connection_targets[{index}]",
+                    "target must contain exactly id, label, and sandbox",
+                )
+            if any(not isinstance(target[key], str) or not target[key].strip() for key in target):
+                _fail(
+                    "doctor_scratch_runtime_invalid",
+                    f"scratch.runtime.connection_targets[{index}]",
+                    "target fields must be non-empty strings",
+                )
+            if target["id"] in ids or target["sandbox"] in sandboxes:
+                _fail(
+                    "doctor_scratch_runtime_invalid",
+                    f"scratch.runtime.connection_targets[{index}]",
+                    "target ids and sandbox values must be unique",
+                )
+            ids.add(target["id"])
+            sandboxes.add(target["sandbox"])
+        if observed.get("default_sandbox") not in sandboxes:
             _fail(
                 "doctor_scratch_runtime_invalid",
-                f"scratch.runtime.connection_targets[{index}]",
-                "target fields must be non-empty strings",
+                "scratch.runtime.default_sandbox",
+                "default_sandbox must be listed in connection_targets",
             )
-        if target["id"] in ids or target["sandbox"] in sandboxes:
-            _fail(
-                "doctor_scratch_runtime_invalid",
-                f"scratch.runtime.connection_targets[{index}]",
-                "target ids and sandbox values must be unique",
-            )
-        ids.add(target["id"])
-        sandboxes.add(target["sandbox"])
-    if observed.get("default_sandbox") not in sandboxes:
-        _fail(
-            "doctor_scratch_runtime_invalid",
-            "scratch.runtime.default_sandbox",
-            "default_sandbox must be listed in connection_targets",
-        )
     notices = observed.get("notices")
     if not isinstance(notices, list):
         _fail(
@@ -713,6 +805,7 @@ def _validate_canonical_composition_mounts(
     lock: dict[str, Any],
     *,
     service: str,
+    output: Path | None = None,
 ) -> None:
     controls = set(lock["render_plan"].get("required_security_controls", []))
     if "exact-peripheral-plugin-set" not in controls:
@@ -814,6 +907,31 @@ def _validate_canonical_composition_mounts(
                     "/srv/candidates",
                     "live release-candidate directory differs from the canonical one",
                 )
+        if lock.get("lts_web") is not None:
+            if output is None:
+                _fail(
+                    "doctor_composition_mount_mismatch",
+                    "/srv/wirescope-lts",
+                    "render output directory is required to verify WireScope LTS mount",
+                )
+            expected_lts = (output / "wirescope-lts").resolve()
+            matching = [
+                mount
+                for mount in mounts
+                if mount.get("Destination") == "/srv/wirescope-lts"
+            ]
+            if (
+                len(matching) != 1
+                or matching[0].get("Type") != "bind"
+                or matching[0].get("RW") is not False
+                or not isinstance(matching[0].get("Source"), str)
+                or Path(matching[0]["Source"]).resolve() != expected_lts
+            ):
+                _fail(
+                    "doctor_composition_mount_mismatch",
+                    "/srv/wirescope-lts",
+                    "live WireScope LTS directory differs from the canonical one",
+                )
 
 
 def _validate_container(
@@ -848,7 +966,7 @@ def _validate_container(
         )
     if service == "minecraft":
         _validate_mcremote_artifact_mount(record, lock)
-    _validate_canonical_composition_mounts(record, lock, service=service)
+    _validate_canonical_composition_mounts(record, lock, service=service, output=output)
 
     state = record.get("State")
     if not isinstance(state, dict) or state.get("Running") is not True:
@@ -1061,6 +1179,72 @@ def probe_protocol_hello(
     )
 
 
+def _check_web_pair_surface(
+    runtime_path: Path,
+    *,
+    scratch_host: str,
+    wirescope_host: str,
+    expected_index_sha256: str,
+    schema: dict[str, Any] | None,
+    timeout: int,
+    scratch_runtime_probe: Any,
+    wirescope_probe: Any,
+) -> None:
+    try:
+        expected_runtime = json.loads(runtime_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        _fail(
+            "doctor_scratch_runtime_invalid",
+            runtime_path,
+            f"cannot read canonical Scratch runtime config: {exc}",
+        )
+    observed_runtime = scratch_runtime_probe(
+        f"https://{scratch_host}/mc-remote-runtime-config.json", timeout
+    )
+    validate_scratch_runtime_config(
+        observed_runtime,
+        expected=expected_runtime,
+        schema=schema,
+    )
+    expected_wirescope_url = f"https://{wirescope_host}/"
+    if expected_runtime.get("wirescope_url") != expected_wirescope_url:
+        _fail(
+            "doctor_wirescope_config_mismatch",
+            "scratch.runtime.wirescope_url",
+            "Scratch runtime does not point at the canonical public WireScope origin",
+        )
+    wirescope_probe(
+        f"https://{scratch_host}/",
+        expected_wirescope_url,
+        expected_index_sha256=expected_index_sha256,
+        timeout=timeout,
+    )
+
+
+def _served_external_target_endpoints(
+    lock: dict[str, Any],
+    pairs: list[dict[str, str]],
+    lts_web: dict[str, Any] | None,
+) -> list[tuple[str, int]]:
+    connection_input = _locked_connection_input(lock)
+    if not connection_input:
+        return []
+    by_id = {target["id"]: target for target in connection_input["targets"]}
+    served_ids: set[str] = set()
+    pair_scratches = {pair["scratch"] for pair in pairs}
+    for selection in connection_input.get("selections", []):
+        if selection.get("scratch") in pair_scratches:
+            served_ids.update(selection.get("target_ids", []))
+    if lts_web is not None:
+        served_ids.update(lts_web["semantic"]["target_ids"])
+    endpoints = {
+        (connection_target_host(by_id[tid]), connection_target_port(by_id[tid]))
+        for tid in served_ids
+        if tid in by_id and connection_target_external(by_id[tid])
+    }
+    return sorted(endpoints)
+
+
 def doctor_toml_project(
     project_root: Path,
     output: Path,
@@ -1075,6 +1259,7 @@ def doctor_toml_project(
     wirescope_probe=None,
     unity_health_probe=None,
     unity_tcp_probe=None,
+    external_target_probe=None,
 ) -> TomlDoctorResult:
     """Check one current Compose runtime without mutating host state."""
 
@@ -1088,6 +1273,8 @@ def doctor_toml_project(
         unity_health_probe = probe_unity_sandbox_health
     if unity_tcp_probe is None:
         unity_tcp_probe = probe_unity_sandbox_tcp_auth
+    if external_target_probe is None:
+        external_target_probe = probe_external_mcremote_auth
 
     if not DOCKER_CONTEXT.fullmatch(docker_context):
         _fail(
@@ -1252,6 +1439,10 @@ def doctor_toml_project(
     unity_sandbox_status = "not-applicable"
     unity_sandboxes: list[dict[str, Any]] = []
     pairs: list[dict[str, str]] = []
+    web_pair_count = 0
+    lts_web_status = "not-applicable"
+    external_target_status = "not-applicable"
+    external_targets: list[tuple[str, int]] = []
     if lock["render_plan"]["adapter_revision"] in PUBLIC_RENDERER_REVISIONS:
         routes = _locked_public_routes(lock)
         if lock["render_plan"]["adapter_revision"] in PUBLIC_RENDERER_REVISIONS:
@@ -1302,37 +1493,57 @@ def doctor_toml_project(
             runtime_path = output / (
                 "runtime/scratch.json" if index == 0 else web_pair_runtime_path(pair)
             )
-            try:
-                expected_runtime = json.loads(runtime_path.read_text(encoding="utf-8"))
-            except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-                _fail(
-                    "doctor_scratch_runtime_invalid",
-                    runtime_path,
-                    f"cannot read canonical Scratch runtime config: {exc}",
-                )
-            observed_runtime = scratch_runtime_probe(
-                f"https://{pair['scratch']}/mc-remote-runtime-config.json", timeout
-            )
-            validate_scratch_runtime_config(
-                observed_runtime,
-                expected=expected_runtime,
-                schema=schema,
-            )
-            expected_wirescope_url = f"https://{pair['wirescope']}/"
-            if expected_runtime.get("wirescope_url") != expected_wirescope_url:
-                _fail(
-                    "doctor_wirescope_config_mismatch",
-                    "scratch.runtime.wirescope_url",
-                    "Scratch runtime does not point at the canonical public WireScope origin",
-                )
-            wirescope_probe(
-                f"https://{pair['scratch']}/",
-                expected_wirescope_url,
+            _check_web_pair_surface(
+                runtime_path,
+                scratch_host=pair["scratch"],
+                wirescope_host=pair["wirescope"],
                 expected_index_sha256=expected_index_sha256,
+                schema=schema,
                 timeout=timeout,
+                scratch_runtime_probe=scratch_runtime_probe,
+                wirescope_probe=wirescope_probe,
             )
+        web_pair_count = len(pairs)
+        dual_line = lock["render_plan"]["adapter_revision"] in DUAL_LINE_REVISIONS
+        lts_web = locked_lts_web(lock) if dual_line else None
+        if lts_web is not None:
+            lts_semantic = lts_web["semantic"]
+            lts_contract = lts_web["bundle"]["scratch_runtime_contract"]
+            try:
+                lts_schema = load_runtime_config_schema(lts_contract, data_root=data_root)
+            except ScratchContractError as exc:
+                _fail(exc.reason, exc.path, exc.detail)
+            lts_index_path = output / "wirescope-lts" / "index.html"
+            try:
+                lts_index_sha256 = hashlib.sha256(lts_index_path.read_bytes()).hexdigest()
+            except OSError as exc:
+                _fail(
+                    "doctor_wirescope_invalid",
+                    lts_index_path,
+                    f"cannot read canonical WireScope LTS index: {exc}",
+                )
+            _check_web_pair_surface(
+                output / "runtime/scratch-lts.json",
+                scratch_host=lts_semantic["scratch"],
+                wirescope_host=lts_semantic["wirescope"],
+                expected_index_sha256=lts_index_sha256,
+                schema=lts_schema,
+                timeout=timeout,
+                scratch_runtime_probe=scratch_runtime_probe,
+                wirescope_probe=wirescope_probe,
+            )
+            web_pair_count += 1
+            lts_web_status = "current"
         scratch_runtime_status = "current"
         wirescope_status = "current"
+        if dual_line:
+            external_targets = _served_external_target_endpoints(
+                lock, pairs, lts_web
+            )
+            for external_host, external_port in external_targets:
+                external_target_probe(external_host, external_port, timeout)
+            if external_targets:
+                external_target_status = "healthy"
         if lock["render_plan"]["adapter_revision"] in UNITY_SANDBOX_REVISIONS:
             unity_sandboxes = locked_unity_sandboxes(lock)
             if unity_sandboxes:
@@ -1390,7 +1601,10 @@ def doctor_toml_project(
         homepage_status=homepage_status,
         scratch_runtime_status=scratch_runtime_status,
         wirescope_status=wirescope_status,
-        web_pair_count=len(pairs),
+        web_pair_count=web_pair_count,
         unity_sandbox_status=unity_sandbox_status,
         unity_sandbox_count=len(unity_sandboxes),
+        lts_web_status=lts_web_status,
+        external_target_status=external_target_status,
+        external_target_count=len(external_targets),
     )

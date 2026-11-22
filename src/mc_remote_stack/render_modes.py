@@ -7,6 +7,9 @@ from pathlib import Path, PurePosixPath
 _CONTAINER_FILES = frozenset({
     "Caddyfile",
     "runtime/scratch.json",
+    "runtime/scratch-lts.json",
+    "runtime/bridge-targets.json",
+    "runtime/bridge-lts-targets.json",
     "minecraft/server.properties",
     "minecraft/plugins/McRemote/config.yml",
     "runtime/minecraft/plugins/McRemote/config.yml",
@@ -29,7 +32,7 @@ def rendered_file_mode(relative: str) -> int:
     path = PurePosixPath(relative)
     if relative in _CONTAINER_FILES:
         return 0o644
-    if len(path.parts) > 1 and path.parts[0] == "wirescope":
+    if len(path.parts) > 1 and path.parts[0] in {"wirescope", "wirescope-lts"}:
         return 0o644  # Contents of the verified public application bundle.
     if len(path.parts) == 3 and path.parts[:2] == ("runtime", "web-pairs") and path.suffix == ".json":
         return 0o644  # Validated public browser runtime configuration.

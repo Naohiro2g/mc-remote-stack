@@ -30,9 +30,14 @@ from .apply import (
 )
 from .artifacts import fetch_locked_artifacts
 from .doctor import doctor_toml_project, probe_protocol_hello
-from .operator_inputs import UNITY_SANDBOXES_PATH
+from .operator_inputs import LTS_WEB_PATH, UNITY_SANDBOXES_PATH
 from .preset_registry import load_profile
-from .render import UNITY_SANDBOX_REVISIONS, render_toml_project, verify_toml_render_output
+from .render import (
+    DUAL_LINE_REVISIONS,
+    UNITY_SANDBOX_REVISIONS,
+    render_toml_project,
+    verify_toml_render_output,
+)
 from .resolver import load_lock, resolve_project
 from .runtime_artifacts import (
     RuntimeArtifactContractError,
@@ -296,7 +301,10 @@ def _update_operator_input_scalar(
     _atomic_replace(path, tomlkit.dumps(document).encode("utf-8"))
 
 
-OPTIONAL_OPERATOR_INPUT_PATHS = {"unity-sandboxes": UNITY_SANDBOXES_PATH}
+OPTIONAL_OPERATOR_INPUT_PATHS = {
+    "unity-sandboxes": UNITY_SANDBOXES_PATH,
+    "lts-web": LTS_WEB_PATH,
+}
 
 
 def _read_replacement_input_bytes(source_path: Path) -> bytes:
@@ -543,13 +551,22 @@ def _validate_in_place_transition(
     source_render = source["render_plan"]
     target_render = target["render_plan"]
     allowed_additions = set(allowed_operator_input_additions)
+    allowed_removals: set[str] = set()
     if (
         target_render["adapter_revision"] in UNITY_SANDBOX_REVISIONS
         and target_inputs.get("unity-sandboxes") == UNITY_SANDBOXES_PATH
     ):
         allowed_additions.add("unity-sandboxes")
+    if target_render["adapter_revision"] in DUAL_LINE_REVISIONS:
+        if target_inputs.get("lts-web") == LTS_WEB_PATH:
+            allowed_additions.add("lts-web")
+        if source_inputs.get("lts-web") == LTS_WEB_PATH and "lts-web" not in target_inputs:
+            allowed_removals.add("lts-web")
+    expected_retained = {
+        role: path for role, path in source_inputs.items() if role not in allowed_removals
+    }
     if (
-        retained_inputs != source_inputs
+        retained_inputs != expected_retained
         or not added_inputs.issubset(allowed_additions)
     ):
         _fail(
@@ -558,10 +575,24 @@ def _validate_in_place_transition(
             "release projection changed typed-input roles or retained paths outside "
             "the reviewed allowance",
         )
+    ignored_roles: set[str] = set()
+    ignored_ids: set[str] = set()
     if target_render["adapter_revision"] in UNITY_SANDBOX_REVISIONS:
+        ignored_roles.add("unity-sandbox")
+    if target_render["adapter_revision"] in DUAL_LINE_REVISIONS:
+        ignored_ids.update({"scratch-lts", "bridge-lts"})
+    if ignored_roles or ignored_ids:
         services_match = (
-            [s for s in source_render["services"] if s["role"] != "unity-sandbox"]
-            == [s for s in target_render["services"] if s["role"] != "unity-sandbox"]
+            [
+                s
+                for s in source_render["services"]
+                if s["role"] not in ignored_roles and s["id"] not in ignored_ids
+            ]
+            == [
+                s
+                for s in target_render["services"]
+                if s["role"] not in ignored_roles and s["id"] not in ignored_ids
+            ]
         )
     else:
         services_match = source_render["services"] == target_render["services"]
@@ -1082,6 +1113,8 @@ def _validate_required_effective_mounts(
         "/etc/caddy/Caddyfile": (target_output / "Caddyfile").resolve(),
         "/srv/wirescope": (target_output / "wirescope").resolve(),
     }
+    if lock.get("lts_web") is not None:
+        required["/srv/wirescope-lts"] = (target_output / "wirescope-lts").resolve()
     for target, source in required.items():
         matching = [
             item

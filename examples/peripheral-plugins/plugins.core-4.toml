@@ -1,0 +1,24 @@
+# 「大体、何でもつながる」基本 4 プラグイン用の operator/minecraft-plugins/plugins.toml 雛形
+#
+# 使い方:
+# 1. README_ja.md のダウンロードページ一覧から各公式ページの注意書き
+#    （対応 Minecraft 版・Java 版・JAR 種別、ViaVersion/ViaBackwards は Snapshot チャンネル）
+#    を確認して実物 JAR を取得する。
+# 2. 各ファイルの `filename` と `sha256`（`sha256sum` の結果）を実測値へ置き換える。
+#    （下の値はプレースホルダーであり、そのままでは解決・取得できません。）
+
+[[plugins]]
+filename = "Geyser-Spigot.jar"
+sha256 = "0000000000000000000000000000000000000000000000000000000000000000"
+
+[[plugins]]
+filename = "floodgate-spigot.jar"
+sha256 = "1111111111111111111111111111111111111111111111111111111111111111"
+
+[[plugins]]
+filename = "ViaVersion-SNAPSHOT.jar"
+sha256 = "2222222222222222222222222222222222222222222222222222222222222222"
+
+[[plugins]]
+filename = "ViaBackwards-SNAPSHOT.jar"
+sha256 = "3333333333333333333333333333333333333333333333333333333333333333"
