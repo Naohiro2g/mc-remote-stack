@@ -664,6 +664,17 @@ def _cmd_toml_plan(project_path: Path) -> int:
             f"PLAN artifact={artifact['id']} kind={artifact['kind']} "
             f"{_artifact_identity(artifact)}"
         )
+    lts_web = lock.get("lts_web")
+    if isinstance(lts_web, dict):
+        print(
+            f"PLAN lts-web-preset={lts_web['preset']['ref']} "
+            f"content-sha256={lts_web['preset']['content_sha256']}"
+        )
+        for artifact in lts_web["artifacts"]:
+            print(
+                f"PLAN lts-web-artifact={artifact['id']} kind={artifact['kind']} "
+                f"{_artifact_identity(artifact)}"
+            )
     for operator_input in lock["operator_inputs"]:
         print(
             f"PLAN operator-input={operator_input['role']} "
@@ -1056,6 +1067,12 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
         print(f"OK doctor wirescope=current handoff=cross-origin{pair_suffix}")
     if result.unity_sandbox_status == "healthy":
         print(f"OK doctor unity-sandbox=healthy count={result.unity_sandbox_count}")
+    if result.lts_web_status == "current":
+        print("OK doctor lts-web=current")
+    if result.external_target_status == "healthy":
+        print(
+            f"OK doctor external-targets=healthy count={result.external_target_count}"
+        )
     return 0
 
 

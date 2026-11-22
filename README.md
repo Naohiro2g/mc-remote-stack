@@ -48,6 +48,7 @@ release待ちの間に、別のセットを用意する場合は[公開VPSの構
 
 - [Scratchのお知らせを編集する](docs/scratch-notice-guide_ja.md)（配備前の編集と適用後の表示確認）
 - [Scratchの組ごとに接続先と既定を指定する](docs/scratch-connection-selections-guide_ja.md)
+- [2系列Web/Bridge並設と外部McRemote接続先の手順](docs/dual-line-and-external-targets-guide_ja.md)（`vps-server@21`／Scratch v2／LTS併設／外部TCP中継）
 - [Unity箱庭を配備する](docs/unity-sandbox-deployment-guide_ja.md)（単体Compose構成と公開VPS同居構成）
 - [ホームページを更新する](docs/homepage-sync-guide_ja.md)
 - [backupを転送する・復元する](docs/backup-and-restore-guide_ja.md)

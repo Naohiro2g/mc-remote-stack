@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
-from .preset_registry import semantic_sha256
+from .preset_registry import EXACT_REF, semantic_sha256
 from .toml_project import LoadedOrder
 
 MINECRAFT_MOTD_ADAPTER = "minecraft-motd@1"
@@ -21,6 +21,7 @@ MINECRAFT_SERVER_ADAPTER = "minecraft-server@1"
 MINECRAFT_SERVER_PATH = "operator/minecraft-server/server.toml"
 CONNECTION_TARGETS_V3_ADAPTER = "connection-targets@3"
 CONNECTION_TARGETS_V4_ADAPTER = "connection-targets@4"
+CONNECTION_TARGETS_V5_ADAPTER = "connection-targets@5"
 CONNECTION_TARGETS_PATH = "operator/connection-targets/targets.toml"
 MINECRAFT_PLUGINS_ADAPTER = "minecraft-plugins@1"
 MINECRAFT_PLUGINS_PATH = "operator/minecraft-plugins/plugins.toml"
@@ -33,6 +34,8 @@ LAN_ROUTES_PATH = "operator/lan-routes/routes.toml"
 UNITY_SANDBOXES_ADAPTER = "unity-sandboxes@1"
 UNITY_SANDBOXES_V2_ADAPTER = "unity-sandboxes@2"
 UNITY_SANDBOXES_PATH = "operator/unity-sandboxes/sandboxes.toml"
+LTS_WEB_ADAPTER = "lts-web@1"
+LTS_WEB_PATH = "operator/lts-web/lts.toml"
 RESERVED_PUBLIC_PORTS = frozenset({80, 443, 19132})
 MAX_MOTD_SOURCE_BYTES = 4096
 MAX_MOTD_CHARACTERS = 256
@@ -53,12 +56,14 @@ SUPPORTED_ADAPTERS = frozenset(
         PUBLIC_ROUTES_V3_ADAPTER,
         CONNECTION_TARGETS_V3_ADAPTER,
         CONNECTION_TARGETS_V4_ADAPTER,
+        CONNECTION_TARGETS_V5_ADAPTER,
         MINECRAFT_PLUGINS_ADAPTER,
         HOMEPAGE_STATIC_ADAPTER,
         MINECRAFT_BACKUP_ADAPTER,
         LAN_ROUTES_ADAPTER,
         UNITY_SANDBOXES_ADAPTER,
         UNITY_SANDBOXES_V2_ADAPTER,
+        LTS_WEB_ADAPTER,
     }
 )
 PUBLIC_ROUTE_KEYS = frozenset(
@@ -92,7 +97,17 @@ CONNECTION_TARGET_V2_KEYS = frozenset(
 )
 CONNECTION_TARGET_V3_KEYS = frozenset({"targets", "notices"})
 CONNECTION_TARGET_V4_KEYS = CONNECTION_TARGET_V3_KEYS | {"selections"}
+CONNECTION_TARGET_V5_REQUIRED_KEYS = frozenset({"id", "label"})
+CONNECTION_TARGET_V5_ALLOWED_KEYS = CONNECTION_TARGET_V5_REQUIRED_KEYS | {
+    "host",
+    "sandbox",
+    "port",
+    "external",
+}
 CONNECTION_SELECTION_KEYS = frozenset({"scratch", "target_ids", "default_target"})
+LTS_WEB_KEYS = frozenset(
+    {"preset", "scratch", "bridge", "wirescope", "target_ids", "default_target"}
+)
 CONNECTION_TARGET_ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
 DNS_NAME = re.compile(
     r"^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+"
@@ -573,14 +588,7 @@ def _parse_connection_targets_v3(path: Path, source: bytes) -> dict[str, Any]:
     return _connection_targets_v3_semantic(path, value)
 
 
-def _connection_targets_v3_semantic(path: Path, value: dict[str, Any]) -> dict[str, Any]:
-    if set(value) != CONNECTION_TARGET_V3_KEYS:
-        _fail(
-            "operator_input_parse_failed",
-            path,
-            "connection-targets@3 requires exactly targets and notices",
-        )
-    notices = value["notices"]
+def _connection_notices_semantic(path: Path, notices: object) -> list[dict[str, Any]]:
     if (
         not isinstance(notices, list)
         or not notices
@@ -632,29 +640,31 @@ def _connection_targets_v3_semantic(path: Path, value: dict[str, Any]) -> dict[s
                 ),
             }
         semantic_notices.append(semantic_notice)
-    return {
-        "targets": _connection_targets_semantic(path, value["targets"]),
-        "notices": semantic_notices,
-    }
+    return semantic_notices
 
 
-def _parse_connection_targets_v4(path: Path, source: bytes) -> dict[str, Any]:
-    value = _connection_targets_document(path, source)
-    if set(value) != CONNECTION_TARGET_V4_KEYS:
+def _connection_targets_v3_semantic(path: Path, value: dict[str, Any]) -> dict[str, Any]:
+    if set(value) != CONNECTION_TARGET_V3_KEYS:
         _fail(
             "operator_input_parse_failed",
             path,
-            "connection-targets@4 requires exactly targets, notices, and selections",
+            "connection-targets@3 requires exactly targets and notices",
         )
-    semantic = _connection_targets_v3_semantic(path, {key: value[key] for key in CONNECTION_TARGET_V3_KEYS})
-    selections = value["selections"]
+    return {
+        "targets": _connection_targets_semantic(path, value["targets"]),
+        "notices": _connection_notices_semantic(path, value["notices"]),
+    }
+
+
+def _connection_selections_semantic(
+    path: Path, selections: object, known_ids: set[str]
+) -> list[dict[str, Any]]:
     if not isinstance(selections, list) or not selections or len(selections) > MAX_WEB_PAIRS + 1:
         _fail(
             "operator_input_parse_failed",
             path,
             f"selections must contain 1 through {MAX_WEB_PAIRS + 1} Scratch origins",
         )
-    known_ids = {target["id"] for target in semantic["targets"]}
     normalized = []
     for index, selection in enumerate(selections):
         if not isinstance(selection, dict) or set(selection) != CONNECTION_SELECTION_KEYS:
@@ -691,7 +701,168 @@ def _parse_connection_targets_v4(path: Path, source: bytes) -> dict[str, Any]:
     names = [selection["scratch"] for selection in normalized]
     if len(set(names)) != len(names):
         _fail("operator_input_parse_failed", path, "selection Scratch origins must be unique")
-    return {**semantic, "selections": sorted(normalized, key=lambda item: item["scratch"])}
+    return sorted(normalized, key=lambda item: item["scratch"])
+
+
+def _connection_targets_v5_items_semantic(path: Path, targets: object) -> list[dict[str, Any]]:
+    if not isinstance(targets, list) or not targets or len(targets) > MAX_CONNECTION_TARGETS:
+        _fail(
+            "operator_input_parse_failed",
+            path,
+            f"targets must be an array containing 1 through {MAX_CONNECTION_TARGETS} entries",
+        )
+    semantic_targets: list[dict[str, Any]] = []
+    for index, entry in enumerate(targets):
+        if not isinstance(entry, dict):
+            _fail(
+                "operator_input_parse_failed",
+                path,
+                f"targets[{index}] must be a table",
+            )
+        keys = set(entry)
+        if (
+            not CONNECTION_TARGET_V5_REQUIRED_KEYS.issubset(keys)
+            or not keys.issubset(CONNECTION_TARGET_V5_ALLOWED_KEYS)
+            or (("host" in entry) == ("sandbox" in entry))
+        ):
+            _fail(
+                "operator_input_parse_failed",
+                path,
+                f"targets[{index}] must specify id, label, and exactly one of host or sandbox "
+                "(plus optional port and external)",
+            )
+        host_key = "host" if "host" in entry else "sandbox"
+        host = _public_dns_name(path, f"targets[{index}].{host_key}", entry[host_key])
+        raw_port = entry.get("port", 25575)
+        if isinstance(raw_port, bool) or not isinstance(raw_port, int) or not (1 <= raw_port <= 65535):
+            _fail(
+                "operator_input_parse_failed",
+                path,
+                f"targets[{index}].port must be an integer between 1 and 65535",
+            )
+        external = entry.get("external", False)
+        if not isinstance(external, bool):
+            _fail(
+                "operator_input_parse_failed",
+                path,
+                f"targets[{index}].external must be a boolean",
+            )
+        semantic_targets.append(
+            {
+                "id": _connection_target_id(path, index, entry["id"]),
+                "label": _connection_target_label(path, index, entry["label"]),
+                "host": host,
+                "port": raw_port,
+                "external": external,
+            }
+        )
+    ids = [target["id"] for target in semantic_targets]
+    if len(set(ids)) != len(ids):
+        _fail("operator_input_parse_failed", path, "connection target id values must be unique")
+    endpoints = [(target["host"], target["port"]) for target in semantic_targets]
+    if len(set(endpoints)) != len(endpoints):
+        _fail(
+            "operator_input_parse_failed",
+            path,
+            "connection target (host, port) endpoints must be unique",
+        )
+    return semantic_targets
+
+
+def _parse_connection_targets_v4(path: Path, source: bytes) -> dict[str, Any]:
+    value = _connection_targets_document(path, source)
+    if set(value) != CONNECTION_TARGET_V4_KEYS:
+        _fail(
+            "operator_input_parse_failed",
+            path,
+            "connection-targets@4 requires exactly targets, notices, and selections",
+        )
+    semantic = _connection_targets_v3_semantic(path, {key: value[key] for key in CONNECTION_TARGET_V3_KEYS})
+    known_ids = {target["id"] for target in semantic["targets"]}
+    return {
+        **semantic,
+        "selections": _connection_selections_semantic(path, value["selections"], known_ids),
+    }
+
+
+def _parse_connection_targets_v5(path: Path, source: bytes) -> dict[str, Any]:
+    value = _connection_targets_document(path, source)
+    if set(value) != CONNECTION_TARGET_V4_KEYS:
+        _fail(
+            "operator_input_parse_failed",
+            path,
+            "connection-targets@5 requires exactly targets, notices, and selections",
+        )
+    targets = _connection_targets_v5_items_semantic(path, value["targets"])
+    notices = _connection_notices_semantic(path, value["notices"])
+    known_ids = {target["id"] for target in targets}
+    return {
+        "targets": targets,
+        "notices": notices,
+        "selections": _connection_selections_semantic(path, value["selections"], known_ids),
+    }
+
+
+def _parse_lts_web(path: Path, source: bytes) -> dict[str, Any]:
+    value = _parse_toml_document(path, source)
+    if set(value) != LTS_WEB_KEYS:
+        _fail(
+            "operator_input_parse_failed",
+            path,
+            "lts-web@1 requires exactly preset, scratch, bridge, wirescope, target_ids, and default_target",
+        )
+    preset = value["preset"]
+    if not isinstance(preset, str):
+        _fail("operator_input_parse_failed", path, "preset must be an exact name@revision selector")
+    if "secret://" in preset.casefold() or "${" in preset:
+        _fail(
+            "operator_input_secret_forbidden",
+            path,
+            "preset selector is a public catalog reference and has no secret injection point",
+        )
+    if EXACT_REF.fullmatch(preset) is None:
+        _fail(
+            "operator_input_parse_failed",
+            path,
+            "preset must use exact name@positive-revision form",
+        )
+    scratch = _public_dns_name(path, "scratch", value["scratch"])
+    bridge = _public_dns_name(path, "bridge", value["bridge"])
+    wirescope = _public_dns_name(path, "wirescope", value["wirescope"])
+    if len({scratch, bridge, wirescope}) != 3:
+        _fail(
+            "operator_input_parse_failed",
+            path,
+            "lts-web@1 scratch, bridge, and wirescope hostnames must be distinct",
+        )
+    ids = value["target_ids"]
+    if (
+        not isinstance(ids, list)
+        or not ids
+        or len(ids) > MAX_CONNECTION_TARGETS
+        or any(not isinstance(item, str) or CONNECTION_TARGET_ID.fullmatch(item) is None for item in ids)
+        or len(ids) != len(set(ids))
+    ):
+        _fail(
+            "operator_input_parse_failed",
+            path,
+            "target_ids must be a non-empty list of unique lowercase target ids",
+        )
+    default_target = value["default_target"]
+    if not isinstance(default_target, str) or default_target not in ids:
+        _fail(
+            "operator_input_parse_failed",
+            path,
+            "default_target must occur in target_ids",
+        )
+    return {
+        "preset": preset,
+        "scratch": scratch,
+        "bridge": bridge,
+        "wirescope": wirescope,
+        "target_ids": list(ids),
+        "default_target": default_target,
+    }
 
 
 def _parse_toml_document(path: Path, source: bytes) -> dict[str, Any]:
@@ -1031,16 +1202,30 @@ def _parse_adapter(adapter: str, path: Path, relative_path: str) -> dict[str, An
                 f"{adapter} requires exact path {MINECRAFT_SERVER_PATH}",
             )
         return _parse_minecraft_server(path, _read_source(path))
-    if adapter in {CONNECTION_TARGETS_V3_ADAPTER, CONNECTION_TARGETS_V4_ADAPTER}:
+    if adapter in {
+        CONNECTION_TARGETS_V3_ADAPTER,
+        CONNECTION_TARGETS_V4_ADAPTER,
+        CONNECTION_TARGETS_V5_ADAPTER,
+    }:
         if relative_path != CONNECTION_TARGETS_PATH:
             _fail(
                 "operator_input_path_invalid",
                 path,
                 f"{adapter} requires exact path {CONNECTION_TARGETS_PATH}",
             )
+        if adapter == CONNECTION_TARGETS_V5_ADAPTER:
+            return _parse_connection_targets_v5(path, _read_source(path))
         if adapter == CONNECTION_TARGETS_V4_ADAPTER:
             return _parse_connection_targets_v4(path, _read_source(path))
         return _parse_connection_targets_v3(path, _read_source(path))
+    if adapter == LTS_WEB_ADAPTER:
+        if relative_path != LTS_WEB_PATH:
+            _fail(
+                "operator_input_path_invalid",
+                path,
+                f"{adapter} requires exact path {LTS_WEB_PATH}",
+            )
+        return _parse_lts_web(path, _read_source(path))
     if adapter == MINECRAFT_PLUGINS_ADAPTER:
         if relative_path != MINECRAFT_PLUGINS_PATH:
             _fail(
