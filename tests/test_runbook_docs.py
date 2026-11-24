@@ -302,3 +302,27 @@ def test_peripheral_plugins_example_lists_official_pages_and_block_versions() ->
     assert "dual-line-and-external-targets-guide_ja.md" in readme
     assert "dual-line-and-external-targets-guide_ja.md" in prep_guide
     assert "examples/peripheral-plugins/README_ja.md" in prep_guide
+
+
+def test_private_ops_guide_and_starter_example_exist_and_stay_concise() -> None:
+    readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+    guide = (REPO_ROOT / "docs" / "private-ops-guide_ja.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert "docs/private-ops-guide_ja.md" in readme
+    assert len(guide.splitlines()) <= 160
+    assert "examples/private-ops/" in guide
+    assert "inventory.md" in guide
+    assert "deployments/" in guide
+    assert "秘密実値" in guide
+
+    starter_root = REPO_ROOT / "examples" / "private-ops"
+    for relative in (
+        ".gitignore",
+        "README.md",
+        "AGENTS.md",
+        "inventory.md",
+        "deployments/README.md",
+    ):
+        assert (starter_root / relative).is_file(), relative
