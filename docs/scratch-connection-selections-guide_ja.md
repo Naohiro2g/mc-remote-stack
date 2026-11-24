@@ -4,6 +4,8 @@
 
 この設定は、Scratchへ渡す一覧と既定を変えます。別hostのMinecraftへ接続するためのBridgeの経路や接続条件は、別の対応です。現行の生成物では、選ばれたsandbox名はすべて同じMinecraft containerの内部DNS別名になります。
 
+外部サーバー（有料GAMEs TCP `25575`等）への接続、`schema_version: 2`の接続先一覧、および最新版とLTSの2系列Web/Bridge並立が必要な場合は、`vps-server@21`（`connection-targets@5`／`lts-web@1`）を使います。詳細は[2系列Web/Bridge並設と外部McRemote接続先の手順](dual-line-and-external-targets-guide_ja.md)を参照してください。
+
 ## 1. 既存入力のコピーを編集する
 
 対象deployment projectへ入り、既存入力をproject外へコピーします。稼働中projectのorder、lock、生成物は直接編集しません。

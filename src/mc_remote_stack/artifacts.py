@@ -290,11 +290,25 @@ def fetch_locked_artifacts(
             "order or exact bundled input changed; run mcrctl resolve explicitly",
         )
     lock = load_lock(project_root, data_root=data_root)
-    artifacts = [
+    raw_artifacts = [
         artifact
         for artifact in lock["artifacts"]
         if artifact["kind"] == "https-file"
     ]
+    lts_web = lock.get("lts_web")
+    if isinstance(lts_web, dict):
+        raw_artifacts.extend(
+            artifact
+            for artifact in lts_web.get("artifacts", [])
+            if artifact["kind"] == "https-file"
+        )
+    artifacts: list[dict[str, Any]] = []
+    seen_identities: set[tuple[str, str]] = set()
+    for artifact in raw_artifacts:
+        identity = (artifact["sha256"], artifact["filename"])
+        if identity not in seen_identities:
+            seen_identities.add(identity)
+            artifacts.append(artifact)
     if not artifacts:
         return []
 

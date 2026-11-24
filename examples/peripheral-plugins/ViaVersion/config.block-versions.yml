@@ -1,0 +1,8 @@
+# ViaVersion/config.yml の block-versions 設定抜粋（参考テンプレート）
+# 詳細は ../README_ja.md を参照。
+#
+# Paper 26.3 などの公開箱庭で Minecraft 1.20.5〜1.21.4 の
+# 古いプロトコルを受け付ける必要がない場合、
+# /data/plugins/ViaVersion/config.yml の `block-versions: []` を
+# 以下へ置き換えてサーバーを再起動する。
+block-versions: ["1.20.5-1.20.6", "1.21-1.21.1", "1.21.2-1.21.3", "1.21.4"]

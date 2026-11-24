@@ -1,5 +1,6 @@
 """Render validated deployment state into deterministic runtime files."""
 
+import copy
 import hashlib
 import json
 import os
@@ -72,8 +73,11 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _component_for_role(lock: dict[str, Any], role: str) -> dict[str, Any]:
-    matches = [component for component in lock["components"] if component["role"] == role]
+def _component_for_role(
+    lock: dict[str, Any], role: str, *, bundle: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    source = lock if bundle is None else bundle
+    matches = [component for component in source["components"] if component["role"] == role]
     if len(matches) != 1:
         _render_fail(
             "render_plan_invalid",
@@ -83,8 +87,11 @@ def _component_for_role(lock: dict[str, Any], role: str) -> dict[str, Any]:
     return matches[0]
 
 
-def _artifact_for_component(lock: dict[str, Any], component: dict[str, Any]) -> dict[str, Any]:
-    matches = [artifact for artifact in lock["artifacts"] if artifact["id"] == component["artifact"]]
+def _artifact_for_component(
+    lock: dict[str, Any], component: dict[str, Any], *, bundle: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    source = lock if bundle is None else bundle
+    matches = [artifact for artifact in source["artifacts"] if artifact["id"] == component["artifact"]]
     if len(matches) != 1:
         _render_fail(
             "render_plan_invalid",
@@ -174,8 +181,11 @@ def _locked_minecraft_motd(
 
 def _allowed_public_input_roles(lock: dict[str, Any]) -> frozenset[str]:
     roles = PUBLIC_INPUT_ROLES | {"minecraft-motd"}
-    if lock["render_plan"]["adapter_revision"] in UNITY_SANDBOX_REVISIONS:
-        return roles | {"unity-sandboxes"}
+    revision = lock["render_plan"]["adapter_revision"]
+    if revision in UNITY_SANDBOX_REVISIONS:
+        roles = roles | {"unity-sandboxes"}
+    if revision in DUAL_LINE_REVISIONS:
+        roles = roles | {"lts-web"}
     return roles
 
 
@@ -275,6 +285,18 @@ def _locked_lan_routes(lock: dict[str, Any]) -> dict[str, Any]:
     return semantic
 
 
+def connection_target_host(target: dict[str, Any]) -> str:
+    return target["host"] if "host" in target else target["sandbox"]
+
+
+def connection_target_port(target: dict[str, Any]) -> int:
+    return int(target.get("port", 25575))
+
+
+def connection_target_external(target: dict[str, Any]) -> bool:
+    return bool(target.get("external", False))
+
+
 def _locked_connection_input(lock: dict[str, Any]) -> dict[str, Any] | None:
     operator_inputs = lock["operator_inputs"]
     if operator_inputs != lock["render_plan"]["operator_inputs"]:
@@ -294,8 +316,14 @@ def _locked_connection_input(lock: dict[str, Any]) -> dict[str, Any] | None:
         return None
     operator_input = matches[0]
     semantic = operator_input["semantic"]
-    per_origin = lock["render_plan"]["adapter_revision"] in PER_ORIGIN_TARGET_REVISIONS
-    expected_adapter = "connection-targets@4" if per_origin else "connection-targets@3"
+    revision = lock["render_plan"]["adapter_revision"]
+    dual_line = revision in DUAL_LINE_REVISIONS
+    per_origin = revision in PER_ORIGIN_TARGET_REVISIONS
+    expected_adapter = (
+        "connection-targets@5"
+        if dual_line
+        else ("connection-targets@4" if per_origin else "connection-targets@3")
+    )
     if (
         operator_input["adapter"] != expected_adapter
         or operator_input["path"] != "operator/connection-targets/targets.toml"
@@ -313,10 +341,28 @@ def _locked_connection_input(lock: dict[str, Any]) -> dict[str, Any] | None:
             "operator_inputs.connection-targets.semantic",
             "locked connection targets do not contain the exact adapter keys",
         )
+    if dual_line:
+        for index, target in enumerate(semantic["targets"]):
+            if (
+                not isinstance(target, dict)
+                or set(target) != {"id", "label", "host", "port", "external"}
+                or not isinstance(target["id"], str)
+                or not isinstance(target["label"], str)
+                or not isinstance(target["host"], str)
+                or isinstance(target["port"], bool)
+                or not isinstance(target["port"], int)
+                or not (1 <= target["port"] <= 65535)
+                or not isinstance(target["external"], bool)
+            ):
+                _render_fail(
+                    "render_plan_invalid",
+                    f"operator_inputs.connection-targets.semantic.targets[{index}]",
+                    "locked connection-targets@5 item fields are invalid",
+                )
     return semantic
 
 
-def _locked_connection_targets(lock: dict[str, Any]) -> list[dict[str, str]] | None:
+def _locked_connection_targets(lock: dict[str, Any]) -> list[dict[str, Any]] | None:
     value = _locked_connection_input(lock)
     return None if value is None else value["targets"]
 
@@ -326,6 +372,27 @@ def _locked_connection_notices(lock: dict[str, Any]) -> list[dict[str, Any]]:
         return []
     value = _locked_connection_input(lock)
     return [] if value is None else value.get("notices", [])
+
+
+def _presentation_release_notice(
+    presentation: object, *, path: str
+) -> dict[str, Any] | None:
+    if presentation is None:
+        return None
+    if not isinstance(presentation, dict):
+        _render_fail(
+            "render_plan_invalid",
+            path,
+            "preset presentation must be a table",
+        )
+    notice = presentation.get("scratch_release_notice")
+    if not isinstance(notice, dict):
+        _render_fail(
+            "render_plan_invalid",
+            f"{path}.scratch_release_notice",
+            "a declared preset presentation must include a Scratch release notice",
+        )
+    return notice
 
 
 def _locked_scratch_release_notice(lock: dict[str, Any]) -> dict[str, Any] | None:
@@ -339,14 +406,7 @@ def _locked_scratch_release_notice(lock: dict[str, Any]) -> dict[str, Any] | Non
             "render_plan.presentation",
             "preset presentation must exactly match the lock projection",
         )
-    notice = presentation.get("scratch_release_notice")
-    if not isinstance(notice, dict):
-        _render_fail(
-            "render_plan_invalid",
-            "presentation.scratch_release_notice",
-            "a declared preset presentation must include a Scratch release notice",
-        )
-    return notice
+    return _presentation_release_notice(presentation, path="presentation")
 
 
 def _locked_scratch_runtime_contract(lock: dict[str, Any]) -> dict[str, Any] | None:
@@ -388,9 +448,11 @@ def _locked_minecraft_server(lock: dict[str, Any]) -> dict[str, Any]:
     return semantic
 
 
-def _oci_image(lock: dict[str, Any], role: str, *, adapter: str) -> tuple[dict[str, Any], str]:
-    component = _component_for_role(lock, role)
-    artifact = _artifact_for_component(lock, component)
+def _oci_image(
+    lock: dict[str, Any], role: str, *, adapter: str, bundle: dict[str, Any] | None = None
+) -> tuple[dict[str, Any], str]:
+    component = _component_for_role(lock, role, bundle=bundle)
+    artifact = _artifact_for_component(lock, component, bundle=bundle)
     if artifact["kind"] != "oci":
         _render_fail(
             "unsupported_artifact_kind",
@@ -487,11 +549,13 @@ def _safe_wirescope_asset_path(name: str) -> PurePosixPath:
 
 def _verified_wirescope_assets(
     lock: dict[str, Any],
+    *,
+    bundle: dict[str, Any] | None = None,
 ) -> tuple[list[tuple[str, bytes]], bytes]:
-    archive_component = _component_for_role(lock, "wirescope-app")
-    manifest_component = _component_for_role(lock, "wirescope-manifest")
-    archive_artifact = _artifact_for_component(lock, archive_component)
-    manifest_artifact = _artifact_for_component(lock, manifest_component)
+    archive_component = _component_for_role(lock, "wirescope-app", bundle=bundle)
+    manifest_component = _component_for_role(lock, "wirescope-manifest", bundle=bundle)
+    archive_artifact = _artifact_for_component(lock, archive_component, bundle=bundle)
+    manifest_artifact = _artifact_for_component(lock, manifest_component, bundle=bundle)
     artifact_store = Path(lock["runtime"]["artifact_store"])
     archive_filename, archive_sha256, archive_path = _verify_artifact_file(
         artifact_store, archive_artifact
@@ -663,12 +727,17 @@ def _locked_composition_input(
 
 # compose@13 (vps-server@12), compose@15 (vps-server@13), compose@16
 # (vps-server@14), compose@17 (vps-server@15), compose@18 (vps-server@16),
-# compose@19 (vps-server@17), compose@20 (vps-server@18), and compose@21
-# (vps-server@19) render the public VPS; compose@14 renders the home set.
-PUBLIC_RENDERER_REVISIONS = frozenset({"13", "15", "16", "17", "18", "19", "20", "21"})
+# compose@19 (vps-server@17), compose@20 (vps-server@18), compose@21
+# (vps-server@19), and compose@22 (vps-server@20) render the public VPS;
+# compose@14 renders the home set.
+PUBLIC_RENDERER_REVISIONS = frozenset(
+    {"13", "15", "16", "17", "18", "19", "20", "21", "22", "23"}
+)
 SUPPORTED_RENDERER_REVISIONS = PUBLIC_RENDERER_REVISIONS | {"14"}
 # Revisions that serve the fixed /candidates/ route beside the homepage.
-CANDIDATE_ROUTE_REVISIONS = frozenset({"15", "16", "17", "18", "19", "20", "21"})
+CANDIDATE_ROUTE_REVISIONS = frozenset(
+    {"15", "16", "17", "18", "19", "20", "21", "22", "23"}
+)
 # Revisions that set every container clock; earlier ones stay on UTC.
 CONTAINER_TIME_ZONE = {
     "16": "Asia/Tokyo",
@@ -677,17 +746,34 @@ CONTAINER_TIME_ZONE = {
     "19": "Asia/Tokyo",
     "20": "Asia/Tokyo",
     "21": "Asia/Tokyo",
+    "22": "Asia/Tokyo",
+    "23": "Asia/Tokyo",
 }
 # Revisions that serve extra Scratch/WireScope name pairs from public-routes@3.
-WEB_PAIR_REVISIONS = frozenset({"17", "18", "19", "20", "21"})
-PER_ORIGIN_TARGET_REVISIONS = frozenset({"19", "20", "21"})
-HEAP_ENV_REVISIONS = frozenset({"20", "21"})
+WEB_PAIR_REVISIONS = frozenset({"17", "18", "19", "20", "21", "22", "23"})
+PER_ORIGIN_TARGET_REVISIONS = frozenset({"19", "20", "21", "22", "23"})
+HEAP_ENV_REVISIONS = frozenset({"20", "21", "22", "23"})
 # Revisions that give Geyser its own port over TCP and UDP. NetherNet signaling
 # needs TCP on the Geyser port, which Java already holds on 25565; earlier
 # revisions publish Geyser as UDP on the Java port number.
-GEYSER_PORT_REVISIONS = frozenset({"18", "19", "20", "21"})
-UNITY_SANDBOX_REVISIONS = frozenset({"21"})
+GEYSER_PORT_REVISIONS = frozenset({"18", "19", "20", "21", "22", "23"})
+UNITY_SANDBOX_REVISIONS = frozenset({"21", "22", "23"})
+UNITY_SANDBOX_V2_REVISIONS = frozenset({"22", "23"})
+DUAL_LINE_REVISIONS = frozenset({"23"})
 GEYSER_PORT = 19132
+UNITY_SANDBOX_ISOLATION_LIMITS: dict[str, Any] = {
+    "mem_limit": "512m",
+    "memswap_limit": "512m",
+    "cpus": 0.5,
+    "pids_limit": 256,
+    "ulimits": {
+        "nofile": {"soft": 1024, "hard": 1024},
+    },
+    "logging": {
+        "driver": "json-file",
+        "options": {"max-size": "10m", "max-file": "3"},
+    },
+}
 
 
 def unity_sandbox_hostnames(sandbox: dict[str, Any]) -> list[str]:
@@ -709,16 +795,19 @@ def locked_unity_sandboxes(lock: dict[str, Any]) -> list[dict[str, Any]]:
     matches = [item for item in operator_inputs if item["role"] == "unity-sandboxes"]
     if not matches:
         return []
-    if len(matches) > 1 or lock["render_plan"]["adapter_revision"] not in UNITY_SANDBOX_REVISIONS:
+    revision = lock["render_plan"]["adapter_revision"]
+    if len(matches) > 1 or revision not in UNITY_SANDBOX_REVISIONS:
         _render_fail(
             "render_plan_invalid",
             "operator_inputs.unity-sandboxes",
             "unity-sandboxes is supported once on compose@21 and later",
         )
+    v2 = revision in UNITY_SANDBOX_V2_REVISIONS
+    expected_adapter = "unity-sandboxes@2" if v2 else "unity-sandboxes@1"
     item = matches[0]
     semantic = item["semantic"]
     if (
-        item["adapter"] != "unity-sandboxes@1"
+        item["adapter"] != expected_adapter
         or item["path"] != "operator/unity-sandboxes/sandboxes.toml"
         or item["semantic_sha256"] != semantic_sha256(semantic)
     ):
@@ -740,13 +829,18 @@ def locked_unity_sandboxes(lock: dict[str, Any]) -> list[dict[str, Any]]:
             "operator_inputs.unity-sandboxes.semantic.sandboxes",
             "locked sandboxes must be an array",
         )
+    required_keys = {"id", "hostname", "aliases", "image"}
+    allowed_keys = required_keys | ({"tcp_port"} if v2 else set())
+    minecraft_ports = {lock["network"]["java_port"], lock["network"]["mcremote_port"]}
+    reserved_ports = {80, 443, GEYSER_PORT}
     seen_ids: set[str] = set()
     seen_hostnames: set[str] = set()
+    seen_tcp_ports: set[int] = set()
     validated: list[dict[str, Any]] = []
     for entry in sandboxes:
         if (
             not isinstance(entry, dict)
-            or set(entry) != {"id", "hostname", "aliases", "image"}
+            or not (required_keys <= set(entry) <= allowed_keys)
             or not all(isinstance(entry[key], str) and entry[key] for key in ("id", "hostname", "image"))
             or not isinstance(entry["aliases"], list)
             or len(entry["aliases"]) > 8
@@ -766,17 +860,158 @@ def locked_unity_sandboxes(lock: dict[str, Any]) -> list[dict[str, Any]]:
                 "operator_inputs.unity-sandboxes.semantic.sandboxes",
                 "locked Unity sandbox entry is invalid or duplicated",
             )
+        record: dict[str, Any] = {
+            "id": entry["id"],
+            "hostname": entry["hostname"],
+            "aliases": list(entry["aliases"]),
+            "image": entry["image"],
+        }
+        if "tcp_port" in entry:
+            tcp_port = entry["tcp_port"]
+            if (
+                isinstance(tcp_port, bool)
+                or not isinstance(tcp_port, int)
+                or not (1 <= tcp_port <= 65535)
+                or tcp_port in reserved_ports
+                or tcp_port in minecraft_ports
+                or tcp_port in seen_tcp_ports
+            ):
+                _render_fail(
+                    "render_plan_invalid",
+                    "operator_inputs.unity-sandboxes.semantic.sandboxes",
+                    "locked Unity sandbox tcp_port is invalid, reserved, or collides with another declared port",
+                )
+            seen_tcp_ports.add(tcp_port)
+            record["tcp_port"] = tcp_port
         seen_ids.add(entry["id"])
         seen_hostnames.update(hostnames)
-        validated.append(
-            {
-                "id": entry["id"],
-                "hostname": entry["hostname"],
-                "aliases": list(entry["aliases"]),
-                "image": entry["image"],
-            }
-        )
+        validated.append(record)
     return validated
+
+
+def _unity_sandbox_service(
+    sandbox: dict[str, Any],
+    *,
+    common_labels: dict[str, str],
+    include_v2_options: bool,
+) -> dict[str, Any]:
+    """Build one Compose service entry for a locked Unity sandbox container."""
+
+    networks: dict[str, Any] = {
+        "app": {"aliases": unity_sandbox_hostnames(sandbox)},
+    }
+    labels = {
+        **common_labels,
+        "io.mc-remote.unity-sandbox-id": sandbox["id"],
+        "io.mc-remote.unity-sandbox-hostname": sandbox["hostname"],
+    }
+    service: dict[str, Any] = {
+        "image": sandbox["image"],
+        "restart": "unless-stopped",
+        "command": ["--tcp-port", "25575"],
+    }
+    if include_v2_options:
+        service.update(copy.deepcopy(UNITY_SANDBOX_ISOLATION_LIMITS))
+        if "tcp_port" in sandbox:
+            tcp_port = sandbox["tcp_port"]
+            service["ports"] = [f"0.0.0.0:{tcp_port}:25575/tcp"]
+            networks["edge"] = {}
+            labels["io.mc-remote.unity-sandbox-tcp-port"] = str(tcp_port)
+    service["networks"] = networks
+    service["labels"] = labels
+    return service
+
+
+LTS_WEB_COMPONENT_ROLES = frozenset(
+    {
+        "scratch-runtime",
+        "websocket-bridge",
+        "wirescope-app",
+        "wirescope-manifest",
+    }
+)
+
+
+def locked_lts_web(lock: dict[str, Any]) -> dict[str, Any] | None:
+    """Return validated LTS web semantic input and locked artifact bundle, if enabled."""
+
+    operator_inputs = lock["operator_inputs"]
+    if operator_inputs != lock["render_plan"]["operator_inputs"]:
+        _render_fail(
+            "render_plan_invalid",
+            "render_plan.operator_inputs",
+            "render plan operator inputs must exactly match the lock projection",
+        )
+    bundle = lock.get("lts_web")
+    render_bundle = lock.get("render_plan", {}).get("lts_web")
+    if bundle != render_bundle:
+        _render_fail(
+            "render_plan_invalid",
+            "render_plan.lts_web",
+            "LTS web bundle must exactly match the lock projection",
+        )
+    matches = [item for item in operator_inputs if item["role"] == "lts-web"]
+    if not matches and bundle is None:
+        return None
+    if bool(matches) != (bundle is not None):
+        _render_fail(
+            "render_plan_invalid",
+            "operator_inputs.lts-web",
+            "lts-web operator input and lts_web projection must both be present or absent",
+        )
+    revision = lock["render_plan"]["adapter_revision"]
+    if len(matches) != 1 or revision not in DUAL_LINE_REVISIONS:
+        _render_fail(
+            "render_plan_invalid",
+            "operator_inputs.lts-web",
+            "lts-web is supported once on compose@23 and later",
+        )
+    item = matches[0]
+    semantic = item["semantic"]
+    if (
+        item["adapter"] != "lts-web@1"
+        or item["path"] != "operator/lts-web/lts.toml"
+        or item["semantic_sha256"] != semantic_sha256(semantic)
+    ):
+        _render_fail(
+            "render_plan_invalid",
+            "operator_inputs.lts-web",
+            "locked lts-web adapter identity or semantic digest is invalid",
+        )
+    expected_keys = {"preset", "scratch", "bridge", "wirescope", "target_ids", "default_target"}
+    if (
+        not isinstance(semantic, dict)
+        or set(semantic) != expected_keys
+        or not isinstance(bundle, dict)
+        or bundle.get("preset", {}).get("ref") != semantic["preset"]
+    ):
+        _render_fail(
+            "render_plan_invalid",
+            "operator_inputs.lts-web.semantic",
+            "locked lts-web semantic or preset reference is invalid",
+        )
+    target_ids = semantic["target_ids"]
+    if (
+        not isinstance(target_ids, list)
+        or not target_ids
+        or len(target_ids) != len(set(target_ids))
+        or semantic["default_target"] not in target_ids
+    ):
+        _render_fail(
+            "render_plan_invalid",
+            "operator_inputs.lts-web.semantic.target_ids",
+            "locked lts-web target selection is invalid",
+        )
+    component_roles = [component.get("role") for component in bundle.get("components", [])]
+    if set(component_roles) != LTS_WEB_COMPONENT_ROLES or len(component_roles) != len(
+        LTS_WEB_COMPONENT_ROLES
+    ):
+        _render_fail(
+            "render_plan_invalid",
+            "lts_web.components",
+            "locked lts_web bundle must contain exact Scratch, Bridge, and WireScope roles",
+        )
+    return {"semantic": semantic, "bundle": bundle}
 
 PUBLIC_SERVICES = [
     {"id": "caddy", "role": "caddy-edge"},
@@ -837,9 +1072,24 @@ def _public_server_properties(lock: dict[str, Any], *, adapter: str) -> str:
     )
 
 
-def _selected_connection_targets(
+def _schema_supports_v2(schema: dict[str, Any] | None) -> bool:
+    if not isinstance(schema, dict):
+        return False
+    branches = schema.get("oneOf")
+    if not isinstance(branches, list):
+        return False
+    return any(
+        isinstance(branch, dict)
+        and isinstance(branch.get("properties"), dict)
+        and isinstance(branch["properties"].get("schema_version"), dict)
+        and branch["properties"]["schema_version"].get("const") == 2
+        for branch in branches
+    )
+
+
+def _selected_pair_targets(
     lock: dict[str, Any], routes: dict[str, Any], scratch: str
-) -> tuple[list[dict[str, str]], str]:
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     targets = _locked_connection_targets(lock)
     if not targets:
         _render_fail(
@@ -852,7 +1102,8 @@ def _selected_connection_targets(
         selections = _locked_connection_input(lock)["selections"]
         selection_path = "operator_inputs.connection-targets.semantic.selections"
         if not isinstance(selections, list) or any(
-            not isinstance(item, dict) or not isinstance(item.get("scratch"), str) for item in selections
+            not isinstance(item, dict) or not isinstance(item.get("scratch"), str)
+            for item in selections
         ):
             _render_fail("scratch_runtime_config_invalid", selection_path, "invalid Scratch selections")
         names = [item["scratch"] for item in selections]
@@ -877,50 +1128,45 @@ def _selected_connection_targets(
                 selection_path,
                 f"{scratch} must select catalog ids and a default from its own list",
             )
-        return [by_id[item] for item in ids], by_id[selection["default_target"]]["sandbox"]
-    if default_sandbox not in {target["sandbox"] for target in targets}:
+        return [by_id[item] for item in ids], by_id[selection["default_target"]]
+    matching_default = [
+        target for target in targets if connection_target_host(target) == default_sandbox
+    ]
+    if not matching_default:
         _render_fail(
             "scratch_runtime_config_invalid",
             "runtime/scratch.json.default_sandbox",
             "default_sandbox must be listed in connection_targets",
         )
-    return targets, default_sandbox
+    return targets, matching_default[0]
 
 
-def _public_runtime_config(
-    lock: dict[str, Any],
-    routes: dict[str, Any],
-    scratch_artifact: dict[str, Any],
+def _build_scratch_and_bridge_line(
     *,
-    pair: dict[str, str] | None = None,
-) -> dict[str, Any]:
-    if pair is None:
-        pair = {"scratch": routes["scratch"], "wirescope": routes["wirescope"]}
-    targets, default_sandbox = _selected_connection_targets(lock, routes, pair["scratch"])
-    notices = _locked_connection_notices(lock)
+    bridge_hostname: str,
+    scratch_artifact: dict[str, Any],
+    contract: dict[str, Any] | None,
+    release_notice: dict[str, Any] | None,
+    notices: list[dict[str, Any]],
+    pair_specs: list[tuple[str, str, list[dict[str, Any]], dict[str, Any]]],
+    all_catalog_targets: list[dict[str, Any]],
+    scratch_image: str,
+    bridge_image: str,
+    common_labels: dict[str, str],
+    scratch_runtime_path: str,
+    bridge_targets_path: str,
+    extra_pair_path_fn: Callable[[str], str] | None = None,
+    dual_line: bool,
+    data_root: Traversable | None = None,
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, str], list[dict[str, Any]]]:
     if not notices:
         _render_fail(
             "scratch_runtime_config_invalid",
-            "runtime/scratch.json.notices",
+            f"{scratch_runtime_path}.notices",
             "the public renderer requires a non-empty operator notice feed",
         )
-    release_notice = _locked_scratch_release_notice(lock)
-    runtime: dict[str, Any] = {
-        "bridge_url": f"wss://{routes['bridge']}",
-        "default_sandbox": default_sandbox,
-        "connection_targets": [
-            {"id": target["id"], "label": target["label"], "sandbox": target["sandbox"]}
-            for target in targets
-        ],
-        "connection_enabled": True,
-        "release_identity": scratch_artifact["version"],
-        "notices": [*notices, release_notice] if release_notice is not None else notices,
-        "wirescope_url": f"https://{pair['wirescope']}/",
-    }
-    contract = _locked_scratch_runtime_contract(lock)
+    schema: dict[str, Any] | None = None
     if contract is not None:
-        runtime["schema_version"] = 1
-        runtime.pop("release_identity")
         if scratch_artifact.get("digest") != contract.get("image_digest"):
             _render_fail(
                 "scratch_contract_image_mismatch",
@@ -934,16 +1180,174 @@ def _public_runtime_config(
                 "runtime config is not mounted at the locked Scratch contract path",
             )
         try:
-            validate_runtime_config(runtime, load_runtime_config_schema(contract))
+            schema = load_runtime_config_schema(contract, data_root=data_root)
         except ScratchContractError as exc:
             _render_fail(exc.reason, exc.path, exc.detail)
-    return runtime
+
+    use_v2 = dual_line and _schema_supports_v2(schema)
+    served_ids = {target["id"] for _, _, selected, _ in pair_specs for target in selected}
+    line_targets = [target for target in all_catalog_targets if target["id"] in served_ids]
+    if dual_line and any(
+        not connection_target_external(target) and connection_target_port(target) != 25575
+        for target in line_targets
+    ):
+        _render_fail(
+            "scratch_runtime_config_invalid",
+            "operator_inputs.connection-targets.semantic.targets",
+            "local container targets must use internal port 25575",
+        )
+    if not use_v2:
+        if any(connection_target_port(target) != 25575 for target in line_targets):
+            _render_fail(
+                "scratch_runtime_config_invalid",
+                "operator_inputs.connection-targets.semantic.targets",
+                "v1 Scratch/Bridge runtime requires port 25575 for every target on this Web line",
+            )
+        hosts = [connection_target_host(target) for target in line_targets]
+        if len(set(hosts)) != len(hosts):
+            _render_fail(
+                "scratch_runtime_config_invalid",
+                "operator_inputs.connection-targets.semantic.targets",
+                "v1 Scratch/Bridge runtime requires unique hostnames on the same Web line",
+            )
+
+    rendered: dict[str, str] = {}
+    for index, (scratch_host, wirescope_host, selected_targets, default_target) in enumerate(pair_specs):
+        full_notices = [*notices, release_notice] if release_notice is not None else notices
+        if use_v2:
+            runtime: dict[str, Any] = {
+                "schema_version": 2,
+                "connection_enabled": True,
+                "bridge_url": f"wss://{bridge_hostname}",
+                "default_target_id": default_target["id"],
+                "connection_targets": [
+                    {
+                        "id": target["id"],
+                        "label": target["label"],
+                        "host": connection_target_host(target),
+                        "port": connection_target_port(target),
+                    }
+                    for target in selected_targets
+                ],
+                "wirescope_url": f"https://{wirescope_host}/",
+                "notices": full_notices,
+            }
+        else:
+            runtime = {
+                "bridge_url": f"wss://{bridge_hostname}",
+                "default_sandbox": connection_target_host(default_target),
+                "connection_targets": [
+                    {
+                        "id": target["id"],
+                        "label": target["label"],
+                        "sandbox": connection_target_host(target),
+                    }
+                    for target in selected_targets
+                ],
+                "connection_enabled": True,
+                "release_identity": scratch_artifact["version"],
+                "notices": full_notices,
+                "wirescope_url": f"https://{wirescope_host}/",
+            }
+            if contract is not None:
+                runtime["schema_version"] = 1
+                runtime.pop("release_identity")
+        if schema is not None:
+            try:
+                validate_runtime_config(runtime, schema)
+            except ScratchContractError as exc:
+                _render_fail(exc.reason, exc.path, exc.detail)
+        relative = scratch_runtime_path if index == 0 else extra_pair_path_fn(scratch_host)  # type: ignore[misc]
+        rendered[relative] = json.dumps(runtime, ensure_ascii=False, indent=2) + "\n"
+
+    scratch_service = {
+        "image": scratch_image,
+        "restart": "unless-stopped",
+        "volumes": [
+            {
+                "type": "bind",
+                "source": f"./{scratch_runtime_path}",
+                "target": SCRATCH_RUNTIME_MOUNT,
+                "read_only": True,
+            }
+        ],
+        "networks": ["app"],
+        "labels": common_labels,
+    }
+
+    bridge_has_external = dual_line and any(
+        connection_target_external(target) for target in line_targets
+    )
+    bridge_networks: Any = (
+        {"app": {}, "egress": {"gw_priority": 1}} if bridge_has_external else ["app"]
+    )
+    primary_default = pair_specs[0][3]
+    origin_allowlist = ",".join(
+        f"https://{scratch_host}" for scratch_host, _, _, _ in pair_specs
+    )
+    if use_v2:
+        container_targets_file = f"/etc/mc-remote/{PurePosixPath(bridge_targets_path).name}"
+        bridge_targets_doc = {
+            "schema_version": 1,
+            "default_target_id": primary_default["id"],
+            "targets": [
+                {
+                    "id": target["id"],
+                    "label": target["label"],
+                    "host": connection_target_host(target),
+                    "port": connection_target_port(target),
+                }
+                for target in line_targets
+            ],
+        }
+        rendered[bridge_targets_path] = (
+            json.dumps(bridge_targets_doc, ensure_ascii=False, indent=2) + "\n"
+        )
+        bridge_service: dict[str, Any] = {
+            "image": bridge_image,
+            "restart": "unless-stopped",
+            "environment": {
+                "BRIDGE_WS_HOST": "0.0.0.0",
+                "BRIDGE_WS_PORT": "8080",
+                "BRIDGE_ORIGIN_ALLOWLIST": origin_allowlist,
+                "BRIDGE_TARGETS_FILE": container_targets_file,
+            },
+            "volumes": [
+                {
+                    "type": "bind",
+                    "source": f"./{bridge_targets_path}",
+                    "target": container_targets_file,
+                    "read_only": True,
+                }
+            ],
+            "networks": bridge_networks,
+            "labels": common_labels,
+        }
+    else:
+        sandbox_allowlist = sorted({connection_target_host(target) for target in line_targets})
+        bridge_service = {
+            "image": bridge_image,
+            "restart": "unless-stopped",
+            "environment": {
+                "BRIDGE_WS_HOST": "0.0.0.0",
+                "BRIDGE_WS_PORT": "8080",
+                "BRIDGE_ORIGIN_ALLOWLIST": origin_allowlist,
+                "BRIDGE_SANDBOX_ALLOWLIST": ",".join(sandbox_allowlist),
+                "BRIDGE_DEFAULT_SANDBOX": connection_target_host(primary_default),
+                "BRIDGE_SANDBOX_PORT": "25575",
+            },
+            "networks": bridge_networks,
+            "labels": common_labels,
+        }
+    return scratch_service, bridge_service, rendered, line_targets
 
 
 SCRATCH_RUNTIME_MOUNT = "/usr/share/nginx/html/mc-remote-runtime-config.json"
 
 
-def _compose_public(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str]]:
+def _compose_public(
+    lock: dict[str, Any], *, data_root: Traversable | None = None
+) -> tuple[dict[str, Any], dict[str, str]]:
     """vps-server@12 to @16: public Caddy edge, Scratch, Bridge, and Minecraft on one host.
 
     compose@15 (vps-server@13) adds the fixed ``/candidates/`` route. It serves the
@@ -961,15 +1365,28 @@ def _compose_public(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str
 
     compose@19 (vps-server@17) selects targets and a default for each Scratch
     origin, using the common connection-targets@4 catalog. compose@20
-    (vps-server@18) adds a required, locked Minecraft heap setting.
+    (vps-server@18) adds a required, locked Minecraft heap setting. compose@21
+    (vps-server@19) adds internal Unity sandbox containers via unity-sandboxes@1.
+    compose@22 (vps-server@20) adds unity-sandboxes@2 optional external tcp_port
+    publication and container resource isolation limits for Unity sandboxes.
     """
 
     revision = lock["render_plan"]["adapter_revision"]
+    dual_line = revision in DUAL_LINE_REVISIONS
+    lts_web = locked_lts_web(lock) if dual_line else None
     unity_sandboxes = (
         locked_unity_sandboxes(lock) if revision in UNITY_SANDBOX_REVISIONS else []
     )
     expected_services = [
         *PUBLIC_SERVICES,
+        *(
+            [
+                {"id": "scratch-lts", "role": "scratch-runtime"},
+                {"id": "bridge-lts", "role": "websocket-bridge"},
+            ]
+            if lts_web is not None
+            else []
+        ),
         *(
             {"id": f"unity-sandbox-{sandbox['id']}", "role": "unity-sandbox"}
             for sandbox in unity_sandboxes
@@ -1062,9 +1479,26 @@ def _compose_public(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str
             "operator_inputs.unity-sandboxes.semantic.sandboxes",
             "Unity sandbox hostnames must not collide with public-routes hostnames",
         )
-    runtimes = {pair["scratch"]: _public_runtime_config(lock, routes, scratch_artifact, pair=pair) for pair in pairs}
-    runtime = runtimes[routes["scratch"]]
-    sandbox_allowlist = {target["sandbox"] for config in runtimes.values() for target in config["connection_targets"]}
+    common_labels = {
+        "io.mc-remote.deployment": deployment_name,
+        "io.mc-remote.environment": lock["environment"]["identity"],
+        "io.mc-remote.world": lock["world"]["identity"],
+        "io.mc-remote.lock": lock["lock_identity"],
+    }
+    lts_hostnames: set[str] = set()
+    if lts_web is not None:
+        lts_semantic = lts_web["semantic"]
+        lts_hostnames = {
+            lts_semantic["scratch"],
+            lts_semantic["bridge"],
+            lts_semantic["wirescope"],
+        }
+        if lts_hostnames & (route_hostnames | unity_hostnames):
+            _render_fail(
+                "render_plan_invalid",
+                "operator_inputs.lts-web.semantic",
+                "LTS web hostnames must not collide with public-routes or unity-sandboxes hostnames",
+            )
     extra_pairs = pairs[1:]
     if extra_pairs and revision not in WEB_PAIR_REVISIONS:
         _render_fail(
@@ -1072,8 +1506,122 @@ def _compose_public(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str
             "operator_inputs.public-routes.semantic.web_pairs",
             f"compose@{revision} cannot serve extra Scratch/WireScope name pairs",
         )
+    all_catalog_targets = _locked_connection_targets(lock) or []
+    local_hostnames = route_hostnames | unity_hostnames | lts_hostnames
+    if dual_line and any(
+        connection_target_external(target) and connection_target_host(target) in local_hostnames
+        for target in all_catalog_targets
+    ):
+        _render_fail(
+            "render_plan_invalid",
+            "operator_inputs.connection-targets.semantic.targets",
+            "external connection target host must not collide with local route hostnames",
+        )
+    primary_pair_specs = [
+        (pair["scratch"], pair["wirescope"], *_selected_pair_targets(lock, routes, pair["scratch"]))
+        for pair in pairs
+    ]
+    notices = _locked_connection_notices(lock)
+    primary_scratch_service, primary_bridge_service, line_rendered_files, primary_line_targets = (
+        _build_scratch_and_bridge_line(
+            bridge_hostname=routes["bridge"],
+            scratch_artifact=scratch_artifact,
+            contract=_locked_scratch_runtime_contract(lock),
+            release_notice=_locked_scratch_release_notice(lock),
+            notices=notices,
+            pair_specs=primary_pair_specs,
+            all_catalog_targets=all_catalog_targets,
+            scratch_image=scratch_image,
+            bridge_image=bridge_image,
+            common_labels=common_labels,
+            scratch_runtime_path="runtime/scratch.json",
+            bridge_targets_path="runtime/bridge-targets.json",
+            extra_pair_path_fn=lambda scratch_host: web_pair_runtime_path({"scratch": scratch_host}),
+            dual_line=dual_line,
+            data_root=data_root,
+        )
+    )
+    all_served_targets = list(primary_line_targets)
+    lts_services: dict[str, Any] = {}
+    lts_caddy_sites = ""
+    if lts_web is not None:
+        lts_semantic = lts_web["semantic"]
+        lts_bundle = lts_web["bundle"]
+        _verified_wirescope_assets(lock, bundle=lts_bundle)
+        lts_scratch_artifact, lts_scratch_image = _oci_image(
+            lock, "scratch-runtime", adapter=adapter, bundle=lts_bundle
+        )
+        _, lts_bridge_image = _oci_image(
+            lock, "websocket-bridge", adapter=adapter, bundle=lts_bundle
+        )
+        catalog_by_id = {target["id"]: target for target in all_catalog_targets}
+        if any(tid not in catalog_by_id for tid in lts_semantic["target_ids"]):
+            _render_fail(
+                "render_plan_invalid",
+                "operator_inputs.lts-web.semantic.target_ids",
+                "lts-web references an unknown connection target id",
+            )
+        lts_selected = [catalog_by_id[tid] for tid in lts_semantic["target_ids"]]
+        lts_default = catalog_by_id[lts_semantic["default_target"]]
+        lts_pair_specs = [
+            (lts_semantic["scratch"], lts_semantic["wirescope"], lts_selected, lts_default)
+        ]
+        lts_release_notice = _presentation_release_notice(
+            lts_bundle.get("presentation"), path="lts_web.presentation"
+        )
+        lts_scratch_svc, lts_bridge_svc, lts_rendered_files, lts_line_targets = (
+            _build_scratch_and_bridge_line(
+                bridge_hostname=lts_semantic["bridge"],
+                scratch_artifact=lts_scratch_artifact,
+                contract=lts_bundle.get("scratch_runtime_contract"),
+                release_notice=lts_release_notice,
+                notices=notices,
+                pair_specs=lts_pair_specs,
+                all_catalog_targets=all_catalog_targets,
+                scratch_image=lts_scratch_image,
+                bridge_image=lts_bridge_image,
+                common_labels=common_labels,
+                scratch_runtime_path="runtime/scratch-lts.json",
+                bridge_targets_path="runtime/bridge-lts-targets.json",
+                dual_line=dual_line,
+                data_root=data_root,
+            )
+        )
+        line_rendered_files.update(lts_rendered_files)
+        all_served_targets.extend(lts_line_targets)
+        lts_services = {
+            "scratch-lts": lts_scratch_svc,
+            "bridge-lts": lts_bridge_svc,
+        }
+        lts_caddy_sites = f"""
+{lts_semantic["scratch"]} {{
+    header Referrer-Policy "strict-origin-when-cross-origin"
+    reverse_proxy scratch-lts:8080
+}}
+
+{lts_semantic["bridge"]} {{
+    reverse_proxy bridge-lts:8080
+}}
+
+{lts_semantic["wirescope"]} {{
+    root * /srv/wirescope-lts
+    header {{
+        Cross-Origin-Opener-Policy "unsafe-none"
+        Referrer-Policy "no-referrer"
+        X-Content-Type-Options "nosniff"
+        Cache-Control "no-store"
+        Content-Security-Policy "{WIRESCOPE_CSP}"
+    }}
+    file_server
+}}
+"""
+    local_served_hosts = {
+        connection_target_host(target)
+        for target in all_served_targets
+        if not connection_target_external(target)
+    }
     if revision in WEB_PAIR_REVISIONS:
-        minecraft_aliases = sorted(sandbox_allowlist - unity_hostnames) or [routes["minecraft"]]
+        minecraft_aliases = sorted(local_served_hosts - unity_hostnames) or [routes["minecraft"]]
     else:
         minecraft_aliases = [routes["minecraft"]]
 
@@ -1202,6 +1750,15 @@ def _compose_public(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str
                 "read_only": True,
             }
         )
+    if lts_web is not None:
+        caddy_site_mounts.append(
+            {
+                "type": "bind",
+                "source": "./wirescope-lts",
+                "target": "/srv/wirescope-lts",
+                "read_only": True,
+            }
+        )
     extra_scratch_sites = "".join(
         f"""
 {pair["scratch"]} {{
@@ -1252,27 +1809,14 @@ def _compose_public(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str
     }}
     file_server
 }}
-{unity_sandbox_sites}"""
-    common_labels = {
-        "io.mc-remote.deployment": deployment_name,
-        "io.mc-remote.environment": lock["environment"]["identity"],
-        "io.mc-remote.world": lock["world"]["identity"],
-        "io.mc-remote.lock": lock["lock_identity"],
-    }
+{lts_caddy_sites}{unity_sandbox_sites}"""
+    include_unity_v2_options = revision in UNITY_SANDBOX_V2_REVISIONS
     unity_services = {
-        f"unity-sandbox-{sandbox['id']}": {
-            "image": sandbox["image"],
-            "restart": "unless-stopped",
-            "command": ["--tcp-port", "25575"],
-            "networks": {
-                "app": {"aliases": unity_sandbox_hostnames(sandbox)},
-            },
-            "labels": {
-                **common_labels,
-                "io.mc-remote.unity-sandbox-id": sandbox["id"],
-                "io.mc-remote.unity-sandbox-hostname": sandbox["hostname"],
-            },
-        }
+        f"unity-sandbox-{sandbox['id']}": _unity_sandbox_service(
+            sandbox,
+            common_labels=common_labels,
+            include_v2_options=include_unity_v2_options,
+        )
         for sandbox in unity_sandboxes
     }
     compose = {
@@ -1294,36 +1838,8 @@ def _compose_public(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str
                 "networks": ["edge", "app"],
                 "labels": common_labels,
             },
-            "scratch": {
-                "image": scratch_image,
-                "restart": "unless-stopped",
-                "volumes": [
-                    {
-                        "type": "bind",
-                        "source": "./runtime/scratch.json",
-                        "target": SCRATCH_RUNTIME_MOUNT,
-                        "read_only": True,
-                    }
-                ],
-                "networks": ["app"],
-                "labels": common_labels,
-            },
-            "bridge": {
-                "image": bridge_image,
-                "restart": "unless-stopped",
-                "environment": {
-                    "BRIDGE_WS_HOST": "0.0.0.0",
-                    "BRIDGE_WS_PORT": "8080",
-                    "BRIDGE_ORIGIN_ALLOWLIST": ",".join(
-                        f"https://{pair['scratch']}" for pair in pairs
-                    ),
-                    "BRIDGE_SANDBOX_ALLOWLIST": ",".join(sorted(sandbox_allowlist)),
-                    "BRIDGE_DEFAULT_SANDBOX": runtime["default_sandbox"],
-                    "BRIDGE_SANDBOX_PORT": "25575",
-                },
-                "networks": ["app"],
-                "labels": common_labels,
-            },
+            "scratch": primary_scratch_service,
+            "bridge": primary_bridge_service,
             "minecraft": {
                 "image": minecraft_image,
                 "restart": "unless-stopped",
@@ -1368,6 +1884,7 @@ def _compose_public(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str
                     "io.mc-remote.peripheral-plugins": plugin_input["semantic_sha256"],
                 },
             },
+            **lts_services,
             **unity_services,
         },
         "networks": {
@@ -1386,17 +1903,12 @@ def _compose_public(lock: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str
             service.setdefault("environment", {})["TZ"] = time_zone
     rendered_files = {
         "Caddyfile": caddyfile,
-        "runtime/scratch.json": json.dumps(runtime, ensure_ascii=False, indent=2) + "\n",
+        **line_rendered_files,
         "minecraft/server.properties": _public_server_properties(lock, adapter=adapter),
         "minecraft/plugins/McRemote/config.yml": _mcremote_session_only_config(
             adapter=adapter, minecraft_version=minecraft_version
         ),
     }
-    for pair in extra_pairs:
-        pair_runtime = runtimes[pair["scratch"]]
-        rendered_files[web_pair_runtime_path(pair)] = (
-            json.dumps(pair_runtime, ensure_ascii=False, indent=2) + "\n"
-        )
     return compose, rendered_files
 
 
@@ -1729,8 +2241,28 @@ def _stage_auth_enforced_compose(
     return rendered_paths
 
 
-def _stage_compose_public(lock: dict[str, Any], staging: Path) -> tuple[str, ...]:
-    compose, rendered_files = _compose_public(lock)
+def _write_wirescope_bundle(
+    staging: Path,
+    *,
+    prefix: str,
+    assets: list[tuple[str, bytes]],
+    manifest_source: bytes,
+) -> list[str]:
+    paths: list[str] = []
+    for relative, content in assets:
+        output_path = f"{prefix}/{relative}"
+        _write_synced(staging / PurePosixPath(output_path), content, mode=0o644)
+        paths.append(output_path)
+    detached_path = f"{prefix}/wirescope-app.manifest.json"
+    _write_synced(staging / detached_path, manifest_source, mode=0o644)
+    paths.append(detached_path)
+    return paths
+
+
+def _stage_compose_public(
+    lock: dict[str, Any], staging: Path, *, data_root: Traversable | None = None
+) -> tuple[str, ...]:
+    compose, rendered_files = _compose_public(lock, data_root=data_root)
     assets, manifest_source = _verified_wirescope_assets(lock)
     _write_synced(
         staging / "compose.yaml",
@@ -1738,14 +2270,17 @@ def _stage_compose_public(lock: dict[str, Any], staging: Path) -> tuple[str, ...
     )
     for relative, content in rendered_files.items():
         _write_synced(staging / PurePosixPath(relative), content.encode("utf-8"), mode=rendered_file_mode(relative))
-    wirescope_paths: list[str] = []
-    for relative, content in assets:
-        output_path = f"wirescope/{relative}"
-        _write_synced(staging / PurePosixPath(output_path), content, mode=0o644)
-        wirescope_paths.append(output_path)
-    detached_path = "wirescope/wirescope-app.manifest.json"
-    _write_synced(staging / detached_path, manifest_source, mode=0o644)
-    wirescope_paths.append(detached_path)
+    wirescope_paths = _write_wirescope_bundle(
+        staging, prefix="wirescope", assets=assets, manifest_source=manifest_source
+    )
+    lts_web = locked_lts_web(lock) if lock["render_plan"]["adapter_revision"] in DUAL_LINE_REVISIONS else None
+    if lts_web is not None:
+        lts_assets, lts_manifest_source = _verified_wirescope_assets(lock, bundle=lts_web["bundle"])
+        wirescope_paths.extend(
+            _write_wirescope_bundle(
+                staging, prefix="wirescope-lts", assets=lts_assets, manifest_source=lts_manifest_source
+            )
+        )
     rendered_paths = ("compose.yaml", *rendered_files, *wirescope_paths)
     manifest = {
         "schema_version": 1,
@@ -1781,10 +2316,12 @@ def _stage_compose_v14(lock: dict[str, Any], staging: Path) -> tuple[str, ...]:
     )
 
 
-def _stage_current(lock: dict[str, Any], staging: Path) -> tuple[str, ...]:
+def _stage_current(
+    lock: dict[str, Any], staging: Path, *, data_root: Traversable | None = None
+) -> tuple[str, ...]:
     revision = lock["render_plan"]["adapter_revision"]
     if revision in PUBLIC_RENDERER_REVISIONS:
-        rendered_paths = _stage_compose_public(lock, staging)
+        rendered_paths = _stage_compose_public(lock, staging, data_root=data_root)
     elif revision == "14":
         rendered_paths = _stage_compose_v14(lock, staging)
     else:
@@ -2032,7 +2569,7 @@ def verify_toml_render_output(
 
     with tempfile.TemporaryDirectory(prefix="mc-remote-render-verify.") as temporary:
         expected = Path(temporary)
-        _stage_current(lock, expected)
+        _stage_current(lock, expected, data_root=data_root)
         if not _trees_equal(expected, output):
             _render_fail(
                 "render_output_not_current",
@@ -2069,7 +2606,7 @@ def render_toml_project(
         )
     )
     try:
-        rendered_paths = _stage_current(lock, staging)
+        rendered_paths = _stage_current(lock, staging, data_root=data_root)
         status = _publish_staging(staging, output, managed=managed)
     finally:
         if staging.exists():

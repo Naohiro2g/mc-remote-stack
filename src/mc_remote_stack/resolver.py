@@ -31,6 +31,12 @@ from .toml_project import ProjectOrderError, load_order
 
 LOCK_NAME = "mc-remote.lock.toml"
 SOURCE_PRECEDENCE = ["profile", "preset", "order", "override"]
+LTS_WEB_COMPONENT_ROLES = (
+    "scratch-runtime",
+    "websocket-bridge",
+    "wirescope-app",
+    "wirescope-manifest",
+)
 
 
 class ResolutionError(ValueError):
@@ -188,6 +194,144 @@ def _calculate_lock_identity(lock: dict[str, Any]) -> str:
     return f"sha256:{semantic_sha256(_identity_payload(lock))}"
 
 
+def _operator_input_semantic(
+    operator_inputs: list[dict[str, Any]], role: str
+) -> dict[str, Any] | None:
+    matches = [item["semantic"] for item in operator_inputs if item["role"] == role]
+    return matches[0] if matches else None
+
+
+def _public_route_hostnames(routes: dict[str, Any] | None) -> set[str]:
+    if not routes:
+        return set()
+    names = {
+        routes["homepage"],
+        *routes["homepage_aliases"],
+        routes["bridge"],
+        routes["minecraft"],
+        routes["scratch"],
+        routes["wirescope"],
+    }
+    for pair in routes.get("web_pairs", []):
+        names.add(pair["scratch"])
+        names.add(pair["wirescope"])
+    return names
+
+
+def _resolve_lts_web(
+    operator_inputs: list[dict[str, Any]],
+    *,
+    policy: dict[str, Any],
+    acknowledgements: dict[str, Any],
+    enforce_one_shot_acknowledgements: bool,
+    allow_eol: bool,
+    data_root: Traversable,
+) -> tuple[dict[str, Any] | None, tuple[str, ...]]:
+    routes = _operator_input_semantic(operator_inputs, "public-routes")
+    connection_targets = _operator_input_semantic(operator_inputs, "connection-targets")
+    unity_sandboxes = _operator_input_semantic(operator_inputs, "unity-sandboxes")
+    lts_web = _operator_input_semantic(operator_inputs, "lts-web")
+
+    used_hostnames = _public_route_hostnames(routes)
+    if unity_sandboxes:
+        for sandbox in unity_sandboxes["sandboxes"]:
+            used_hostnames.add(sandbox["hostname"])
+            used_hostnames.update(sandbox["aliases"])
+
+    lts_hostnames: set[str] = set()
+    if lts_web is not None:
+        lts_hostnames = {lts_web["scratch"], lts_web["bridge"], lts_web["wirescope"]}
+        if lts_hostnames & used_hostnames:
+            _fail(
+                "operator_input_parse_failed",
+                "operator_inputs.lts-web",
+                "lts-web hostnames must not collide with public-routes or unity-sandboxes hostnames",
+            )
+        known_ids = (
+            {target["id"] for target in connection_targets["targets"]}
+            if connection_targets
+            else set()
+        )
+        unknown_ids = [tid for tid in lts_web["target_ids"] if tid not in known_ids]
+        if unknown_ids:
+            _fail(
+                "operator_input_parse_failed",
+                "operator_inputs.lts-web.semantic.target_ids",
+                f"unknown connection target id in lts-web: {unknown_ids[0]}",
+            )
+
+    if connection_targets:
+        all_local = used_hostnames | lts_hostnames
+        for target in connection_targets["targets"]:
+            if target.get("external") is True and target["host"] in all_local:
+                _fail(
+                    "operator_input_parse_failed",
+                    "operator_inputs.connection-targets.semantic.targets",
+                    f"external connection target host collides with local route hostname: {target['host']}",
+                )
+
+    if lts_web is None:
+        return None, ()
+
+    lts_ref = lts_web["preset"]
+    lts_preset_record = load_preset(lts_ref, data_root=data_root)
+    lts_lifecycle = evaluate_lifecycle(policy, lts_ref)
+    if enforce_one_shot_acknowledgements and lts_lifecycle.requires_eol_ack:
+        if not (acknowledgements["allow_eol"] and allow_eol):
+            _fail(
+                "preset_eol",
+                "operator_inputs.lts-web.semantic.preset",
+                "EOL resolution requires an order reason and the one-shot --allow-eol acknowledgement",
+            )
+    lts_preset = lts_preset_record.data
+    role_set = set(LTS_WEB_COMPONENT_ROLES)
+    lts_components = [
+        component
+        for component in lts_preset["components"]
+        if component["role"] in role_set
+    ]
+    counts = {
+        role: sum(1 for component in lts_components if component["role"] == role)
+        for role in LTS_WEB_COMPONENT_ROLES
+    }
+    if any(count != 1 for count in counts.values()):
+        _fail(
+            "preset_incompatible",
+            "operator_inputs.lts-web.semantic.preset",
+            "lts-web preset must declare exact scratch-runtime, websocket-bridge, "
+            "wirescope-app, and wirescope-manifest components",
+        )
+    if "scratch_runtime_contract" not in lts_preset:
+        _fail(
+            "preset_incompatible",
+            "operator_inputs.lts-web.semantic.preset",
+            "lts-web preset must declare scratch_runtime_contract",
+        )
+    needed_artifact_ids = {component["artifact"] for component in lts_components}
+    lts_artifacts = [
+        artifact
+        for artifact in lts_preset["artifacts"]
+        if artifact["id"] in needed_artifact_ids
+    ]
+    projection: dict[str, Any] = {
+        "preset": {
+            "ref": lts_ref,
+            "content_sha256": lts_preset_record.content_sha256,
+        },
+        "components": copy.deepcopy(lts_components),
+        "artifacts": copy.deepcopy(lts_artifacts),
+        "scratch_runtime_contract": copy.deepcopy(lts_preset["scratch_runtime_contract"]),
+    }
+    if "presentation" in lts_preset:
+        projection["presentation"] = copy.deepcopy(lts_preset["presentation"])
+    warnings = (
+        (f"lts-web preset {lts_lifecycle.status}: {lts_lifecycle.warning}",)
+        if lts_lifecycle.warning
+        else ()
+    )
+    return projection, warnings
+
+
 def _build_candidate(
     project_root: Path,
     *,
@@ -220,10 +364,33 @@ def _build_candidate(
     environment = order["environment"]
     profile = profile_record.data
     preset = preset_record.data
+    lts_web_projection, lts_warnings = _resolve_lts_web(
+        operator_inputs,
+        policy=policy,
+        acknowledgements=acknowledgements,
+        enforce_one_shot_acknowledgements=enforce_one_shot_acknowledgements,
+        allow_eol=allow_eol,
+        data_root=data_root,
+    )
     services = copy.deepcopy(profile["services"])
+    if lts_web_projection is not None:
+        services.extend(
+            [
+                {"id": "scratch-lts", "role": "scratch-runtime"},
+                {"id": "bridge-lts", "role": "websocket-bridge"},
+            ]
+        )
+    minecraft_ports = {order["network"]["java_port"], order["network"]["mcremote_port"]}
     for item in operator_inputs:
         if item["role"] == "unity-sandboxes":
             for sandbox in item["semantic"]["sandboxes"]:
+                tcp_port = sandbox.get("tcp_port")
+                if tcp_port is not None and tcp_port in minecraft_ports:
+                    _fail(
+                        "port_conflict",
+                        "operator_inputs.unity-sandboxes",
+                        f"Unity sandbox {sandbox['id']} tcp_port {tcp_port} collides with a declared Minecraft port",
+                    )
                 services.append(
                     {
                         "id": f"unity-sandbox-{sandbox['id']}",
@@ -253,6 +420,8 @@ def _build_candidate(
         render_payload["presentation"] = preset["presentation"]
     if "scratch_runtime_contract" in preset:
         render_payload["scratch_runtime_contract"] = preset["scratch_runtime_contract"]
+    if lts_web_projection is not None:
+        render_payload["lts_web"] = copy.deepcopy(lts_web_projection)
     render_plan = {
         "adapter": profile["renderer"]["name"],
         "adapter_revision": profile["renderer"]["revision"],
@@ -269,6 +438,8 @@ def _build_candidate(
         render_plan["scratch_runtime_contract"] = copy.deepcopy(
             preset["scratch_runtime_contract"]
         )
+    if lts_web_projection is not None:
+        render_plan["lts_web"] = copy.deepcopy(lts_web_projection)
     lifecycle_projection: dict[str, Any] = {"status": lifecycle.status}
     if lifecycle.warning:
         lifecycle_projection["warning"] = lifecycle.warning
@@ -330,6 +501,8 @@ def _build_candidate(
         identity_payload["scratch_runtime_contract"] = copy.deepcopy(
             preset["scratch_runtime_contract"]
         )
+    if lts_web_projection is not None:
+        identity_payload["lts_web"] = copy.deepcopy(lts_web_projection)
     lock = {
         "schema_version": 1,
         "lock_identity": f"sha256:{semantic_sha256(identity_payload)}",
@@ -346,6 +519,7 @@ def _build_candidate(
     warnings: list[str] = []
     if lifecycle.warning:
         warnings.append(f"preset {lifecycle.status}: {lifecycle.warning}")
+    warnings.extend(lts_warnings)
     return _Candidate(lock=lock, warnings=tuple(warnings))
 
 

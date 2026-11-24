@@ -261,6 +261,49 @@ def test_fresh_host_guide_returns_to_the_single_deployment_runbook() -> None:
     assert "mcrctl apply" not in guide
 
 
+def test_peripheral_plugins_example_lists_official_pages_and_block_versions() -> None:
+    plugin_readme = (
+        REPO_ROOT / "examples" / "peripheral-plugins" / "README_ja.md"
+    ).read_text(encoding="utf-8")
+    block_versions_snippet = (
+        REPO_ROOT
+        / "examples"
+        / "peripheral-plugins"
+        / "ViaVersion"
+        / "config.block-versions.yml"
+    ).read_text(encoding="utf-8")
+    prep_guide = (
+        REPO_ROOT / "docs" / "public-vps-preparation-guide_ja.md"
+    ).read_text(encoding="utf-8")
+    readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+
+    for url in (
+        "https://papermc.io/",
+        "https://papermc.io/downloads/paper",
+        "https://geysermc.org/",
+        "https://geysermc.org/download",
+        "https://viaversion.com/",
+        "https://hangar.papermc.io/ViaVersion/ViaVersion/versions?channel=Snapshot",
+        "https://hangar.papermc.io/ViaVersion/ViaBackwards/versions?channel=Snapshot",
+        "https://luckperms.net/",
+        "https://luckperms.net/download",
+        "https://enginehub.org/worldedit",
+        "https://modrinth.com/plugin/worldedit/versions?l=bukkit",
+        "https://advancedportals.sekwah.com/",
+        "https://dev.bukkit.org/projects/advanced-portals/files",
+        "https://discordsrv.com/",
+        "https://www.spigotmc.org/resources/discordsrv.18494/",
+        "https://server-backup.net/",
+        "https://www.spigotmc.org/resources/79320/",
+    ):
+        assert url in plugin_readme
+    for version_range in ("1.20.5-1.20.6", "1.21-1.21.1", "1.21.2-1.21.3", "1.21.4"):
+        assert version_range in block_versions_snippet
+    assert "dual-line-and-external-targets-guide_ja.md" in readme
+    assert "dual-line-and-external-targets-guide_ja.md" in prep_guide
+    assert "examples/peripheral-plugins/README_ja.md" in prep_guide
+
+
 def test_private_ops_guide_and_starter_example_exist_and_stay_concise() -> None:
     readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
     guide = (REPO_ROOT / "docs" / "private-ops-guide_ja.md").read_text(

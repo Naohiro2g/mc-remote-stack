@@ -334,64 +334,24 @@
       "type": "array",
       "minItems": 1,
       "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["id", "role", "artifact"],
-        "properties": {
-          "id": {
-            "$ref": "#/$defs/token"
-          },
-          "role": {
-            "$ref": "#/$defs/token"
-          },
-          "artifact": {
-            "$ref": "#/$defs/token"
-          },
-          "protocol": {
-            "type": "string",
-            "minLength": 1
-          },
-          "minecraft_version": {
-            "$ref": "#/$defs/minecraftVersion"
-          }
-        }
+        "$ref": "#/$defs/componentItem"
       }
     },
     "artifacts": {
       "type": "array",
       "minItems": 1,
       "items": {
-        "oneOf": [
-          {
-            "$ref": "#/$defs/ociArtifact"
-          },
-          {
-            "$ref": "#/$defs/httpsArtifact"
-          },
-          {
-            "$ref": "#/$defs/gitBuildArtifact"
-          },
-          {
-            "$ref": "#/$defs/recoveryMemberArtifact"
-          },
-          {
-            "$ref": "#/$defs/staticArchiveArtifact"
-          }
-        ]
+        "$ref": "#/$defs/artifactItem"
       }
     },
     "presentation": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["scratch_release_notice"],
-      "properties": {
-        "scratch_release_notice": {
-          "$ref": "#/$defs/scratchNotice"
-        }
-      }
+      "$ref": "#/$defs/presentation"
     },
     "scratch_runtime_contract": {
       "$ref": "#/$defs/scratchRuntimeContract"
+    },
+    "lts_web": {
+      "$ref": "#/$defs/ltsWebProjection"
     },
     "render_plan": {
       "type": "object",
@@ -469,17 +429,13 @@
           }
         },
         "presentation": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["scratch_release_notice"],
-          "properties": {
-            "scratch_release_notice": {
-              "$ref": "#/$defs/scratchNotice"
-            }
-          }
+          "$ref": "#/$defs/presentation"
         },
         "scratch_runtime_contract": {
           "$ref": "#/$defs/scratchRuntimeContract"
+        },
+        "lts_web": {
+          "$ref": "#/$defs/ltsWebProjection"
         }
       }
     },
@@ -651,6 +607,9 @@
         },
         {
           "$ref": "#/$defs/unitySandboxesRole"
+        },
+        {
+          "$ref": "#/$defs/ltsWebRole"
         }
       ]
     },
@@ -675,6 +634,9 @@
           "$ref": "#/$defs/connectionTargetsV4Input"
         },
         {
+          "$ref": "#/$defs/connectionTargetsV5Input"
+        },
+        {
           "$ref": "#/$defs/minecraftPluginsInput"
         },
         {
@@ -688,6 +650,12 @@
         },
         {
           "$ref": "#/$defs/unitySandboxesInput"
+        },
+        {
+          "$ref": "#/$defs/unitySandboxesV2Input"
+        },
+        {
+          "$ref": "#/$defs/ltsWebInput"
         }
       ]
     },
@@ -748,7 +716,7 @@
           "const": "connection-targets"
         },
         "adapter": {
-          "enum": ["connection-targets@3", "connection-targets@4"]
+          "enum": ["connection-targets@3", "connection-targets@4", "connection-targets@5"]
         },
         "required": {
           "type": "boolean"
@@ -828,7 +796,7 @@
           "const": "unity-sandboxes"
         },
         "adapter": {
-          "const": "unity-sandboxes@1"
+          "enum": ["unity-sandboxes@1", "unity-sandboxes@2"]
         },
         "required": {
           "type": "boolean"
@@ -927,6 +895,71 @@
                   "image": {
                     "type": "string",
                     "pattern": "^[a-z0-9][a-z0-9._/-]*(?::[A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?@sha256:[0-9a-f]{64}$"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "unitySandboxesV2Input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "adapter", "path", "semantic_sha256", "semantic"],
+      "properties": {
+        "role": {
+          "const": "unity-sandboxes"
+        },
+        "adapter": {
+          "const": "unity-sandboxes@2"
+        },
+        "path": {
+          "const": "operator/unity-sandboxes/sandboxes.toml"
+        },
+        "semantic_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "semantic": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["sandboxes"],
+          "properties": {
+            "sandboxes": {
+              "type": "array",
+              "maxItems": 8,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["id", "hostname", "aliases", "image"],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "pattern": "^[a-z0-9][a-z0-9-]{0,46}$"
+                  },
+                  "hostname": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 253
+                  },
+                  "aliases": {
+                    "type": "array",
+                    "maxItems": 8,
+                    "uniqueItems": true,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 253
+                    }
+                  },
+                  "image": {
+                    "type": "string",
+                    "pattern": "^[a-z0-9][a-z0-9._/-]*(?::[A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?@sha256:[0-9a-f]{64}$"
+                  },
+                  "tcp_port": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 65535
                   }
                 }
               }
@@ -1718,6 +1751,290 @@
             "type": "string",
             "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$"
           }
+        }
+      }
+    },
+    "componentItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "role", "artifact"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/token"
+        },
+        "role": {
+          "$ref": "#/$defs/token"
+        },
+        "artifact": {
+          "$ref": "#/$defs/token"
+        },
+        "protocol": {
+          "type": "string",
+          "minLength": 1
+        },
+        "minecraft_version": {
+          "$ref": "#/$defs/minecraftVersion"
+        }
+      }
+    },
+    "artifactItem": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/ociArtifact"
+        },
+        {
+          "$ref": "#/$defs/httpsArtifact"
+        },
+        {
+          "$ref": "#/$defs/gitBuildArtifact"
+        },
+        {
+          "$ref": "#/$defs/recoveryMemberArtifact"
+        },
+        {
+          "$ref": "#/$defs/staticArchiveArtifact"
+        }
+      ]
+    },
+    "presentation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scratch_release_notice"],
+      "properties": {
+        "scratch_release_notice": {
+          "$ref": "#/$defs/scratchNotice"
+        }
+      }
+    },
+    "ltsWebRole": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "adapter", "required"],
+      "properties": {
+        "id": {
+          "const": "lts-web"
+        },
+        "adapter": {
+          "const": "lts-web@1"
+        },
+        "required": {
+          "type": "boolean"
+        }
+      }
+    },
+    "connectionTargetsV5Input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "role",
+        "adapter",
+        "path",
+        "semantic_sha256",
+        "semantic"
+      ],
+      "properties": {
+        "role": {
+          "const": "connection-targets"
+        },
+        "adapter": {
+          "const": "connection-targets@5"
+        },
+        "path": {
+          "const": "operator/connection-targets/targets.toml"
+        },
+        "semantic_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "semantic": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "targets",
+            "notices",
+            "selections"
+          ],
+          "properties": {
+            "targets": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 32,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "id",
+                  "label",
+                  "host",
+                  "port",
+                  "external"
+                ],
+                "properties": {
+                  "id": {
+                    "$ref": "#/$defs/token"
+                  },
+                  "label": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  },
+                  "host": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 253
+                  },
+                  "port": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 65535
+                  },
+                  "external": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            },
+            "notices": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 16,
+              "items": {
+                "$ref": "#/$defs/scratchNotice"
+              }
+            },
+            "selections": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 5,
+              "uniqueItems": true,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "scratch",
+                  "target_ids",
+                  "default_target"
+                ],
+                "properties": {
+                  "scratch": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 253
+                  },
+                  "target_ids": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 32,
+                    "uniqueItems": true,
+                    "items": {
+                      "$ref": "#/$defs/token"
+                    }
+                  },
+                  "default_target": {
+                    "$ref": "#/$defs/token"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "ltsWebInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "adapter", "path", "semantic_sha256", "semantic"],
+      "properties": {
+        "role": {
+          "const": "lts-web"
+        },
+        "adapter": {
+          "const": "lts-web@1"
+        },
+        "path": {
+          "const": "operator/lts-web/lts.toml"
+        },
+        "semantic_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "semantic": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "preset",
+            "scratch",
+            "bridge",
+            "wirescope",
+            "target_ids",
+            "default_target"
+          ],
+          "properties": {
+            "preset": {
+              "$ref": "#/$defs/exactRef"
+            },
+            "scratch": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 253
+            },
+            "bridge": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 253
+            },
+            "wirescope": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 253
+            },
+            "target_ids": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 32,
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/$defs/token"
+              }
+            },
+            "default_target": {
+              "$ref": "#/$defs/token"
+            }
+          }
+        }
+      }
+    },
+    "ltsWebProjection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "preset",
+        "components",
+        "artifacts",
+        "scratch_runtime_contract"
+      ],
+      "properties": {
+        "preset": {
+          "$ref": "#/$defs/refAndDigest"
+        },
+        "components": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "items": {
+            "$ref": "#/$defs/componentItem"
+          }
+        },
+        "artifacts": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/artifactItem"
+          }
+        },
+        "scratch_runtime_contract": {
+          "$ref": "#/$defs/scratchRuntimeContract"
+        },
+        "presentation": {
+          "$ref": "#/$defs/presentation"
         }
       }
     }
