@@ -1347,3 +1347,24 @@ def test_deployment_update_upgrades_vps_server_19_to_20_and_rolls_back(
     assert result.phase == "complete"
     assert sorted(tcp_calls) == [25585, 25586]
     assert load_lock(fixture.project, data_root=fixture.data_root)["render_plan"]["adapter_revision"] == "22"
+
+
+def test_compose_v22_preserves_render_manifest_order_with_extra_web_pair(tmp_path: Path) -> None:
+    fixture = build_vps_fixture(tmp_path, profile="vps-server@20", minecraft_heap="3G")
+    _attach_unity_sandboxes(
+        fixture,
+        sandboxes_source=SANDBOXES_V2_PORTS_SOURCE,
+        adapter="unity-sandboxes@2",
+    )
+
+    render_toml_project(fixture.project, fixture.output, data_root=fixture.data_root)
+    manifest = json.loads((fixture.output / "render-manifest.json").read_text(encoding="utf-8"))
+    paths = [entry["path"] for entry in manifest["files"]]
+
+    assert paths.index("runtime/scratch.json") < paths.index("minecraft/server.properties")
+    assert paths.index("minecraft/server.properties") < paths.index(
+        "minecraft/plugins/McRemote/config.yml"
+    )
+    assert paths.index("minecraft/plugins/McRemote/config.yml") < paths.index(
+        "runtime/web-pairs/scratch.mc-remote.example.json"
+    )

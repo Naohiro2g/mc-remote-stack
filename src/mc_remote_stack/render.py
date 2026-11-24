@@ -1903,11 +1903,16 @@ def _compose_public(
             service.setdefault("environment", {})["TZ"] = time_zone
     rendered_files = {
         "Caddyfile": caddyfile,
-        **line_rendered_files,
+        "runtime/scratch.json": line_rendered_files["runtime/scratch.json"],
         "minecraft/server.properties": _public_server_properties(lock, adapter=adapter),
         "minecraft/plugins/McRemote/config.yml": _mcremote_session_only_config(
             adapter=adapter, minecraft_version=minecraft_version
         ),
+        **{
+            path: content
+            for path, content in line_rendered_files.items()
+            if path != "runtime/scratch.json"
+        },
     }
     return compose, rendered_files
 
