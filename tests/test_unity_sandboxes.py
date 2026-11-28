@@ -786,16 +786,27 @@ def _assert_unity_isolation_limits(service: dict) -> None:
 def test_standalone_unity_sandbox_example_is_valid_yaml_and_matches_scratch_schema() -> None:
     example_dir = REPO_ROOT / "examples/unity-sandbox"
     compose = yaml.safe_load((example_dir / "compose.yaml").read_text(encoding="utf-8"))
-    unity_service = compose["services"]["unity-sandbox"]
-    assert "ports" not in unity_service
-    assert unity_service["networks"] == {
-        "app": {"aliases": ["unity-sb.example.org"]}
+    dotnet_service = compose["services"]["dotnet-sandbox"]
+    assert "ports" not in dotnet_service
+    assert dotnet_service["networks"] == {
+        "app": {"aliases": ["dotnet-sb.example.org"]}
     }
-    _assert_unity_isolation_limits(unity_service)
+    _assert_unity_isolation_limits(dotnet_service)
+    caddyfile = (example_dir / "Caddyfile").read_text(encoding="utf-8")
+    assert "unity-app.example.org {\n    reverse_proxy dotnet-sandbox:8080\n}" in caddyfile
+    assert "dotnet-sb.example.org {\n    redir https://unity-app.example.org{uri} 302\n}" in caddyfile
 
     scratch_config = json.loads(
         (example_dir / "runtime/scratch.json").read_text(encoding="utf-8")
     )
+    assert scratch_config["default_sandbox"] == "dotnet-sb.example.org"
+    assert scratch_config["connection_targets"] == [
+        {
+            "id": "dotnet-sb",
+            "label": ".NET箱庭サーバー",
+            "sandbox": "dotnet-sb.example.org",
+        }
+    ]
     schema = load_runtime_config_schema(
         {
             "source_commit": "57fb7691bb5d9a5895785b200ae78734240ebfa6",

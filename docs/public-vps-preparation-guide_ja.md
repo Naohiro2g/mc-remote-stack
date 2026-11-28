@@ -88,7 +88,7 @@ wirescope = "wirescope.mc-remote.com"
 
 `vps-server@17`では、組ごとの接続先一覧と既定を`connection-targets@4`で指定します。[Scratchの組別接続先の設定手順](scratch-connection-selections-guide_ja.md)に従い、主Scratchを含む全組のselectionを用意します。
 
-2系列のWeb/Bridge並立（最新版＋LTS）や外部ホスト上のMcRemote（GAMEs TCP `25575`等）へ接続する構成は、`vps-server@21`／`compose@23`を使います。詳細は[2系列Web/Bridge並設と外部McRemote接続先の手順](dual-line-and-external-targets-guide_ja.md)を参照してください。
+2系列のWeb/Bridge並立（最新版＋LTS）や外部ホスト上のMcRemote（GAMEs TCP `25575`等）へ接続する構成は、`vps-server@22`／`compose@24`（`unity-sandboxes@3`の`.NET箱庭`リダイレクト対応。`vps-server@21`互換）を使います。詳細は[2系列Web/Bridge並設と外部McRemote接続先の手順](dual-line-and-external-targets-guide_ja.md)を参照してください。
 
 `vps-server@16`以降は、Geyserを19132で受けます。統合版の新しい接続方式（NetherNet）は、最初にTCPでGeyserへ問い合わせ、そのあとUDPで遊びます。JavaがTCP 25565を使うので、Geyserは別の番号にします。Geyserの設定はStackが作らず、Minecraft data volume内の`plugins/Geyser-Spigot/config.yml`にあるので、`bedrock`の次の2つを書き換えます。hostのUFW、providerのport許可、Docker用フィルタでも、19132をTCPとUDPの両方で通します。統合版の利用者は、つなぎ先のportを19132に変えます。
 

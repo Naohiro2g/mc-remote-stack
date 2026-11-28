@@ -1,12 +1,12 @@
-# 2 系列 Web/Bridge 並設と外部 McRemote 接続先の手順（`vps-server@21`）
+# 2 系列 Web/Bridge 並設と外部 McRemote 接続先の手順（`vps-server@22`）
 
-`vps-server@21`／`compose@23` では、1 台の公開 VPS 上で **最新版（`2400` 系・Scratch v2 契約）と LTS（`2321` 系・Scratch v1 契約）の 2 系列の Web/Bridge/WireScope** を並立させ、あわせて **有料 GAMEs 等の外部ホスト上で稼働する McRemote サーバー（TCP `25575` 等）へ公開 VPS の Bridge から中継** できます。
+`vps-server@22`／`compose@24` では、1 台の公開 VPS 上で **最新版（`2400` 系・Scratch v2 契約）と LTS（`2321` 系・Scratch v1 契約）の 2 系列の Web/Bridge/WireScope** を並立させ、あわせて **有料 GAMEs 等の外部ホスト上で稼働する McRemote サーバー（TCP `25575` 等）へ公開 VPS の Bridge から中継** し、**.NET箱庭（`dotnet-sb*`）と Unity Webアプリ（`unity-app*`）の分離命名** に対応できます（`vps-server@21`／`compose@23` とも後方互換です）。
 
-通常の更新手順の全体像は [既存 Public VPS 更新手順](public-vps-bootstrap-guide_ja.md)、組ごとの接続先一覧の基本は [組別接続先の設定手順](scratch-connection-selections-guide_ja.md) を参照してください。
+通常の更新手順の全体像は [既存 Public VPS 更新手順](public-vps-bootstrap-guide_ja.md)、組ごとの接続先一覧の基本は [組別接続先の設定手順](scratch-connection-selections-guide_ja.md)、.NET箱庭・Unity Webアプリの単体・同居配備は [.NET箱庭とUnity Webアプリを配備する](unity-sandbox-deployment-guide_ja.md) を参照してください。
 
 ---
 
-## 1. `vps-server@21` で追加される仕組み
+## 1. `vps-server@21`・`vps-server@22` で追加される仕組み
 
 ### 1-1. 外部接続先が DNS 切り替えだけでは動かない理由
 
@@ -19,20 +19,24 @@
 
 | 設定項目 | `external = false`（既定・VPS 内コンテナ） | `external = true`（GAMEs 等の外部サーバー） |
 | --- | --- | --- |
-| ローカル `minecraft` aliases | Unity 以外のローカル host 名を登録 | **登録しない**（外部 DNS を参照） |
+| ローカル `minecraft` aliases | `.NET箱庭` 以外のローカル host 名を登録 | **登録しない**（外部 DNS を参照） |
 | `bridge` / `bridge-lts` の network | `["app"]` | **`{"app": {}, "egress": {"gw_priority": 1}}`**（外向け発信許可） |
 | `mcrctl doctor` | ローカルコンテナ・公開ポートを検査 | **外部 `host:port` へ `hello` を送り `auth_required` を検証** |
 
 > [!NOTE]
-> `external = false` のローカルコンテナ接続先は内部ポート `25575` に統一されます（Unity 箱庭も内部 `app` 上は `--tcp-port 25575` で待ち受けます）。`external = true` では `25575` 以外の任意のポートも `v2` 系列の Bridge で指定できます。
+> `external = false` のローカルコンテナ接続先は内部ポート `25575` に統一されます（.NET箱庭も内部 `app` 上は `--tcp-port 25575` で待ち受けます）。`external = true` では `25575` 以外の任意のポートも `v2` 系列の Bridge で指定できます。
 
-### 1-2. Scratch v2 契約と `lts-web@1` の役割分担
+### 1-2. Scratch v2 契約・`lts-web@1`・`unity-sandboxes@3` の役割分担
 
 - **主系統（`public-routes@3`＋`preset`）**:
   - `2400` 系プリセット（Scratch v2 契約・ID ルーティング対応 Bridge）を使うと、Renderer は `runtime/scratch.json`（および追加組 `runtime/web-pairs/<scratch>.json`）を **`schema_version: 2`（`default_target_id`＋`host`/`port`）** で生成し、Bridge 用に `runtime/bridge-targets.json` を書き出して **`BRIDGE_TARGETS_FILE`** で渡します（旧環境変数 `BRIDGE_SANDBOX_*` は設定しません）。
 - **並立 LTS 系統（任意・`operator/lts-web/lts.toml` / `lts-web@1`）**:
   - `lts-web@1` を追加すると、別の `preset`（`2321` 系の公開済みプリセット）・別のホスト名 3 点セット（`scratch` / `bridge` / `wirescope`）・独自の `target_ids` / `default_target` で、独立した **`scratch-lts`**・**`bridge-lts`**・**`/srv/wirescope-lts`**・`runtime/scratch-lts.json` を同じ Compose と Caddy 上に構築します。
   - `2321` 系プリセット（v1 契約）の LTS 系統では、従来どおり `schema_version: 1` と `BRIDGE_SANDBOX_ALLOWLIST` / `BRIDGE_SANDBOX_PORT=25575` を出力します。
+- **.NET箱庭と Unity Webアプリの分離（`vps-server@22` / `compose@24` / `unity-sandboxes@3`）**:
+  - `unity-sandboxes@3` では、Unity Webアプリ配信用の `hostname`（`unity-app*`）と旧名別名 `aliases`（`unity-sb*`）に加えて、`redirect_aliases`（`dotnet-sb*`）を指定できます。
+  - Caddy は `hostname`・`aliases` に対してコンテナ `:8080` へ `reverse_proxy`（Unity Webアプリ＋`/ws/sync`）し、`redirect_aliases` に対しては `https://<hostname>{uri}` への **HTTP `302` リダイレクト** を返します。また `hostname`・`aliases`・`redirect_aliases` のすべてがコンテナの `app.aliases` に登録され、Bridge からの内部 TCP 接続をそのまま受けます。
+  - Phase 1（12 月 1 日公開）ではコンテナ名（`unity-sandbox-*`）、ポート（`25585`/`25586`）、イメージ（`mc-remote-unity-sandbox`）、入力ロール名（`unity-sandboxes`）を維持して切替リスクを抑えます。Phase 2（12 月 1 日以降、Bevy Web アプリ等のトライアル前）で内部契約・コンテナ名・`unity-sandbox-watch` を汎用名へ整理します。
 
 ---
 
@@ -40,9 +44,20 @@
 
 `mcrctl deployment update plan` / `apply` の前に、Stack 管理外の作業を完了させます。
 
-1. **DNS レコードの用意**:
-   - Caddy が Let's Encrypt 証明書を取得するため、新しく並立させるホスト名（例: `scratch-lts.<domain>` / `bridge-lts.<domain>` / `wirescope-lts.<domain>`）を、あらかじめ公開 VPS の IP へ向けておきます。
-   - 外部 McRemote サーバーのホスト名（例: `sb.<domain>` または `sb-lts.<domain>`）は、有料 GAMEs 側のアドレスへ向けておきます（公開 VPS のローカル `minecraft` aliases と重複させないこと）。
+1. **DNS レコードの用意（12 月 1 日公開の 3 層分離）**:
+   - Caddy が Let's Encrypt 証明書を取得するため、新しく並立させるホスト名をすべて事前に公開 VPS へ向けておきます（前日までに先行作成・証明書取得可能）。
+   - 外部 McRemote サーバーのホスト名（`sb.<domain>` または `sb-lts.<domain>`）は、有料 GAMEs 側のアドレスへ向けておきます（公開 VPS のローカル `minecraft` aliases と重複させないこと）。
+
+   | ホスト名 | 種別 | 向き先 | 用途 |
+   | --- | --- | --- | --- |
+   | `scratch-lts.<domain>` / `bridge-lts.<domain>` / `wirescope-lts.<domain>` | A / CNAME | 公開 VPS | LTS 系統 Web / Bridge / WireScope |
+   | `dotnet-sb.<domain>` | A / CNAME | 公開 VPS | 最新版 `2400` .NET箱庭サーバー（外 TCP `25586`） |
+   | `dotnet-sb-lts.<domain>` | A / CNAME | 公開 VPS | LTS `2321.2.0` .NET箱庭サーバー（外 TCP `25585`） |
+   | `unity-app.<domain>` | A / CNAME | 公開 VPS | 最新版 `2400` Unity Webアプリ（HTTPS `443`） |
+   | `unity-app-lts.<domain>` | A / CNAME | 公開 VPS | LTS `2321.2.0` Unity Webアプリ（HTTPS `443`） |
+   | `unity-sb.<domain>` | **CNAME** | `unity-app.<domain>` | 旧名維持（最新版・Unity Webアプリ） |
+   | `unity-sb-lts.<domain>` | **CNAME** | `unity-app-lts.<domain>` | 旧名維持（LTS・Unity Webアプリ） |
+
 2. **有料 GAMEs 側の構築・移行（人間オペレーター作業）**:
    - 対象サーバーへワールド・LuckPerms DB・Paper・周辺プラグイン・対象版の McRemote プラグイン JAR を配置します。
    - **McRemote の設定（`plugins/McRemote/config.yml`）**: `session-only`（認証必須）および公開 TCP ポート（例: `25575`）が有効で、外部（少なくとも公開 VPS）から TCP 接続できることを確認します。古い認証データは引き継がず、移行先では利用者に再ペアリングしてもらいます。
@@ -53,75 +68,33 @@
 
 `operator/connection-targets/targets.toml`（`connection-targets@5`）では、各接続先の `host`（後方互換の `sandbox` も可）・`port`（既定 `25575`）・`external`（既定 `false`）と、主系統側の各 Scratch オリジンの選択肢 `[[selections]]` を定義します。major 版が異なるクライアントとサーバーは `hello` で拒否されるため、**組ごとに同じ系列（`2400` 同士または `2321` 同士）だけ** を並べます。
 
-### 3-1. 11 月中の予行演習（主系統＝`2400` rc1 on `-beta`、LTS＝`2321` on 無印・GAMEs）
+### 3-1. 11 月中の予行演習・検証機通し（新名前倒し構成）
 
-`operator/public-routes/routes.toml`（主系統を `-beta` のみで動かす例）:
+11/28〜29 の検証機通しでは、`sandboxes.toml`（`unity-sandboxes@3`）および Caddy・DNS へ先行して新しい名前（`unity-app*` / `dotnet-sb*` ＋旧名 `unity-sb*`）を適用して確認できます。
 
-```toml
-homepage = "mc-remote.example"
-homepage_aliases = ["www.mc-remote.example"]
-scratch = "scratch-beta.mc-remote.example"
-bridge = "bridge-beta.mc-remote.example"
-minecraft = "sb-beta.mc-remote.example"
-wirescope = "wirescope-beta.mc-remote.example"
-web_pairs = []
-```
-
-`operator/connection-targets/targets.toml`（`connection-targets@5`）:
+`operator/unity-sandboxes/sandboxes.toml`（`unity-sandboxes@3`、予行・本番共通の形）:
 
 ```toml
-[[targets]]
-id = "beta"
-label = "公開ベータ（2400 rc1）"
-host = "sb-beta.mc-remote.example"
-port = 25575
-external = false
+[[sandboxes]]
+id = "lts"
+hostname = "unity-app-lts.mc-remote.example"
+aliases = ["unity-sb-lts.mc-remote.example"]
+redirect_aliases = ["dotnet-sb-lts.mc-remote.example"]
+tcp_port = 25585
+image = "ghcr.io/naohiro2g/mc-remote-unity-sandbox:v2321.2.0@sha256:0737c28a1753847d8d1c4218a26561af083886def4457c2e3cd64d84f3c76828"
 
-[[targets]]
-id = "unity-latest"
-label = "Unity箱庭（2400 rc1）"
-host = "unity-sb.mc-remote.example"
-port = 25575
-external = false
-
-[[targets]]
-id = "stable"
-label = "標準（Minecraft・GAMEs）"
-host = "sb.mc-remote.example"
-port = 25575
-external = true
-
-[[targets]]
-id = "unity-lts"
-label = "Unity箱庭（LTS）"
-host = "unity-sb-lts.mc-remote.example"
-port = 25575
-external = false
-
-[[notices]]
-heading = "お知らせ"
-body = "今回の運用者お知らせを記入してください。"
-
-[[selections]]
-scratch = "scratch-beta.mc-remote.example"
-target_ids = ["beta", "unity-latest"]
-default_target = "beta"
-```
-
-`operator/lts-web/lts.toml`（`lts-web@1`）:
-
-```toml
-preset = "public-web-paper@18"
-scratch = "scratch.mc-remote.example"
-bridge = "bridge.mc-remote.example"
-wirescope = "wirescope.mc-remote.example"
-target_ids = ["stable", "unity-lts"]
-default_target = "stable"
+[[sandboxes]]
+id = "latest"
+hostname = "unity-app.mc-remote.example"
+aliases = ["unity-sb.mc-remote.example"]
+redirect_aliases = ["dotnet-sb.mc-remote.example"]
+tcp_port = 25586
+image = "ghcr.io/naohiro2g/mc-remote-unity-sandbox:v2400.0.0rc1@sha256:e39109f0e3ff6bbc9ef2a0f4fb6048735817fa250a5226b404430ace52101097"
 ```
 
 ### 3-2. 12 月 1 日本番構成（主系統＝`2400.0.0` on 無印＋`-beta` 保険、LTS＝`2321` on `-lts`・GAMEs）
 
-本番切替時は、主系統の `routes.toml` へ `scratch`（主）と `scratch-beta`（`[[web_pairs]]` 保険）を並べ、主系統 `[[selections]]` の両方に `["stable", "unity-latest"]`（ここで `stable` が VPS の `sb`）、`lts.toml` 側を `-lts` ホスト群＋GAMEs `sb-lts`（`external = true`）＋`unity-sb-lts` へ切り替えます。
+本番切替時は、主系統の `routes.toml` へ `scratch`（主）と `scratch-beta`（`[[web_pairs]]` 保険）を並べ、主系統 `[[selections]]` の両方に `["stable", "dotnet-sb"]`（ここで `stable` が VPS の `sb`）、`lts.toml` 側を `-lts` ホスト群＋GAMEs `sb-lts`（`external = true`）＋`dotnet-sb-lts` へ切り替えます（接続先 ID もデビュー前に `dotnet-sb` / `dotnet-sb-lts` へ統一します）。
 
 `operator/public-routes/routes.toml`:
 
@@ -143,29 +116,29 @@ wirescope = "wirescope-beta.mc-remote.example"
 ```toml
 [[targets]]
 id = "stable"
-label = "標準（Minecraft）"
+label = "マイクラ箱庭サーバー"
 host = "sb.mc-remote.example"
 port = 25575
 external = false
 
 [[targets]]
-id = "unity-latest"
-label = "Unity箱庭"
-host = "unity-sb.mc-remote.example"
+id = "dotnet-sb"
+label = ".NET箱庭サーバー"
+host = "dotnet-sb.mc-remote.example"
 port = 25575
 external = false
 
 [[targets]]
 id = "lts"
-label = "長期固定（LTS・GAMEs）"
+label = "マイクラ箱庭サーバー（LTS）"
 host = "sb-lts.mc-remote.example"
 port = 25575
 external = true
 
 [[targets]]
-id = "unity-lts"
-label = "Unity箱庭（LTS）"
-host = "unity-sb-lts.mc-remote.example"
+id = "dotnet-sb-lts"
+label = ".NET箱庭サーバー（LTS）"
+host = "dotnet-sb-lts.mc-remote.example"
 port = 25575
 external = false
 
@@ -175,12 +148,12 @@ body = "今回の運用者お知らせを記入してください。"
 
 [[selections]]
 scratch = "scratch.mc-remote.example"
-target_ids = ["stable", "unity-latest"]
+target_ids = ["stable", "dotnet-sb"]
 default_target = "stable"
 
 [[selections]]
 scratch = "scratch-beta.mc-remote.example"
-target_ids = ["stable", "unity-latest"]
+target_ids = ["stable", "dotnet-sb"]
 default_target = "stable"
 ```
 
@@ -191,7 +164,7 @@ preset = "public-web-paper@18"
 scratch = "scratch-lts.mc-remote.example"
 bridge = "bridge-lts.mc-remote.example"
 wirescope = "wirescope-lts.mc-remote.example"
-target_ids = ["lts", "unity-lts"]
+target_ids = ["lts", "dotnet-sb-lts"]
 default_target = "lts"
 ```
 
@@ -199,16 +172,16 @@ default_target = "lts"
 
 ## 4. 切替の実施手順・時間見込み・ロールバック
 
-12 月 1 日 0 時（JST）の切替は、デプロイからホームページ更新まで **3 時間以内** に完了させる前提です。以下は通常更新（`mcrctl deployment update`）を軸にした手順と目安時間です。
+12 月 1 日 0 時（JST）の切替は、デプロイからホームページ更新まで **3 時間以内** に完了させる前提です。DNS・Caddy・TLS 証明書（`unity-app*` / `dotnet-sb*`）を前日までに先行用意しておく場合、名前の切り替えに伴う 12 月 1 日当日の増分時間は **約 +5 分**（一覧差し替えは既存工程に統合、確認項目が新旧 6 ホスト分へ増加）に収まります。
 
 | 順序 | 作業内容 | 主なコマンド・確認 | 時間目安 |
 | --- | --- | --- | --- |
-| 1 | 事前準備（Stack 外・前日まで可） | DNS 反映（`sb` / `*-lts`）、GAMEs 側 McRemote 稼働、対象 VPS へ事前 `docker pull`・新規入力ファイルの review copy 作成 | 事前完了 |
+| 1 | 事前準備（Stack 外・前日まで可） | DNS 反映（`sb` / `*-lts` / `dotnet-sb*` / `unity-app*` / 旧名 CNAME）、GAMEs 側 McRemote 稼働、対象 VPS へ事前 `docker pull`・Caddy 証明書取得・新規入力ファイルの review copy 作成 | 事前完了 |
 | 2 | メンテナンス開始・環境確認 | `mcrctl operator check` | 約 2 分 |
-| 3 | 更新計画生成と候補確認 | `mcrctl deployment update plan --to-profile vps-server@21 --to-preset "<2400 exact preset>" --replace-input ...`（生成物 `runtime/scratch*.json`・`bridge-targets.json`・`compose.yaml`・`Caddyfile` を確認） | 約 5 分 |
+| 3 | 更新計画生成と候補確認 | `mcrctl deployment update plan --to-profile vps-server@22 --to-preset "<2400 exact preset>" --replace-input ...`（生成物 `runtime/scratch*.json`・`bridge-targets.json`・`compose.yaml`・`Caddyfile` の `302` 転送を確認） | 約 5 分 |
 | 4 | 更新適用と起動後 `doctor` | `mcrctl deployment update apply --plan-id "sha256:<ID>" --yes`（image pull・切替・起動待機・`doctor` まで実行） | 約 5〜10 分 |
-| 5 | `mcrctl doctor` 単体再確認 | `OK doctor lts-web=current` と `OK doctor external-targets=healthy count=1` を確認 | 約 2 分 |
-| 6 | 実ブラウザ・権限モード確認 | 両系列（`scratch`・`scratch-lts`）での接続／WireScope／お知らせ表示、および後述の `0600`/`0700` 確認 | 約 15 分 |
+| 5 | `mcrctl doctor` 単体再確認＋外部疎通 | `OK doctor lts-web=current`、`OK doctor external-targets=healthy count=1`、`OK doctor unity-sandbox=healthy count=2`（`/healthz`・`GET /`・`wss://.../ws/sync`・`302` 転送・ローカル TCP `hello`）＋VPS 外からの TCP `hello`（`25585`/`25586`） | 約 7 分 |
+| 6 | 実ブラウザ・権限モード確認 | 両系列（`scratch`・`scratch-lts`）と `unity-app` / `unity-app-lts` / `dotnet-sb*` 302 転送／ペアリング／WireScope／お知らせ表示、および後述の `0600`/`0700` 確認 | 約 15 分 |
 | 7 | ホームページ更新・最終確認 | [ホームページ更新手順](homepage-sync-guide_ja.md)（`mcrctl homepage sync`）および公開記事／告知確認 | 約 30 分 |
 
 ### 実行コマンド例（プロジェクト外に作成した review copy を渡す）
@@ -218,18 +191,19 @@ cd "<対象deployment project>"
 mcrctl operator check
 
 REVIEW_DIR="$(mktemp -d "${TMPDIR:-/tmp}/mc-remote-dual.XXXXXX")"
-# $REVIEW_DIR/routes.toml, targets.toml, lts.toml, plugins.toml を用意して確認する
+# $REVIEW_DIR/routes.toml, targets.toml, lts.toml, sandboxes.toml, plugins.toml を用意して確認する
 
 mcrctl deployment update plan \
-  --to-profile vps-server@21 \
+  --to-profile vps-server@22 \
   --to-preset "<対象2400 exact preset>" \
   --replace-input "public-routes=$REVIEW_DIR/routes.toml" \
   --replace-input "connection-targets=$REVIEW_DIR/targets.toml" \
   --replace-input "lts-web=$REVIEW_DIR/lts.toml" \
+  --replace-input "unity-sandboxes=$REVIEW_DIR/sandboxes.toml" \
   --replace-input "minecraft-plugins=$REVIEW_DIR/plugins.toml"
 ```
 
-出力された `PLAN deployment-update id=sha256:...` を確認したら、候補ディレクトリ（`.mcrctl/updates/<id>/candidate/generated/`）内の `runtime/scratch.json`（`schema_version: 2`）、`runtime/scratch-lts.json`（`schema_version: 1`）、`runtime/bridge-targets.json`、`compose.yaml`（`bridge-lts` の `egress` と `minecraft` の `aliases`）を検査してから適用します。
+出力された `PLAN deployment-update id=sha256:...` を確認したら、候補ディレクトリ（`.mcrctl/updates/<id>/candidate/generated/`）内の `runtime/scratch.json`（`schema_version: 2`）、`runtime/scratch-lts.json`（`schema_version: 1`）、`runtime/bridge-targets.json`、`compose.yaml`（`bridge-lts` の `egress` と `minecraft` の `aliases`）、`Caddyfile`（`unity-app*`/`unity-sb*` の `reverse_proxy` と `dotnet-sb*` の `302` リダイレクト）を検査してから適用します。
 
 ```sh
 PLAN_ID="sha256:<planが出力したID>"
@@ -237,17 +211,20 @@ mcrctl deployment update apply --plan-id "$PLAN_ID" --yes
 mcrctl doctor
 ```
 
-`mcrctl doctor` では、従来の行に加えて次の 2 行が出力されます。
+`mcrctl doctor` では、従来の行に加えて次の行が出力されます（`vps-server@22` では、各 `unity-app*` / `unity-sb*` の `/healthz`・`GET /`・`wss://.../ws/sync` ハンドシェイクと、各 `dotnet-sb*` の `302` リダイレクトも自動検証します）。
 
+- `OK doctor unity-sandbox=healthy count=2`
 - `OK doctor lts-web=current`（`lts-web@1` 導入時）
 - `OK doctor external-targets=healthy count=<外部接続先数>`（外部ターゲット選択時）
+
+加えて、`mcrctl doctor` の TCP `hello` 検査は VPS ローカル `0.0.0.0` 宛てのため、VPS 外の端末から `dotnet-sb.<domain>:25586`（および旧名 `unity-sb.<domain>:25586`）と `dotnet-sb-lts.<domain>:25585`（および旧名 `unity-sb-lts.<domain>:25585`）へ token 無しの `hello` を送り、`auth_required` と `server.version` が返ることを確認します。
 
 ### 失敗時のロールバック手順
 
 1. **`apply` 中の失敗（`docker compose up` または起動後 `doctor` 失敗）**:
    - `mcrctl deployment update apply` が自動的に元の `compose.yaml`・生成物（`source projection`）を起動し直して復帰します。まず `mcrctl doctor` で現行系が正常に復旧していることを確認してください。
 2. **適用完了後に実機試験で重大問題が見つかった場合**:
-   - 一時作業ディレクトリは使わず、切替前の入力（または `lts-web` 無しの `vps-server@20` / 直前プリセット・直前 `targets.toml`・`routes.toml`）を指定して再度 `mcrctl deployment update plan` → `apply` を実行して戻します（新規設定の追加・削除を行わない場合でも、プロファイル後退は禁止されているため `vps-server@21` 上で入力ファイルを切替前の内容に戻すか、旧構成の別プロジェクトへ戻します）。
+   - 一時作業ディレクトリは使わず、切替前の入力（または `lts-web` 無し・`vps-server@22` 上での直前プリセット・直前 `targets.toml`・`routes.toml`・`sandboxes.toml`）を指定して再度 `mcrctl deployment update plan` → `apply` を実行して戻します（新規設定の追加・削除を行わない場合でも、プロファイル後退は禁止されているため `vps-server@22` 上で入力ファイルを切替前の内容に戻すか、旧構成の別プロジェクトへ戻します）。
    - DNS（`sb` 等）を外部へ向け直していた場合は、DNS と合わせて戻します。
 
 ---

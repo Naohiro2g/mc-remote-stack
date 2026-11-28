@@ -33,6 +33,7 @@ LAN_ROUTES_ADAPTER = "lan-routes@1"
 LAN_ROUTES_PATH = "operator/lan-routes/routes.toml"
 UNITY_SANDBOXES_ADAPTER = "unity-sandboxes@1"
 UNITY_SANDBOXES_V2_ADAPTER = "unity-sandboxes@2"
+UNITY_SANDBOXES_V3_ADAPTER = "unity-sandboxes@3"
 UNITY_SANDBOXES_PATH = "operator/unity-sandboxes/sandboxes.toml"
 LTS_WEB_ADAPTER = "lts-web@1"
 LTS_WEB_PATH = "operator/lts-web/lts.toml"
@@ -63,6 +64,7 @@ SUPPORTED_ADAPTERS = frozenset(
         LAN_ROUTES_ADAPTER,
         UNITY_SANDBOXES_ADAPTER,
         UNITY_SANDBOXES_V2_ADAPTER,
+        UNITY_SANDBOXES_V3_ADAPTER,
         LTS_WEB_ADAPTER,
     }
 )
@@ -79,8 +81,10 @@ LAN_ROUTES_KEYS = frozenset({"hostname", "scratch_port", "bridge_port"})
 UNITY_SANDBOX_REQUIRED_KEYS = frozenset({"id", "hostname", "image"})
 UNITY_SANDBOX_OPTIONAL_KEYS = frozenset({"aliases"})
 UNITY_SANDBOX_V2_OPTIONAL_KEYS = UNITY_SANDBOX_OPTIONAL_KEYS | {"tcp_port"}
+UNITY_SANDBOX_V3_OPTIONAL_KEYS = UNITY_SANDBOX_V2_OPTIONAL_KEYS | {"redirect_aliases"}
 UNITY_SANDBOX_KEYS = UNITY_SANDBOX_REQUIRED_KEYS | UNITY_SANDBOX_OPTIONAL_KEYS
 UNITY_SANDBOX_V2_KEYS = UNITY_SANDBOX_REQUIRED_KEYS | UNITY_SANDBOX_V2_OPTIONAL_KEYS
+UNITY_SANDBOX_V3_KEYS = UNITY_SANDBOX_REQUIRED_KEYS | UNITY_SANDBOX_V3_OPTIONAL_KEYS
 MAX_UNITY_SANDBOX_ALIASES = 8
 UNITY_SANDBOX_ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,46}$")
 OCI_PINNED_IMAGE = re.compile(
@@ -1047,11 +1051,25 @@ def _parse_lan_routes(path: Path, source: bytes) -> dict[str, Any]:
 
 
 def _parse_unity_sandboxes(
-    path: Path, source: bytes, *, allow_tcp_port: bool = False
+    path: Path,
+    source: bytes,
+    *,
+    allow_tcp_port: bool = False,
+    allow_redirect_aliases: bool = False,
 ) -> dict[str, Any]:
     value = _parse_toml_document(path, source)
-    adapter_label = UNITY_SANDBOXES_V2_ADAPTER if allow_tcp_port else UNITY_SANDBOXES_ADAPTER
-    allowed_keys = UNITY_SANDBOX_V2_KEYS if allow_tcp_port else UNITY_SANDBOX_KEYS
+    if allow_redirect_aliases:
+        adapter_label = UNITY_SANDBOXES_V3_ADAPTER
+        allowed_keys = UNITY_SANDBOX_V3_KEYS
+        extra_help = "aliases, redirect_aliases, and tcp_port"
+    elif allow_tcp_port:
+        adapter_label = UNITY_SANDBOXES_V2_ADAPTER
+        allowed_keys = UNITY_SANDBOX_V2_KEYS
+        extra_help = "aliases, and tcp_port"
+    else:
+        adapter_label = UNITY_SANDBOXES_ADAPTER
+        allowed_keys = UNITY_SANDBOX_KEYS
+        extra_help = "aliases"
     if set(value) != {"sandboxes"}:
         _fail(
             "operator_input_parse_failed",
@@ -1074,11 +1092,10 @@ def _parse_unity_sandboxes(
             not isinstance(entry, dict)
             or not (UNITY_SANDBOX_REQUIRED_KEYS <= set(entry) <= allowed_keys)
         ):
-            extra = "aliases, and tcp_port" if allow_tcp_port else "aliases"
             _fail(
                 "operator_input_parse_failed",
                 path,
-                f"sandboxes[{index}] must contain id, hostname, image, and optional {extra}",
+                f"sandboxes[{index}] must contain id, hostname, image, and optional {extra_help}",
             )
         sandbox_id = entry["id"]
         if not isinstance(sandbox_id, str) or UNITY_SANDBOX_ID.fullmatch(sandbox_id) is None:
@@ -1119,6 +1136,32 @@ def _parse_unity_sandboxes(
                 )
             seen_hostnames.add(alias)
             aliases.append(alias)
+        redirect_aliases: list[str] = []
+        if allow_redirect_aliases:
+            raw_redirect_aliases = entry.get("redirect_aliases", [])
+            if (
+                not isinstance(raw_redirect_aliases, list)
+                or len(raw_redirect_aliases) > MAX_UNITY_SANDBOX_ALIASES
+            ):
+                _fail(
+                    "operator_input_parse_failed",
+                    path,
+                    f"sandboxes[{index}].redirect_aliases must contain at most {MAX_UNITY_SANDBOX_ALIASES} hostnames",
+                )
+            for redirect_index, raw_redirect in enumerate(raw_redirect_aliases):
+                redirect_alias = _public_dns_name(
+                    path,
+                    f"sandboxes[{index}].redirect_aliases[{redirect_index}]",
+                    raw_redirect,
+                )
+                if redirect_alias in seen_hostnames:
+                    _fail(
+                        "operator_input_parse_failed",
+                        path,
+                        f"duplicate Unity sandbox hostname: {redirect_alias}",
+                    )
+                seen_hostnames.add(redirect_alias)
+                redirect_aliases.append(redirect_alias)
         image = entry["image"]
         if not isinstance(image, str):
             _fail(
@@ -1144,6 +1187,8 @@ def _parse_unity_sandboxes(
             "aliases": sorted(aliases),
             "image": image,
         }
+        if allow_redirect_aliases:
+            item["redirect_aliases"] = sorted(redirect_aliases)
         if "tcp_port" in entry:
             raw_port = entry["tcp_port"]
             if (
@@ -1258,7 +1303,11 @@ def _parse_adapter(adapter: str, path: Path, relative_path: str) -> dict[str, An
                 f"{adapter} requires exact path {LAN_ROUTES_PATH}",
             )
         return _parse_lan_routes(path, _read_source(path))
-    if adapter in {UNITY_SANDBOXES_ADAPTER, UNITY_SANDBOXES_V2_ADAPTER}:
+    if adapter in {
+        UNITY_SANDBOXES_ADAPTER,
+        UNITY_SANDBOXES_V2_ADAPTER,
+        UNITY_SANDBOXES_V3_ADAPTER,
+    }:
         if relative_path != UNITY_SANDBOXES_PATH:
             _fail(
                 "operator_input_path_invalid",
@@ -1268,7 +1317,10 @@ def _parse_adapter(adapter: str, path: Path, relative_path: str) -> dict[str, An
         return _parse_unity_sandboxes(
             path,
             _read_source(path),
-            allow_tcp_port=(adapter == UNITY_SANDBOXES_V2_ADAPTER),
+            allow_tcp_port=(
+                adapter in {UNITY_SANDBOXES_V2_ADAPTER, UNITY_SANDBOXES_V3_ADAPTER}
+            ),
+            allow_redirect_aliases=(adapter == UNITY_SANDBOXES_V3_ADAPTER),
         )
     _fail(
         "unsupported_operator_input_adapter",

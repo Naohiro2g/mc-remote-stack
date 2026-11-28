@@ -237,6 +237,7 @@ def _resolve_lts_web(
         for sandbox in unity_sandboxes["sandboxes"]:
             used_hostnames.add(sandbox["hostname"])
             used_hostnames.update(sandbox["aliases"])
+            used_hostnames.update(sandbox.get("redirect_aliases", []))
 
     lts_hostnames: set[str] = set()
     if lts_web is not None:
