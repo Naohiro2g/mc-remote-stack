@@ -728,15 +728,15 @@ def _locked_composition_input(
 # compose@13 (vps-server@12), compose@15 (vps-server@13), compose@16
 # (vps-server@14), compose@17 (vps-server@15), compose@18 (vps-server@16),
 # compose@19 (vps-server@17), compose@20 (vps-server@18), compose@21
-# (vps-server@19), and compose@22 (vps-server@20) render the public VPS;
-# compose@14 renders the home set.
+# (vps-server@19), compose@22 (vps-server@20), compose@23 (vps-server@21),
+# and compose@24 (vps-server@22) render the public VPS; compose@14 renders the home set.
 PUBLIC_RENDERER_REVISIONS = frozenset(
-    {"13", "15", "16", "17", "18", "19", "20", "21", "22", "23"}
+    {"13", "15", "16", "17", "18", "19", "20", "21", "22", "23", "24"}
 )
 SUPPORTED_RENDERER_REVISIONS = PUBLIC_RENDERER_REVISIONS | {"14"}
 # Revisions that serve the fixed /candidates/ route beside the homepage.
 CANDIDATE_ROUTE_REVISIONS = frozenset(
-    {"15", "16", "17", "18", "19", "20", "21", "22", "23"}
+    {"15", "16", "17", "18", "19", "20", "21", "22", "23", "24"}
 )
 # Revisions that set every container clock; earlier ones stay on UTC.
 CONTAINER_TIME_ZONE = {
@@ -748,18 +748,20 @@ CONTAINER_TIME_ZONE = {
     "21": "Asia/Tokyo",
     "22": "Asia/Tokyo",
     "23": "Asia/Tokyo",
+    "24": "Asia/Tokyo",
 }
 # Revisions that serve extra Scratch/WireScope name pairs from public-routes@3.
-WEB_PAIR_REVISIONS = frozenset({"17", "18", "19", "20", "21", "22", "23"})
-PER_ORIGIN_TARGET_REVISIONS = frozenset({"19", "20", "21", "22", "23"})
-HEAP_ENV_REVISIONS = frozenset({"20", "21", "22", "23"})
+WEB_PAIR_REVISIONS = frozenset({"17", "18", "19", "20", "21", "22", "23", "24"})
+PER_ORIGIN_TARGET_REVISIONS = frozenset({"19", "20", "21", "22", "23", "24"})
+HEAP_ENV_REVISIONS = frozenset({"20", "21", "22", "23", "24"})
 # Revisions that give Geyser its own port over TCP and UDP. NetherNet signaling
 # needs TCP on the Geyser port, which Java already holds on 25565; earlier
 # revisions publish Geyser as UDP on the Java port number.
-GEYSER_PORT_REVISIONS = frozenset({"18", "19", "20", "21", "22", "23"})
-UNITY_SANDBOX_REVISIONS = frozenset({"21", "22", "23"})
-UNITY_SANDBOX_V2_REVISIONS = frozenset({"22", "23"})
-DUAL_LINE_REVISIONS = frozenset({"23"})
+GEYSER_PORT_REVISIONS = frozenset({"18", "19", "20", "21", "22", "23", "24"})
+UNITY_SANDBOX_REVISIONS = frozenset({"21", "22", "23", "24"})
+UNITY_SANDBOX_V2_REVISIONS = frozenset({"22", "23", "24"})
+UNITY_SANDBOX_V3_REVISIONS = frozenset({"24"})
+DUAL_LINE_REVISIONS = frozenset({"23", "24"})
 GEYSER_PORT = 19132
 UNITY_SANDBOX_ISOLATION_LIMITS: dict[str, Any] = {
     "mem_limit": "512m",
@@ -776,10 +778,26 @@ UNITY_SANDBOX_ISOLATION_LIMITS: dict[str, Any] = {
 }
 
 
-def unity_sandbox_hostnames(sandbox: dict[str, Any]) -> list[str]:
-    """Return every hostname (primary and aliases) routed to one Unity sandbox container."""
+def unity_sandbox_web_hostnames(sandbox: dict[str, Any]) -> list[str]:
+    """Return every hostname (primary and aliases) directly served by Caddy reverse_proxy."""
 
     return [sandbox["hostname"], *sandbox["aliases"]]
+
+
+def unity_sandbox_redirect_hostnames(sandbox: dict[str, Any]) -> list[str]:
+    """Return every hostname redirected via 302 to the sandbox primary hostname."""
+
+    return list(sandbox.get("redirect_aliases", []))
+
+
+def unity_sandbox_hostnames(sandbox: dict[str, Any]) -> list[str]:
+    """Return every hostname (primary, aliases, and redirect_aliases) bound to one container."""
+
+    return [
+        sandbox["hostname"],
+        *sandbox["aliases"],
+        *sandbox.get("redirect_aliases", []),
+    ]
 
 
 def locked_unity_sandboxes(lock: dict[str, Any]) -> list[dict[str, Any]]:
@@ -802,8 +820,11 @@ def locked_unity_sandboxes(lock: dict[str, Any]) -> list[dict[str, Any]]:
             "operator_inputs.unity-sandboxes",
             "unity-sandboxes is supported once on compose@21 and later",
         )
+    v3 = revision in UNITY_SANDBOX_V3_REVISIONS
     v2 = revision in UNITY_SANDBOX_V2_REVISIONS
-    expected_adapter = "unity-sandboxes@2" if v2 else "unity-sandboxes@1"
+    expected_adapter = (
+        "unity-sandboxes@3" if v3 else ("unity-sandboxes@2" if v2 else "unity-sandboxes@1")
+    )
     item = matches[0]
     semantic = item["semantic"]
     if (
@@ -829,7 +850,9 @@ def locked_unity_sandboxes(lock: dict[str, Any]) -> list[dict[str, Any]]:
             "operator_inputs.unity-sandboxes.semantic.sandboxes",
             "locked sandboxes must be an array",
         )
-    required_keys = {"id", "hostname", "aliases", "image"}
+    required_keys = {"id", "hostname", "aliases", "image"} | (
+        {"redirect_aliases"} if v3 else set()
+    )
     allowed_keys = required_keys | ({"tcp_port"} if v2 else set())
     minecraft_ports = {lock["network"]["java_port"], lock["network"]["mcremote_port"]}
     reserved_ports = {80, 443, GEYSER_PORT}
@@ -846,6 +869,18 @@ def locked_unity_sandboxes(lock: dict[str, Any]) -> list[dict[str, Any]]:
             or len(entry["aliases"]) > 8
             or not all(isinstance(alias, str) and alias for alias in entry["aliases"])
             or entry["aliases"] != sorted(entry["aliases"])
+            or (
+                v3
+                and (
+                    not isinstance(entry["redirect_aliases"], list)
+                    or len(entry["redirect_aliases"]) > 8
+                    or not all(
+                        isinstance(alias, str) and alias
+                        for alias in entry["redirect_aliases"]
+                    )
+                    or entry["redirect_aliases"] != sorted(entry["redirect_aliases"])
+                )
+            )
             or entry["id"] in seen_ids
         ):
             _render_fail(
@@ -866,6 +901,8 @@ def locked_unity_sandboxes(lock: dict[str, Any]) -> list[dict[str, Any]]:
             "aliases": list(entry["aliases"]),
             "image": entry["image"],
         }
+        if v3:
+            record["redirect_aliases"] = list(entry["redirect_aliases"])
         if "tcp_port" in entry:
             tcp_port = entry["tcp_port"]
             if (
@@ -1776,14 +1813,19 @@ def _compose_public(
         for pair in extra_pairs
     )
     wirescope_domains = ", ".join(pair["wirescope"] for pair in pairs)
-    unity_sandbox_sites = "".join(
-        f"""
-{", ".join(unity_sandbox_hostnames(sandbox))} {{
-    reverse_proxy unity-sandbox-{sandbox["id"]}:8080
-}}
-"""
-        for sandbox in unity_sandboxes
-    )
+    unity_sandbox_sites_parts: list[str] = []
+    for sandbox in unity_sandboxes:
+        web_hosts = ", ".join(unity_sandbox_web_hostnames(sandbox))
+        unity_sandbox_sites_parts.append(
+            f"\n{web_hosts} {{\n    reverse_proxy unity-sandbox-{sandbox['id']}:8080\n}}\n"
+        )
+        redirect_hosts = unity_sandbox_redirect_hostnames(sandbox)
+        if redirect_hosts:
+            redirect_names = ", ".join(redirect_hosts)
+            unity_sandbox_sites_parts.append(
+                f"\n{redirect_names} {{\n    redir https://{sandbox['hostname']}{{uri}} 302\n}}\n"
+            )
+    unity_sandbox_sites = "".join(unity_sandbox_sites_parts)
     caddyfile = f"""# Generated by mcrctl {adapter}. Do not edit.
 {homepage_domains} {{
 {homepage_site}

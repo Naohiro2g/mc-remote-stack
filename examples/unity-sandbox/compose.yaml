@@ -47,13 +47,13 @@ services:
       BRIDGE_WS_HOST: 0.0.0.0
       BRIDGE_WS_PORT: "8080"
       BRIDGE_ORIGIN_ALLOWLIST: https://scratch.example.org
-      BRIDGE_SANDBOX_ALLOWLIST: unity-sb.example.org
-      BRIDGE_DEFAULT_SANDBOX: unity-sb.example.org
+      BRIDGE_SANDBOX_ALLOWLIST: dotnet-sb.example.org
+      BRIDGE_DEFAULT_SANDBOX: dotnet-sb.example.org
       BRIDGE_SANDBOX_PORT: "25585"
     networks:
       - app
 
-  unity-sandbox:
+  dotnet-sandbox:
     image: ghcr.io/naohiro2g/mc-remote-unity-sandbox:v2321.2.0
     restart: unless-stopped
     mem_limit: "512m"
@@ -74,7 +74,7 @@ services:
     networks:
       app:
         aliases:
-          - unity-sb.example.org
+          - dotnet-sb.example.org
 
 networks:
   app:

@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
+import os
 import re
 import socket
+import ssl
 import subprocess
 from dataclasses import dataclass
 from importlib.resources.abc import Traversable
@@ -13,7 +16,7 @@ from ipaddress import ip_address
 from pathlib import Path, PurePosixPath
 from typing import Any, Protocol
 from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener, urlopen
 
 from .apply import DOCKER_CONTEXT, compose_render_status
 from .render import (
@@ -24,6 +27,7 @@ from .render import (
     PUBLIC_RENDERER_REVISIONS,
     SUPPORTED_RENDERER_REVISIONS,
     UNITY_SANDBOX_REVISIONS,
+    UNITY_SANDBOX_V3_REVISIONS,
     RenderContractError,
     _locked_connection_input,
     _locked_public_routes,
@@ -32,7 +36,8 @@ from .render import (
     connection_target_port,
     locked_lts_web,
     locked_unity_sandboxes,
-    unity_sandbox_hostnames,
+    unity_sandbox_redirect_hostnames,
+    unity_sandbox_web_hostnames,
     verify_toml_render_output,
     web_pair_runtime_path,
     web_pairs,
@@ -350,6 +355,212 @@ def probe_unity_sandbox_health(url: str, timeout: int) -> None:
             "doctor_unity_sandbox_unhealthy",
             url,
             "Unity sandbox health endpoint did not report status=ok and tcpPort=25575",
+        )
+
+
+_WS_MAGIC_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+
+
+class _NoRedirectHandler(HTTPRedirectHandler):
+    """Prevent urllib from automatically following HTTP 3xx redirects."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[override]
+        return None
+
+
+def _default_no_redirect_open(request: Request, *, timeout: int):
+    return build_opener(_NoRedirectHandler()).open(request, timeout=timeout)
+
+
+def _default_tls_connector(host: str, port: int, timeout: int) -> SocketLike:
+    raw = socket.create_connection((host, port), timeout=timeout)
+    try:
+        return ssl.create_default_context().wrap_socket(raw, server_hostname=host)
+    except Exception:
+        raw.close()
+        raise
+
+
+def probe_unity_sandbox_web(
+    url: str,
+    timeout: int,
+    *,
+    opener=None,
+) -> None:
+    """Verify one public Unity Web app root serves HTTP 200 HTML without redirecting."""
+
+    open_fn = _default_no_redirect_open if opener is None else opener
+    request = Request(
+        url,
+        headers={"Accept": "text/html", "User-Agent": "mcrctl-doctor/1"},
+    )
+    try:
+        with open_fn(request, timeout=timeout) as response:
+            status = getattr(response, "status", 200)
+            headers = getattr(response, "headers", {})
+            body = response.read(MAX_HOMEPAGE_INDEX_BYTES + 1)
+    except HTTPError as exc:
+        if 300 <= exc.code < 400:
+            _fail(
+                "doctor_unity_sandbox_unhealthy",
+                url,
+                f"Unity Web app root unexpectedly redirected with HTTP {exc.code}",
+            )
+        _fail(
+            "doctor_unity_sandbox_unavailable",
+            url,
+            f"cannot fetch the public Unity Web app root: HTTP {exc.code}",
+        )
+    except (URLError, TimeoutError, OSError) as exc:
+        _fail(
+            "doctor_unity_sandbox_unavailable",
+            url,
+            f"cannot fetch the public Unity Web app root: {exc}",
+        )
+    if status != 200:
+        _fail(
+            "doctor_unity_sandbox_unhealthy",
+            url,
+            f"Unity Web app root returned HTTP {status} instead of 200",
+        )
+    if not body or len(body) > MAX_HOMEPAGE_INDEX_BYTES:
+        _fail(
+            "doctor_unity_sandbox_unhealthy",
+            url,
+            "Unity Web app root returned an empty or oversized body",
+        )
+    content_type = str(headers.get("Content-Type", "")).casefold()
+    lowered_head = body[:4096].lower()
+    if "text/html" not in content_type and b"<html" not in lowered_head and b"<!doctype html" not in lowered_head:
+        _fail(
+            "doctor_unity_sandbox_unhealthy",
+            url,
+            "Unity Web app root did not return an HTML document",
+        )
+
+
+def probe_unity_sandbox_ws_sync(
+    hostname: str,
+    timeout: int,
+    *,
+    tls_connector=None,
+) -> None:
+    """Verify wss://<hostname>/ws/sync completes an RFC 6455 WebSocket handshake."""
+
+    ws_url = f"wss://{hostname}/ws/sync"
+    connect = _default_tls_connector if tls_connector is None else tls_connector
+    ws_key = base64.b64encode(os.urandom(16)).decode("ascii")
+    expected_accept = base64.b64encode(
+        hashlib.sha1((ws_key + _WS_MAGIC_GUID).encode("ascii")).digest()
+    ).decode("ascii")
+    handshake = (
+        f"GET /ws/sync HTTP/1.1\r\n"
+        f"Host: {hostname}\r\n"
+        f"Origin: https://{hostname}\r\n"
+        "Upgrade: websocket\r\n"
+        "Connection: Upgrade\r\n"
+        f"Sec-WebSocket-Key: {ws_key}\r\n"
+        "Sec-WebSocket-Version: 13\r\n"
+        "User-Agent: mcrctl-doctor/1\r\n"
+        "\r\n"
+    ).encode("ascii")
+
+    received = bytearray()
+    try:
+        with connect(hostname, 443, timeout) as conn:
+            conn.sendall(handshake)
+            while b"\r\n\r\n" not in received:
+                chunk = conn.recv(min(4096, MAX_UNITY_HEALTH_BYTES + 1 - len(received)))
+                if not chunk:
+                    break
+                received.extend(chunk)
+                if len(received) > MAX_UNITY_HEALTH_BYTES:
+                    _fail(
+                        "doctor_unity_sandbox_ws_unhealthy",
+                        ws_url,
+                        "WebSocket handshake response exceeded the 16 KiB limit",
+                    )
+            header_block, separator, _ = bytes(received).partition(b"\r\n\r\n")
+            if not separator:
+                _fail(
+                    "doctor_unity_sandbox_ws_unhealthy",
+                    ws_url,
+                    "WebSocket endpoint did not return a complete HTTP upgrade response",
+                )
+            lines = header_block.decode("iso-8859-1", errors="replace").split("\r\n")
+            status_line = lines[0] if lines else ""
+            if not (status_line.startswith("HTTP/1.1 101") or status_line.startswith("HTTP/1.0 101")):
+                _fail(
+                    "doctor_unity_sandbox_ws_unhealthy",
+                    ws_url,
+                    f"WebSocket upgrade rejected with status: {status_line or 'empty'}",
+                )
+            resp_headers: dict[str, str] = {}
+            for line in lines[1:]:
+                if ":" in line:
+                    k, v = line.split(":", 1)
+                    resp_headers[k.strip().casefold()] = v.strip()
+            connection_tokens = {
+                token.strip().casefold()
+                for token in resp_headers.get("connection", "").split(",")
+                if token.strip()
+            }
+            if (
+                resp_headers.get("upgrade", "").casefold() != "websocket"
+                or "upgrade" not in connection_tokens
+                or resp_headers.get("sec-websocket-accept") != expected_accept
+            ):
+                _fail(
+                    "doctor_unity_sandbox_ws_unhealthy",
+                    ws_url,
+                    "WebSocket upgrade response missed required RFC 6455 accept headers",
+                )
+            try:
+                conn.sendall(b"\x88\x80\x00\x00\x00\x00")
+            except OSError:
+                pass
+    except DoctorContractError:
+        raise
+    except (ssl.SSLError, TimeoutError, OSError) as exc:
+        _fail(
+            "doctor_unity_sandbox_ws_unavailable",
+            ws_url,
+            f"cannot establish WebSocket /ws/sync connection: {exc}",
+        )
+
+
+def probe_unity_sandbox_redirect(
+    url: str,
+    *,
+    expected_location: str,
+    timeout: int,
+    opener=None,
+) -> None:
+    """Verify a .NET sandbox hostname redirects browsers with HTTP 302 to its Unity Web app."""
+
+    open_fn = _default_no_redirect_open if opener is None else opener
+    request = Request(url, headers={"User-Agent": "mcrctl-doctor/1"})
+    try:
+        with open_fn(request, timeout=timeout) as response:
+            status = getattr(response, "status", 200)
+            _fail(
+                "doctor_unity_sandbox_unhealthy",
+                url,
+                f"expected HTTP 302 redirect to {expected_location}, got HTTP {status}",
+            )
+    except HTTPError as exc:
+        location = exc.headers.get("Location") if exc.headers is not None else None
+        if exc.code != 302 or location != expected_location:
+            _fail(
+                "doctor_unity_sandbox_unhealthy",
+                url,
+                f"expected HTTP 302 redirect to {expected_location}, got HTTP {exc.code} Location={location!r}",
+            )
+    except (URLError, TimeoutError, OSError) as exc:
+        _fail(
+            "doctor_unity_sandbox_unavailable",
+            url,
+            f"cannot reach .NET sandbox redirect endpoint: {exc}",
         )
 
 
@@ -1258,6 +1469,9 @@ def doctor_toml_project(
     scratch_runtime_probe=None,
     wirescope_probe=None,
     unity_health_probe=None,
+    unity_web_probe=None,
+    unity_ws_probe=None,
+    unity_redirect_probe=None,
     unity_tcp_probe=None,
     external_target_probe=None,
 ) -> TomlDoctorResult:
@@ -1271,6 +1485,12 @@ def doctor_toml_project(
         wirescope_probe = probe_wirescope_public_handoff
     if unity_health_probe is None:
         unity_health_probe = probe_unity_sandbox_health
+    if unity_web_probe is None:
+        unity_web_probe = probe_unity_sandbox_web
+    if unity_ws_probe is None:
+        unity_ws_probe = probe_unity_sandbox_ws_sync
+    if unity_redirect_probe is None:
+        unity_redirect_probe = probe_unity_sandbox_redirect
     if unity_tcp_probe is None:
         unity_tcp_probe = probe_unity_sandbox_tcp_auth
     if external_target_probe is None:
@@ -1547,12 +1767,32 @@ def doctor_toml_project(
         if lock["render_plan"]["adapter_revision"] in UNITY_SANDBOX_REVISIONS:
             unity_sandboxes = locked_unity_sandboxes(lock)
             if unity_sandboxes:
+                v3_unity = (
+                    lock["render_plan"]["adapter_revision"] in UNITY_SANDBOX_V3_REVISIONS
+                )
                 for sandbox in unity_sandboxes:
-                    for hostname in unity_sandbox_hostnames(sandbox):
+                    for hostname in unity_sandbox_web_hostnames(sandbox):
                         unity_health_probe(
                             f"https://{hostname}/healthz",
                             timeout=timeout,
                         )
+                        if v3_unity:
+                            unity_web_probe(
+                                f"https://{hostname}/",
+                                timeout=timeout,
+                            )
+                            unity_ws_probe(
+                                hostname,
+                                timeout=timeout,
+                            )
+                    if v3_unity:
+                        expected_location = f"https://{sandbox['hostname']}/"
+                        for redirect_host in unity_sandbox_redirect_hostnames(sandbox):
+                            unity_redirect_probe(
+                                f"https://{redirect_host}/",
+                                expected_location=expected_location,
+                                timeout=timeout,
+                            )
                     if "tcp_port" in sandbox:
                         unity_tcp_probe(
                             lock["network"]["bind_address"],

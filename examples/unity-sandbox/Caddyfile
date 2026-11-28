@@ -19,6 +19,10 @@ wirescope.example.org {
     file_server
 }
 
-unity-sb.example.org {
-    reverse_proxy unity-sandbox:8080
+unity-app.example.org {
+    reverse_proxy dotnet-sandbox:8080
+}
+
+dotnet-sb.example.org {
+    redir https://unity-app.example.org{uri} 302
 }

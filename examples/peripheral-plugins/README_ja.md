@@ -1,6 +1,6 @@
 # 公開サーバー周辺 plugin 構成テンプレート（Geyser・Floodgate・ViaVersion・ViaBackwards 等）
 
-このディレクトリは、公開サーバーや公開箱庭で「大体、何でもつながる」環境を支える周辺 plugin の導入手順・設定テンプレート・取得先ガイドをまとめた参考例です。
+このディレクトリは、公開サーバーや公開マイクラ箱庭で「大体、何でもつながる」環境を支える周辺 plugin の導入手順・設定テンプレート・取得先ガイドをまとめた参考例です。
 
 `mcrctl` は PaperMC 本体と McRemote プラグイン以外の周辺 plugin JAR を、すべて運用者が選ぶ `operator/minecraft-plugins/plugins.toml`（`minecraft-plugins@1`）として SHA-256 固定でマウントします。また `/data` 配下のプラグイン設定は運用者編集を尊重する seed-once 契約（`SYNC_SKIP_NEWER_IN_DESTINATION=true`）で扱うため、周辺 plugin の版数や設定値は `mcrctl` のコードへハードコードせず、このテンプレートと各 runbook から参照します。
 
@@ -49,7 +49,7 @@ Java 版・統合版（Bedrock）を問わず幅広いバージョンの Minecra
 
 ### 3-1. ViaVersion `block-versions`（1.20.5〜1.21.4 の遮断）
 
-ViaVersion 起動時に次のような警告が出ている環境（Paper 26.3 等で古い中間プロトコルを受け付ける必要がない公開箱庭）では、Minecraft のデータボリューム内の `/data/plugins/ViaVersion/config.yml` の `block-versions` を設定して再起動します（参考テンプレート: [ViaVersion/config.block-versions.yml](ViaVersion/config.block-versions.yml)）。
+ViaVersion 起動時に次のような警告が出ている環境（Paper 26.3 等で古い中間プロトコルを受け付ける必要がない公開マイクラ箱庭）では、Minecraft のデータボリューム内の `/data/plugins/ViaVersion/config.yml` の `block-versions` を設定して再起動します（参考テンプレート: [ViaVersion/config.block-versions.yml](ViaVersion/config.block-versions.yml)）。
 
 ```yaml
 block-versions: ["1.20.5-1.20.6", "1.21-1.21.1", "1.21.2-1.21.3", "1.21.4"]
