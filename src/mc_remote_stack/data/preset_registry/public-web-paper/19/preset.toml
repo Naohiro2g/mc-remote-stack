@@ -1,0 +1,153 @@
+schema_version = 1
+
+[preset]
+name = "public-web-paper"
+revision = "19"
+description = "McRemote／Scratch 2400.0.0rc1の公開VPS betaセット（Paper 26.3 #262／Temurin 25.0.5+8）"
+
+[requirements]
+profile_capabilities = [
+  "compose",
+  "paper",
+  "persistent-world",
+  "public-web",
+  "scratch-runtime",
+  "websocket-bridge",
+  "wirescope-browser",
+  "mcremote-auth-enforced",
+  "mcremote-session-only",
+]
+allowed_channels = ["beta"]
+required_claims = [
+  "profile-render",
+  "protocol-hello",
+  "https-runtime",
+  "websocket-bridge",
+  "wirescope-public-handoff",
+]
+
+[scratch_runtime_contract]
+source_commit = "0ae8af418d095bac734f37bfca35804810ec1cae"
+source_directory = "packages/scratch-gui/contracts/runtime-config"
+directory_tree_sha = "11b998a78c185a290c6c0d730d008af34c838036"
+schema_sha256 = "1720bc180b31f0275e4b2d264f149dcbe1c74b4dc151e63aafbb851303c3c1e3"
+container_mount_path = "/usr/share/nginx/html/mc-remote-runtime-config.json"
+image_digest = "sha256:a24be219c79d8fa5273bc0a82df0ec94fcc3da3a2114e5577cde5a3f5d7780a9"
+accepted_fixtures = ["fixtures/disabled.json", "fixtures/valid.json"]
+rejected_fixtures = [
+  "fixtures/invalid/enabled-missing-targets.json",
+  "fixtures/invalid/nested-unknown-field.json",
+  "fixtures/invalid/schema-version.json",
+  "fixtures/invalid/unknown-field.json",
+]
+
+[scratch_runtime_contract.fixture_sha256]
+"fixtures/disabled.json" = "bec0cf2c31fbca7d3bd603e29c1d145d82b6ecf7b4661b9adafde31dfa2eec2d"
+"fixtures/valid.json" = "cc2282144e1e87b42d2e31229461f9aeead26eeb446ae817571eb96935360e20"
+"fixtures/invalid/enabled-missing-targets.json" = "f5392059e42431b45fb8f7f03aa09e734fb8b9e79f8fb92913082ff05842736c"
+"fixtures/invalid/nested-unknown-field.json" = "ed0923793b8713ec67615b6f14bc9f8fb342041b0cdeed5d7b9b10110a3c62b7"
+"fixtures/invalid/schema-version.json" = "0b2b8fd116adf66c362e8950519da05324816c3b30c2c76842e398c8ede82e17"
+"fixtures/invalid/unknown-field.json" = "35f1f21562e237cce722f5a1f93723f00d927d07769f8b12174d3ff9f73d5e3d"
+
+[[components]]
+id = "caddy"
+role = "caddy-edge"
+artifact = "caddy-image"
+
+[[components]]
+id = "scratch"
+role = "scratch-runtime"
+artifact = "scratch-image"
+
+[[components]]
+id = "bridge"
+role = "websocket-bridge"
+artifact = "bridge-image"
+protocol = "24.0.0"
+
+[[components]]
+id = "wirescope"
+role = "wirescope-app"
+artifact = "wirescope-zip"
+
+[[components]]
+id = "wirescope-manifest"
+role = "wirescope-manifest"
+artifact = "wirescope-manifest"
+
+[[components]]
+id = "minecraft-runtime"
+role = "minecraft-runtime"
+artifact = "minecraft-image"
+
+[[components]]
+id = "paper-server"
+role = "paper-server"
+artifact = "paper-jar"
+minecraft_version = "26.3"
+
+[[components]]
+id = "mcremote-paper"
+role = "mcremote-plugin"
+artifact = "mcremote-jar"
+protocol = "24.0.0"
+
+[[artifacts]]
+id = "caddy-image"
+kind = "oci"
+version = "2.11.4-alpine"
+locator = "docker.io/library/caddy"
+digest = "sha256:98eb57d882ccd5213d1688764db10c1ca2c58a1ca3a6717a3411ad798f7a423a"
+
+[[artifacts]]
+id = "scratch-image"
+kind = "oci"
+version = "v2400.0.0rc1"
+locator = "ghcr.io/naohiro2g/mc-remote-scratch"
+digest = "sha256:a24be219c79d8fa5273bc0a82df0ec94fcc3da3a2114e5577cde5a3f5d7780a9"
+
+[[artifacts]]
+id = "bridge-image"
+kind = "oci"
+version = "v2400.0.0rc1"
+locator = "ghcr.io/naohiro2g/mc-remote-bridge"
+digest = "sha256:d8b7024475c5d1f6a855e1d8be84c2fec7136d6e992cb8464091ebc63a548aa9"
+
+[[artifacts]]
+id = "wirescope-zip"
+kind = "https-file"
+version = "2400.0.0rc1"
+filename = "wirescope-app.zip"
+sha256 = "09a62fc044ccd933614dc6a2cdf5c53b368202d450abd3d66680468b06268a1c"
+origin = "https://github.com/Naohiro2g/minecraft-remote-tooling/releases/download/v2400.0.0rc1/wirescope-app.zip"
+
+[[artifacts]]
+id = "wirescope-manifest"
+kind = "https-file"
+version = "2400.0.0rc1"
+filename = "wirescope-app.manifest.json"
+sha256 = "6a2de3d3f4cf9024ffd6d1316347c07a2471eef822262da931ae2314b8709603"
+origin = "https://github.com/Naohiro2g/minecraft-remote-tooling/releases/download/v2400.0.0rc1/wirescope-app.manifest.json"
+
+[[artifacts]]
+id = "minecraft-image"
+kind = "oci"
+version = "temurin-25.0.5-8"
+locator = "ghcr.io/naohiro2g/mc-remote-paper-runtime-temurin"
+digest = "sha256:69b73187717bf509fa30937b4e4c202dddf18e523cc9668dcf31dd62851a66f0"
+
+[[artifacts]]
+id = "paper-jar"
+kind = "https-file"
+version = "26.3-262"
+filename = "paper-26.3-262.jar"
+sha256 = "b2d24a0abe99f481b35504b119e35ac721013f59d9c670aa9a4d05814a81617b"
+origin = "https://fill-data.papermc.io/v1/objects/b2d24a0abe99f481b35504b119e35ac721013f59d9c670aa9a4d05814a81617b/paper-26.3-262.jar"
+
+[[artifacts]]
+id = "mcremote-jar"
+kind = "https-file"
+version = "2400.0.0rc1"
+filename = "mc-remote-2400.0.0rc1.jar"
+sha256 = "9583b7e9db16e3062cfb8ea5be1c7b5330e1df92eaeea1dd7b2fdb77a75d457a"
+origin = "https://github.com/Naohiro2g/McRemote/releases/download/v2400.0.0rc1/mc-remote-2400.0.0rc1.jar"

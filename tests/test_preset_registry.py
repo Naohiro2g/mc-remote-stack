@@ -525,6 +525,7 @@ def test_bundled_registry_offers_only_current_profiles_and_presets() -> None:
         "public-web-paper@16",
         "public-web-paper@17",
         "public-web-paper@18",
+        "public-web-paper@19",
     ]
     assert public.data["renderer"] == {"name": "compose", "revision": "13"}
     assert load_profile("vps-server@14").data["renderer"] == {"name": "compose", "revision": "16"}
@@ -588,6 +589,64 @@ def test_public_web_paper_18_uses_official_release_and_preserves_foundation() ->
     assert contract["source_commit"] == "57fb7691bb5d9a5895785b200ae78734240ebfa6"
     assert contract["image_digest"] == artifacts["scratch-image"]["digest"]
     assert load_runtime_config_schema(contract)["type"] == "object"
+
+
+def test_public_web_paper_19_pins_2400_rc1_on_paper_26_3() -> None:
+    from mc_remote_stack.scratch_contract import load_runtime_config_schema
+
+    preset = load_preset("public-web-paper@19")
+    previous = load_preset("public-web-paper@18")
+    artifacts = {item["id"]: item for item in preset.data["artifacts"]}
+    old_artifacts = {item["id"]: item for item in previous.data["artifacts"]}
+    components = {item["id"]: item for item in preset.data["components"]}
+
+    assert preset.data["requirements"]["allowed_channels"] == ["beta"]
+    assert components["bridge"]["protocol"] == "24.0.0"
+    assert components["mcremote-paper"]["protocol"] == "24.0.0"
+    assert components["paper-server"]["minecraft_version"] == "26.3"
+
+    assert artifacts["mcremote-jar"]["origin"] == (
+        "https://github.com/Naohiro2g/McRemote/releases/download/"
+        "v2400.0.0rc1/mc-remote-2400.0.0rc1.jar"
+    )
+    assert artifacts["mcremote-jar"]["sha256"] == (
+        "9583b7e9db16e3062cfb8ea5be1c7b5330e1df92eaeea1dd7b2fdb77a75d457a"
+    )
+    assert artifacts["scratch-image"]["digest"] == (
+        "sha256:a24be219c79d8fa5273bc0a82df0ec94fcc3da3a2114e5577cde5a3f5d7780a9"
+    )
+    assert artifacts["bridge-image"]["digest"] == (
+        "sha256:d8b7024475c5d1f6a855e1d8be84c2fec7136d6e992cb8464091ebc63a548aa9"
+    )
+    assert artifacts["wirescope-zip"]["origin"] == (
+        "https://github.com/Naohiro2g/minecraft-remote-tooling/releases/download/"
+        "v2400.0.0rc1/wirescope-app.zip"
+    )
+    assert artifacts["wirescope-zip"]["sha256"] == (
+        "09a62fc044ccd933614dc6a2cdf5c53b368202d450abd3d66680468b06268a1c"
+    )
+    assert artifacts["wirescope-manifest"]["origin"] == (
+        "https://github.com/Naohiro2g/minecraft-remote-tooling/releases/download/"
+        "v2400.0.0rc1/wirescope-app.manifest.json"
+    )
+    assert artifacts["wirescope-manifest"]["sha256"] == (
+        "6a2de3d3f4cf9024ffd6d1316347c07a2471eef822262da931ae2314b8709603"
+    )
+    assert artifacts["paper-jar"]["version"] == "26.3-262"
+    assert artifacts["paper-jar"]["sha256"] == (
+        "b2d24a0abe99f481b35504b119e35ac721013f59d9c670aa9a4d05814a81617b"
+    )
+    for role in ("minecraft-image", "caddy-image"):
+        assert artifacts[role] == old_artifacts[role]
+
+    contract = preset.data["scratch_runtime_contract"]
+    assert contract["source_commit"] == "0ae8af418d095bac734f37bfca35804810ec1cae"
+    assert contract["image_digest"] == artifacts["scratch-image"]["digest"]
+    schema = load_runtime_config_schema(contract)
+    assert [variant["properties"]["schema_version"]["const"] for variant in schema["oneOf"]] == [
+        1,
+        2,
+    ]
 
 
 def test_public_web_paper_16_pins_rc2_on_paper_26_3_and_java_25() -> None:
